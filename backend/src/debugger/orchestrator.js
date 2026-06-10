@@ -104,8 +104,6 @@ Failure reason: ${context.failureReason}
 
 Find the smallest safe fix. Do not refactor unnecessarily.
 Do not change secrets, billing, auth, payment, or database logic unless clearly required and safe.
-Commit fix to main only if safe.
-Push to GitHub.
 Report exact changes.`;
 
   try {
@@ -115,26 +113,45 @@ Report exact changes.`;
       timeout: 60000, stdio: 'pipe',
     });
 
-    execSync(`opencode run "${instructions}"`, {
+    execSync(`git config user.email "sentinel@project-sentinel.app"`, {
+      cwd: context.repoDir, stdio: 'pipe',
+    });
+    execSync(`git config user.name "Project Sentinel"`, {
+      cwd: context.repoDir, stdio: 'pipe',
+    });
+
+    execSync(`opencode run --dangerously-skip-permissions -m opencode-go/qwen3.7-plus "${instructions}"`, {
       cwd: context.repoDir,
       timeout: 300000,
       stdio: 'pipe',
     });
 
-    const result = execSync(`git log -1 --format="%H %s"`, {
-      cwd: context.repoDir, timeout: 10000, encoding: 'utf-8',
+    const status = execSync(`git status --porcelain`, {
+      cwd: context.repoDir, encoding: 'utf-8', stdio: 'pipe',
     }).toString().trim();
 
-    const [fixHash, ...fixMsgParts] = result.split(' ');
-    if (fixHash && fixHash.length === 40) {
-      return {
-        success: true,
-        fixUrl: `${context.repoUrl.replace('.git', '')}/commit/${fixHash}`,
-        fixMessage: fixMsgParts.join(' '),
-      };
+    if (!status) {
+      return { success: false, error: 'OpenCode made no changes' };
     }
 
-    return { success: false, error: 'No fix commit detected after OpenCode run' };
+    execSync(`git add -A`, { cwd: context.repoDir, stdio: 'pipe' });
+    execSync(`git commit -m "fix(project-sentinel): repair build failure for ${context.commitHash?.slice(0, 7)}"`, {
+      cwd: context.repoDir, stdio: 'pipe',
+    });
+
+    execSync(`git push origin ${context.branchName}`, {
+      cwd: context.repoDir, timeout: 60000, stdio: 'pipe',
+    });
+
+    const result = execSync(`git rev-parse HEAD`, {
+      cwd: context.repoDir, encoding: 'utf-8', stdio: 'pipe',
+    }).toString().trim();
+
+    return {
+      success: true,
+      fixUrl: `${context.repoUrl.replace('.git', '')}/commit/${result}`,
+      fixMessage: `OpenCode auto-fix: ${context.commitMessage}`,
+    };
   } catch (err) {
     return { success: false, error: err.message };
   } finally {
