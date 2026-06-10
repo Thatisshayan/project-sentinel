@@ -8,14 +8,19 @@ function getTopicId(repoName) {
   return map[key] || null;
 }
 
-export async function sendMessage(text, repoName, parseMode = 'HTML') {
+export async function sendMessage(text, repoNameOrThreadId, parseMode = 'HTML', buttons) {
   const body = {
     chat_id: config.telegram.chatId,
     text,
     parse_mode: parseMode,
   };
-  const topicId = getTopicId(repoName);
-  if (topicId) body.message_thread_id = topicId;
+  if (typeof repoNameOrThreadId === 'number') {
+    body.message_thread_id = repoNameOrThreadId;
+  } else {
+    const topicId = getTopicId(repoNameOrThreadId);
+    if (topicId) body.message_thread_id = topicId;
+  }
+  if (buttons) body.reply_markup = { inline_keyboard: buttons };
 
   const res = await fetch(`${BASE}/sendMessage`, {
     method: 'POST',

@@ -32,6 +32,7 @@ export async function handleTelegramUpdate(update) {
     '/sentinel_repos': handleRepos,
     '/sentinel_fix': handleFix,
     '/sentinel_update': handleUpdate,
+    '/sentinel_prs': handlePrs,
   }[command];
 
   if (handler) {
@@ -44,21 +45,22 @@ export async function handleTelegramUpdate(update) {
   }
 }
 
-async function handleHelp({ chatId }) {
+async function handleHelp({ chatId, threadId }) {
   const help = `Project Sentinel commands:
 
 /sentinel status <project>  —  Show project status from Notion
 /sentinel update <project>  —  Refresh build status for a project
 /sentinel repos             —  List all tracked repos
 /sentinel fix <repo>        —  Trigger debugger for a repo
+/sentinel prs <project>     —  List open pull requests
 /sentinel help              —  Show this message`;
-  await sendMessage(help, null);
+  await sendMessage(help, threadId);
 }
 
-async function handleStatus({ chatId, args }) {
+async function handleStatus({ chatId, threadId, args }) {
   const projectName = args.join(' ');
   if (!projectName) {
-    return sendMessage('Usage: /sentinel status <project>', null);
+    return sendMessage('Usage: /sentinel status <project>', threadId);
   }
 
   try {
@@ -67,7 +69,7 @@ async function handleStatus({ chatId, args }) {
     const page = findProjectByRepo(results, projectName);
 
     if (!page) {
-      return sendMessage(`Project "${projectName}" not found in Notion.`, null);
+      return sendMessage(`Project "${projectName}" not found in Notion.`, threadId);
     }
 
     const p = page.properties;
@@ -86,13 +88,13 @@ async function handleStatus({ chatId, args }) {
       lines.push(`Focus: ${p['Current Focus'].rich_text[0].plain_text}`);
     }
 
-    await sendMessage(lines.join('\n'), null);
+    await sendMessage(lines.join('\n'), threadId);
   } catch (err) {
-    await sendMessage(`Error fetching status: ${err.message}`, null);
+    await sendMessage(`Error fetching status: ${err.message}`, threadId);
   }
 }
 
-async function handleRepos({ chatId }) {
+async function handleRepos({ chatId, threadId }) {
   try {
     const db = await queryDatabase();
     const results = db.results || [];
@@ -104,16 +106,16 @@ async function handleRepos({ chatId }) {
       return `• ${name} (${repo}) — CI: ${ci}`;
     });
 
-    await sendMessage(`📋 Tracked repos (${lines.length}):\n\n${lines.join('\n')}`, null);
+    await sendMessage(`📋 Tracked repos (${lines.length}):\n\n${lines.join('\n')}`, threadId);
   } catch (err) {
-    await sendMessage(`Error fetching repos: ${err.message}`, null);
+    await sendMessage(`Error fetching repos: ${err.message}`, threadId);
   }
 }
 
 async function handleFix({ chatId, threadId, args }) {
   const repoName = args[0];
   if (!repoName) {
-    return sendMessage('Usage: /sentinel fix <repo>', null);
+    return sendMessage('Usage: /sentinel fix <repo>', threadId);
   }
 
   try {
@@ -122,7 +124,7 @@ async function handleFix({ chatId, threadId, args }) {
     const notionPage = findProjectByRepo(results, repoName);
 
     if (!notionPage) {
-      return sendMessage(`Repo "${repoName}" not found in Notion.`, null);
+      return sendMessage(`Repo "${repoName}" not found in Notion.`, threadId);
     }
 
     const projectName = notionPage.properties?.['Project Name']?.title?.[0]?.plain_text || repoName;
@@ -140,28 +142,28 @@ async function handleFix({ chatId, threadId, args }) {
       commitUrl: notionPage.properties?.['Last Commit URL']?.url || '',
     };
 
-    await sendMessage(`🛠️ Triggering debugger for ${projectName}...`, null);
+    await sendMessage(`🛠️ Triggering debugger for ${projectName}...`, threadId);
 
     const result = await triggerDebugger(event, notionPage, projectName, 'manual', '', 'Manual trigger via /sentinel fix');
 
     if (result.fixed) {
-      await sendMessage(`✅ ${result.agent} fixed the build (attempt ${result.attempts}).\nFix: ${result.fixUrl}`, null);
+      await sendMessage(`✅ ${result.agent} fixed the build (attempt ${result.attempts}).\nFix: ${result.fixUrl}`, threadId);
     } else if (result.highRisk) {
-      await sendMessage('⛔ Debugger stopped: high-risk changes detected. Human review required.', null);
+      await sendMessage('⛔ Debugger stopped: high-risk changes detected. Human review required.', threadId);
     } else if (result.exhausted) {
-      await sendMessage('🚨 5 retry attempts exhausted. Human review required.', null);
+      await sendMessage('🚨 5 retry attempts exhausted. Human review required.', threadId);
     } else {
-      await sendMessage('❌ Debugger could not fix the build.', null);
+      await sendMessage('❌ Debugger could not fix the build.', threadId);
     }
   } catch (err) {
-    await sendMessage(`Error triggering debugger: ${err.message}`, null);
+    await sendMessage(`Error triggering debugger: ${err.message}`, threadId);
   }
 }
 
-async function handleUpdate({ chatId, args }) {
+async function handleUpdate({ chatId, threadId, args }) {
   const projectName = args.join(' ');
   if (!projectName) {
-    return sendMessage('Usage: /sentinel update <project>\nChecks and refreshes build status from GitHub/Vercel/Railway.', null);
+    return sendMessage('Usage: /sentinel update <project>\nChecks and refreshes build status from GitHub/Vercel/Railway.', threadId);
   }
 
   try {
@@ -170,7 +172,7 @@ async function handleUpdate({ chatId, args }) {
     const page = findProjectByRepo(results, projectName);
 
     if (!page) {
-      return sendMessage(`Project "${projectName}" not found in Notion.`, null);
+      return sendMessage(`Project "${projectName}" not found in Notion.`, threadId);
     }
 
     const p = page.properties;
@@ -182,10 +184,10 @@ async function handleUpdate({ chatId, args }) {
     const branch = p['Last Branch']?.rich_text?.[0]?.plain_text || 'main';
     const projectTitle = p['Project Name']?.title?.[0]?.plain_text || projectName;
 
-    await sendMessage(`🔄 Checking build status for ${projectTitle}...`, null);
+    await sendMessage(`🔄 Checking build status for ${projectTitle}...`, threadId);
 
     if (!repoUrl || !commitHash) {
-      return sendMessage(`No commit data for ${projectTitle}. Push a commit first.`, null);
+      return sendMessage(`No commit data for ${projectTitle}. Push a commit first.`, threadId);
     }
 
     const urlParts = repoUrl.replace('https://github.com/', '').split('/');
@@ -224,9 +226,40 @@ async function handleUpdate({ chatId, args }) {
       summary,
     });
 
-    await sendMessage(report, null);
+    await sendMessage(report, threadId);
   } catch (err) {
-    await sendMessage(`Error updating ${projectName}: ${err.message}`, null);
+    await sendMessage(`Error updating ${projectName}: ${err.message}`, threadId);
+  }
+}
+
+async function handlePrs({ chatId, threadId, args }) {
+  const projectName = args.join(' ');
+  if (!projectName) return sendMessage('Usage: /sentinel prs <project>', threadId);
+
+  try {
+    const db = await queryDatabase();
+    const results = db.results || [];
+    const page = findProjectByRepo(results, projectName);
+    if (!page) return sendMessage(`Project "${projectName}" not found.`, threadId);
+
+    const repoUrl = page.properties?.['GitHub Repo URL']?.url;
+    if (!repoUrl) return sendMessage(`No GitHub URL for ${projectName}.`, threadId);
+
+    const path = repoUrl.replace('https://github.com/', '');
+    const res = await fetch(`https://api.github.com/repos/${path}/pulls?state=open&per_page=10`, {
+      headers: { Authorization: `Bearer ${config.github.token}`, Accept: 'application/vnd.github.v3+json' },
+    });
+    if (!res.ok) return sendMessage(`GitHub API error: ${res.status}`, threadId);
+
+    const prs = await res.json();
+    if (!prs.length) return sendMessage(`No open PRs for ${projectName}.`, threadId);
+
+    const lines = prs.map(p =>
+      `• #${p.number} ${p.title}\n  ${p.html_url}\n  ${p.user?.login || '?'} — ${p.state}`
+    );
+    await sendMessage(`📥 Open PRs for ${projectName}:\n\n${lines.join('\n\n')}`, threadId);
+  } catch (err) {
+    await sendMessage(`Error: ${err.message}`, threadId);
   }
 }
 

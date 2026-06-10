@@ -42,7 +42,29 @@ app.use(express.json({ limit: '5mb' }));
 app.post('/webhook/telegram', async (req, res) => {
   res.status(200).end();
   try {
-    await handleTelegramUpdate(req.body);
+    if (req.body.callback_query) {
+      const cb = req.body.callback_query;
+      const data = cb.data || '';
+      if (data.startsWith('fix:')) {
+        const repo = data.slice(4);
+        const msg = cb.message;
+        await handleTelegramUpdate({
+          message: {
+            chat: msg.chat,
+            message_thread_id: msg.message_thread_id,
+            from: cb.from,
+            text: `/sentinel fix ${repo}`,
+          },
+        });
+      }
+      await fetch(`https://api.telegram.org/bot${config.telegram.botToken}/answerCallbackQuery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callback_query_id: cb.id }),
+      });
+    } else {
+      await handleTelegramUpdate(req.body);
+    }
   } catch (err) {
     console.error('Telegram command error:', err.message);
   }
@@ -92,6 +114,7 @@ async function handlePushEvent(payload) {
 
   const riskLevel = computeRiskLevel(event.changedFiles, event.commitMessage);
   const highRisk = detectHighRiskChange(event);
+  const aiSummary = generateSummary(event.commitMessage, event.changedFiles);
 
   let notionUpdated = false;
   let changelogAppended = false;
@@ -126,6 +149,7 @@ async function handlePushEvent(payload) {
       'Changed Files': { rich_text: [{ text: { content: (event.changedFilesText || '').slice(0, 2000) } }] },
       'Files Changed Count': { number: event.filesChangedCount || 0 },
       'Risk Level': { select: { name: riskLevel } },
+      'AI Summary': { rich_text: [{ text: { content: (aiSummary || '').slice(0, 2000) } }] },
     };
 
     await updatePage(notionPage.id, properties);
@@ -258,7 +282,6 @@ async function handlePushEvent(payload) {
       console.error('Status update failed:', err.message);
     }
 
-    const aiSummary = generateSummary(event.commitMessage, event.changedFiles);
     const report = buildReport({
       project: projectName,
       repo: event.repoName,
@@ -295,8 +318,10 @@ async function handlePushEvent(payload) {
         }), event.repoName);
 
         await sendMessage(
-          `💡 To trigger the debugger manually, reply with:\n/sentinel fix ${event.repoName}`,
-          event.repoName
+          `Build failed for ${event.repoName}. Trigger the debugger?`,
+          event.repoName,
+          'HTML',
+          [[{ text: '🔧 Fix with OpenCode', callback_data: `fix:${event.repoName}` }]]
         );
       }
     }

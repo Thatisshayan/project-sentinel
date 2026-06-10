@@ -4,14 +4,17 @@ import { sendMessage, buildDebuggerUpdate, buildExhaustedReport } from '../teleg
 import { updatePage, appendBlocks } from '../notion/client.js';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 
-const STATE_FILE = '/tmp/sentinel-retry-state.json';
+const DATA_DIR = '/app/data';
+const STATE_FILE = `${DATA_DIR}/sentinel-retry-state.json`;
+
+function ensureDataDir() {
+  try { mkdirSync(DATA_DIR, { recursive: true }); } catch {}
+}
 
 function loadRetryState() {
   try {
-    if (!existsSync(STATE_FILE)) {
-      mkdirSync('/tmp', { recursive: true });
-      return {};
-    }
+    ensureDataDir();
+    if (!existsSync(STATE_FILE)) return {};
     return JSON.parse(readFileSync(STATE_FILE, 'utf-8'));
   } catch {
     return {};
@@ -20,7 +23,7 @@ function loadRetryState() {
 
 function saveRetryState(state) {
   try {
-    mkdirSync('/tmp', { recursive: true });
+    ensureDataDir();
     writeFileSync(STATE_FILE, JSON.stringify(state), 'utf-8');
   } catch (err) {
     console.error('Failed to save retry state:', err.message);
@@ -68,7 +71,7 @@ export async function triggerDebugger(event, notionPage, projectName, buildProvi
     retryStore[commitHash] = state;
     persistRetryState();
 
-    const repoDir = `/tmp/sentinel-repos/${event.repoName}`;
+    const repoDir = `${DATA_DIR}/repos/${event.repoName}`;
 
     try {
       await sendMessage(buildDebuggerUpdate({
