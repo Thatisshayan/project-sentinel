@@ -7,7 +7,13 @@ export const config = {
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN,
     chatId: process.env.TELEGRAM_CHAT_ID || '-1003524913240',
-    repoTopics: {},
+    repoTopics: {
+      costpilot: 18,
+      tapcash: 19,
+      shiporex: 21,
+      mint: 22,
+      'project-sentinel': 29,
+    },
   },
   github: {
     token: process.env.GITHUB_TOKEN,
