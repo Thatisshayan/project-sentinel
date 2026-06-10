@@ -2,16 +2,25 @@ import { config } from '../config.js';
 
 const BASE = `https://api.telegram.org/bot${config.telegram.botToken}`;
 
-export async function sendMessage(text, parseMode = 'HTML') {
-  const url = `${BASE}/sendMessage`;
-  const res = await fetch(url, {
+function getTopicId(repoName) {
+  const map = config.telegram.repoTopics || {};
+  const key = (repoName || '').toLowerCase();
+  return map[key] || null;
+}
+
+export async function sendMessage(text, repoName, parseMode = 'HTML') {
+  const body = {
+    chat_id: config.telegram.chatId,
+    text,
+    parse_mode: parseMode,
+  };
+  const topicId = getTopicId(repoName);
+  if (topicId) body.message_thread_id = topicId;
+
+  const res = await fetch(`${BASE}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: config.telegram.chatId,
-      text,
-      parse_mode: parseMode,
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const err = await res.text();
@@ -52,7 +61,7 @@ export function buildFailureReport({ project, repo, branch, commitMessage, build
   text += `Build URL: ${buildUrl}\n`;
   text += `Failure reason: ${failureReason}\n\n`;
   text += `Debugger will start.\n`;
-  text += `Debugger order:\n1. OpenCode\n2. Kilo CLI\n3. Kiro\n\n`;
+  text += `Debugger order:\n1. OpenCode\n2. OpenHands\n\n`;
   text += `Retry attempt: ${attempt}/5`;
   return text;
 }

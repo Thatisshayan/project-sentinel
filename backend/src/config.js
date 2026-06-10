@@ -7,6 +7,7 @@ export const config = {
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN,
     chatId: process.env.TELEGRAM_CHAT_ID || '-1003524913240',
+    repoTopics: {},
   },
   github: {
     token: process.env.GITHUB_TOKEN,

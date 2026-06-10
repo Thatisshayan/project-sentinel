@@ -18,12 +18,12 @@ export async function triggerDebugger(event, notionPage, projectName, buildProvi
       project: projectName, repo: event.repoName, branch: event.branchName,
       failedCommitUrl: event.commitUrl, attemptsUsed: state.attempts,
       lastDebugger: state.lastAgent || 'None', lastError: failureReason,
-    }));
+    }), event.repoName);
     return { fixed: false, exhausted: true };
   }
 
   if (isHighRiskChange(event.changedFiles, event.commitMessage)) {
-    await sendMessage('Project Sentinel stopped automatic repair because the failure appears high-risk or environment-related.\nHuman review required.');
+    await sendMessage('Project Sentinel stopped automatic repair because the failure appears high-risk or environment-related.\nHuman review required.', event.repoName);
     return { fixed: false, highRisk: true };
   }
 
@@ -41,7 +41,7 @@ export async function triggerDebugger(event, notionPage, projectName, buildProvi
       await sendMessage(buildDebuggerUpdate({
         project: projectName, repo: event.repoName, debugger: agent,
         attempt: state.attempts, fixCommitted: false,
-      }));
+      }), event.repoName);
 
       const result = await runDebugger(agent, {
         repoUrl: event.repoUrl, repoName: event.repoName, branchName: 'main',
@@ -53,7 +53,7 @@ export async function triggerDebugger(event, notionPage, projectName, buildProvi
         await sendMessage(buildDebuggerUpdate({
           project: projectName, repo: event.repoName, debugger: agent,
           attempt: state.attempts, fixCommitted: true, fixUrl: result.fixUrl,
-        }));
+        }), event.repoName);
 
         if (notionPage) {
           try {
@@ -84,7 +84,7 @@ export async function triggerDebugger(event, notionPage, projectName, buildProvi
     project: projectName, repo: event.repoName, branch: event.branchName,
     failedCommitUrl: event.commitUrl, attemptsUsed: state.attempts,
     lastDebugger: state.lastAgent, lastError: failureReason,
-  }));
+  }), event.repoName);
 
   return { fixed: false, exhausted: true, attempts: state.attempts };
 }

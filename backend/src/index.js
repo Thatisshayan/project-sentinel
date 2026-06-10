@@ -30,7 +30,7 @@ app.post('/webhook/github', async (req, res) => {
     await handlePushEvent(req.body);
   } catch (err) {
     console.error('Error handling push event:', err);
-    await sendMessage(`Project Sentinel error: ${err.message}`).catch(() => {});
+    await sendMessage(`Project Sentinel error: ${err.message}`, '').catch(() => {});
   }
 });
 
@@ -57,7 +57,7 @@ async function handlePushEvent(payload) {
         branch: event.branchName,
         repoUrl: event.repoUrl,
         commitMessage: event.commitMessage,
-      }));
+      }), event.repoName);
       console.log(`No Notion match for repo: ${event.repoName}`);
       return;
     }
@@ -193,21 +193,22 @@ async function handlePushEvent(payload) {
       commitUrl: event.commitUrl,
     });
 
-    await sendMessage(report);
+    await sendMessage(report, event.repoName);
 
     if (overallBuildStatus === 'failed') {
       const failureReason = 'Build failed — see build URL for details.';
 
       if (highRisk.isHighRisk) {
         await sendMessage(
-          `Project Sentinel stopped automatic repair because the failure appears high-risk or environment-related.\nHuman review required.`
+          `Project Sentinel stopped automatic repair because the failure appears high-risk or environment-related.\nHuman review required.`,
+          event.repoName
         );
       } else {
         await sendMessage(buildFailureReport({
           project: projectName, repo: event.repoName, branch: event.branchName,
           commitMessage: event.commitMessage, buildProvider, buildUrl,
           failureReason, attempt: 1,
-        }));
+        }), event.repoName);
 
         await triggerDebugger(event, notionPage, projectName, buildProvider, buildUrl, failureReason);
       }
