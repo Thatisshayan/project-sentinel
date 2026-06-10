@@ -159,26 +159,56 @@ async function handlePushEvent(payload) {
 
   try {
     const [owner, repo] = (event.repoFullName || '/').split('/');
-    const ghaResult = await checkGitHubActions(owner, repo, event.commitHash);
-    const vercelResult = await checkVercel(null, event.commitHash);
-    const railwayResult = await checkRailway(event.commitHash);
 
-    const results = [ghaResult, vercelResult, railwayResult].filter(r => r.status !== 'not_configured');
+    const maxWait = 600000; // 10 minutes
+    const pollInterval = 30000; // 30 seconds
+    const startTime = Date.now();
 
-    if (results.length === 0) {
-      overallBuildStatus = 'not_configured';
-      buildProvider = 'None';
-    } else {
-      const failed = results.some(r => r.status === 'failed');
-      const pending = results.some(r => r.status === 'pending');
-      overallBuildStatus = failed ? 'failed' : pending ? 'pending' : 'success';
+    let ghaResult, vercelResult, railwayResult;
+    let pending = true;
 
-      const providerNames = results.map(r => r.provider).join(', ');
-      buildProvider = providerNames;
-      buildUrl = results.find(r => r.status === 'failed' || r.status === 'success')?.inspectUrl
-        || results.find(r => r.inspectUrl)?.inspectUrl
-        || results.find(r => r.deploymentUrl)?.deploymentUrl
-        || '';
+    while (pending && (Date.now() - startTime) < maxWait) {
+      ghaResult = await checkGitHubActions(owner, repo, event.commitHash);
+      vercelResult = await checkVercel(null, event.commitHash);
+      railwayResult = await checkRailway(event.commitHash);
+
+      const results = [ghaResult, vercelResult, railwayResult].filter(r => r.status !== 'not_configured');
+
+      if (results.length === 0) {
+        overallBuildStatus = 'not_configured';
+        buildProvider = 'None';
+        pending = false;
+      } else {
+        const failed = results.some(r => r.status === 'failed');
+        const hasPending = results.some(r => r.status === 'pending');
+        const allSuccess = results.every(r => r.status === 'success');
+
+        if (failed) {
+          overallBuildStatus = 'failed';
+          pending = false;
+        } else if (allSuccess) {
+          overallBuildStatus = 'success';
+          pending = false;
+        } else if (hasPending) {
+          overallBuildStatus = 'pending';
+          await new Promise(r => setTimeout(r, pollInterval));
+        } else {
+          overallBuildStatus = 'unknown';
+          pending = false;
+        }
+
+        const providerNames = results.map(r => r.provider).join(', ');
+        buildProvider = providerNames;
+        buildUrl = results.find(r => r.status === 'failed' || r.status === 'success')?.inspectUrl
+          || results.find(r => r.inspectUrl)?.inspectUrl
+          || results.find(r => r.deploymentUrl)?.deploymentUrl
+          || '';
+      }
+    }
+
+    if (pending) {
+      overallBuildStatus = 'pending_timeout';
+      console.log('Build status polling timed out after 10 minutes');
     }
   } catch (err) {
     console.error('Build check failed:', err.message);
@@ -187,8 +217,8 @@ async function handlePushEvent(payload) {
 
   try {
     try {
-      const ciStatusMap = { success: 'Passing', failed: 'Failing', pending: 'Unknown', not_configured: 'Unknown', unknown: 'Unknown', cancelled: 'Unknown' };
-      const depStatusMap = { success: 'Deployed', failed: 'Degraded', pending: 'Unknown', not_configured: 'Not deployed', unknown: 'Unknown', cancelled: 'Unknown' };
+      const ciStatusMap = { success: 'Passing', failed: 'Failing', pending: 'Unknown', pending_timeout: 'Unknown', not_configured: 'Unknown', unknown: 'Unknown', cancelled: 'Unknown' };
+      const depStatusMap = { success: 'Deployed', failed: 'Degraded', pending: 'Unknown', pending_timeout: 'Unknown', not_configured: 'Not deployed', unknown: 'Unknown', cancelled: 'Unknown' };
 
       await updatePage(notionPage.id, {
         'CI Status': { select: { name: ciStatusMap[overallBuildStatus] || 'Unknown' } },
