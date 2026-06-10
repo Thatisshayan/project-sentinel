@@ -7,6 +7,7 @@ import { computeRiskLevel } from './utils/risk.js';
 import { checkGitHubActions } from './build/github-actions.js';
 import { checkVercel } from './build/vercel.js';
 import { checkRailway } from './build/railway-check.js';
+import { triggerDebugger } from './debugger/orchestrator.js';
 
 const app = express();
 
@@ -188,27 +189,28 @@ async function handlePushEvent(payload) {
       buildUrl,
       notionUpdated,
       changelogAppended,
-      debuggerTriggered: false,
+      debuggerTriggered: overallBuildStatus === 'failed',
       commitUrl: event.commitUrl,
     });
 
     await sendMessage(report);
 
-    if (overallBuildStatus === 'failed' && !highRisk.isHighRisk) {
-      await sendMessage(buildFailureReport({
-        project: projectName,
-        repo: event.repoName,
-        branch: event.branchName,
-        commitMessage: event.commitMessage,
-        buildProvider,
-        buildUrl,
-        failureReason: 'Build failed — debugger will attempt fix.',
-        attempt: 1,
-      }));
-    } else if (overallBuildStatus === 'failed' && highRisk.isHighRisk) {
-      await sendMessage(
-        `Project Sentinel stopped automatic repair because the failure appears high-risk or environment-related.\nHuman review required.`
-      );
+    if (overallBuildStatus === 'failed') {
+      const failureReason = 'Build failed — see build URL for details.';
+
+      if (highRisk.isHighRisk) {
+        await sendMessage(
+          `Project Sentinel stopped automatic repair because the failure appears high-risk or environment-related.\nHuman review required.`
+        );
+      } else {
+        await sendMessage(buildFailureReport({
+          project: projectName, repo: event.repoName, branch: event.branchName,
+          commitMessage: event.commitMessage, buildProvider, buildUrl,
+          failureReason, attempt: 1,
+        }));
+
+        await triggerDebugger(event, notionPage, projectName, buildProvider, buildUrl, failureReason);
+      }
     }
   } catch (err) {
     console.error('Telegram report failed:', err.message);

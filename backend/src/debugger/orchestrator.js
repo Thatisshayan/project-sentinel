@@ -15,13 +15,9 @@ export async function triggerDebugger(event, notionPage, projectName, buildProvi
 
   if (state.attempts >= config.debugger.maxRetries) {
     await sendMessage(buildExhaustedReport({
-      project: projectName,
-      repo: event.repoName,
-      branch: event.branchName,
-      failedCommitUrl: event.commitUrl,
-      attemptsUsed: state.attempts,
-      lastDebugger: state.lastAgent || 'None',
-      lastError: failureReason,
+      project: projectName, repo: event.repoName, branch: event.branchName,
+      failedCommitUrl: event.commitUrl, attemptsUsed: state.attempts,
+      lastDebugger: state.lastAgent || 'None', lastError: failureReason,
     }));
     return { fixed: false, exhausted: true };
   }
@@ -31,9 +27,7 @@ export async function triggerDebugger(event, notionPage, projectName, buildProvi
     return { fixed: false, highRisk: true };
   }
 
-  const agentOrder = config.debugger.agentOrder;
-
-  for (const agent of agentOrder) {
+  for (const agent of config.debugger.agentOrder) {
     if (state.usedAgents.includes(agent)) continue;
 
     state.attempts++;
@@ -45,34 +39,20 @@ export async function triggerDebugger(event, notionPage, projectName, buildProvi
 
     try {
       await sendMessage(buildDebuggerUpdate({
-        project: projectName,
-        repo: event.repoName,
-        debugger: agent,
-        attempt: state.attempts,
-        fixCommitted: false,
+        project: projectName, repo: event.repoName, debugger: agent,
+        attempt: state.attempts, fixCommitted: false,
       }));
 
       const result = await runDebugger(agent, {
-        repoUrl: event.repoUrl,
-        repoName: event.repoName,
-        branchName: 'main',
-        commitHash,
-        commitMessage: event.commitMessage,
-        buildProvider,
-        buildUrl,
-        failureReason,
-        repoDir,
-        attempt: state.attempts,
+        repoUrl: event.repoUrl, repoName: event.repoName, branchName: 'main',
+        commitHash, commitMessage: event.commitMessage,
+        buildProvider, buildUrl, failureReason, repoDir, attempt: state.attempts,
       });
 
       if (result.success) {
         await sendMessage(buildDebuggerUpdate({
-          project: projectName,
-          repo: event.repoName,
-          debugger: agent,
-          attempt: state.attempts,
-          fixCommitted: true,
-          fixUrl: result.fixUrl,
+          project: projectName, repo: event.repoName, debugger: agent,
+          attempt: state.attempts, fixCommitted: true, fixUrl: result.fixUrl,
         }));
 
         if (notionPage) {
@@ -82,52 +62,40 @@ export async function triggerDebugger(event, notionPage, projectName, buildProvi
               'Last Debugger Used': { select: { name: agent } },
               'Last Fix Commit URL': result.fixUrl ? { url: result.fixUrl } : undefined,
             });
-            const fixBlocks = [
-              {
-                bulleted_list_item: {
-                  rich_text: [{ text: { content: `Fix committed by ${agent} (attempt ${state.attempts}): ${result.fixUrl || 'unknown'}` } }],
-                },
+            await appendBlocks(notionPage.id, [{
+              bulleted_list_item: {
+                rich_text: [{ text: { content: `Fix committed by ${agent} (attempt ${state.attempts}): ${result.fixUrl || 'unknown'}` } }],
               },
-            ];
-            await appendBlocks(notionPage.id, fixBlocks).catch(() => {});
-          } catch (e) {
-            console.error('Failed to update notion debugger fields:', e.message);
-          }
+            }]).catch(() => {});
+          } catch (e) { console.error('Notion debugger fields update failed:', e.message); }
         }
 
         delete retryStore[commitHash];
         return { fixed: true, agent, attempts: state.attempts, fixUrl: result.fixUrl };
       }
 
-      console.log(`Debugger ${agent} failed to fix: ${result.error}`);
+      console.log(`Debugger ${agent} failed: ${result.error}`);
     } catch (err) {
       console.error(`Debugger ${agent} error:`, err.message);
     }
   }
 
   await sendMessage(buildExhaustedReport({
-    project: projectName,
-    repo: event.repoName,
-    branch: event.branchName,
-    failedCommitUrl: event.commitUrl,
-    attemptsUsed: state.attempts,
-    lastDebugger: state.lastAgent,
-    lastError: failureReason,
+    project: projectName, repo: event.repoName, branch: event.branchName,
+    failedCommitUrl: event.commitUrl, attemptsUsed: state.attempts,
+    lastDebugger: state.lastAgent, lastError: failureReason,
   }));
 
   return { fixed: false, exhausted: true, attempts: state.attempts };
 }
 
 async function runDebugger(agent, context) {
-  const agentCommands = {
-    OpenCode: 'opencode',
-    'Kilo CLI': 'kilo',
-    Kiro: 'kiro',
-  };
+  if (agent === 'OpenCode') return runOpenCode(context);
+  if (agent === 'OpenHands') return runOpenHands(context);
+  return { success: false, error: `Unknown agent: ${agent}` };
+}
 
-  const command = agentCommands[agent];
-  if (!command) return { success: false, error: `Unknown agent: ${agent}` };
-
+async function runOpenCode(context) {
   const instructions = `You are debugging a failed build for ${context.repoName}.
 Commit: ${context.commitHash}
 Message: ${context.commitMessage}
@@ -143,41 +111,84 @@ Report exact changes.`;
   try {
     const { execSync } = await import('child_process');
 
-    await execSync(`git clone --depth 1 ${context.repoUrl} ${context.repoDir}`, {
-      cwd: '/tmp',
-      timeout: 60000,
-      stdio: 'pipe',
+    execSync(`git clone --depth 1 ${context.repoUrl} ${context.repoDir}`, {
+      timeout: 60000, stdio: 'pipe',
     });
 
-    await execSync(`cd ${context.repoDir} && ${command} "${instructions}"`, {
+    execSync(`opencode run "${instructions}"`, {
+      cwd: context.repoDir,
       timeout: 300000,
       stdio: 'pipe',
-      env: { ...process.env, OPENCODE_HOME: process.env.OPENCODE_HOME || '' },
     });
 
-    const result = execSync(`cd ${context.repoDir} && git log -1 --format="%H %s"`, {
-      timeout: 10000,
-      encoding: 'utf-8',
+    const result = execSync(`git log -1 --format="%H %s"`, {
+      cwd: context.repoDir, timeout: 10000, encoding: 'utf-8',
     }).toString().trim();
 
     const [fixHash, ...fixMsgParts] = result.split(' ');
-    const fixMessage = fixMsgParts.join(' ');
-
     if (fixHash && fixHash.length === 40) {
       return {
         success: true,
         fixUrl: `${context.repoUrl.replace('.git', '')}/commit/${fixHash}`,
-        fixMessage,
+        fixMessage: fixMsgParts.join(' '),
       };
     }
 
-    return { success: false, error: 'No fix commit detected' };
+    return { success: false, error: 'No fix commit detected after OpenCode run' };
   } catch (err) {
     return { success: false, error: err.message };
   } finally {
     try {
       const { execSync } = await import('child_process');
-      await execSync(`rm -rf ${context.repoDir}`, { timeout: 10000, stdio: 'pipe' }).catch(() => {});
+      execSync(`rm -rf ${context.repoDir}`, { timeout: 10000, stdio: 'pipe' }).catch(() => {});
     } catch {}
+  }
+}
+
+async function runOpenHands(context) {
+  const url = config.debugger.openHandsUrl;
+  if (!url) return { success: false, error: 'OpenHands URL not configured' };
+
+  try {
+    const res = await fetch(`${url}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repo_url: context.repoUrl,
+        branch: context.branchName,
+        task: `Fix the build failure for ${context.repoName}.
+
+Commit: ${context.commitHash}
+Message: ${context.commitMessage}
+Build provider: ${context.buildProvider}
+Failure reason: ${context.failureReason}
+
+Find the smallest safe fix. Do not refactor unnecessarily.
+Do not change secrets, billing, auth, payment, or database logic.
+Commit fix to main. Push to GitHub.`,
+      }),
+    });
+
+    if (!res.ok) return { success: false, error: `OpenHands API error: ${res.status}` };
+
+    const data = await res.json();
+    const sessionId = data.session_id;
+
+    let result = { status: 'running' };
+    while (result.status === 'running' || result.status === 'initializing') {
+      await new Promise(r => setTimeout(r, 10000));
+      const statusRes = await fetch(`${url}/api/sessions/${sessionId}`, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (statusRes.ok) result = await statusRes.json();
+    }
+
+    if (result.fix_committed && result.fix_url) {
+      return { success: true, fixUrl: result.fix_url, fixMessage: result.fix_message || '' };
+    }
+
+    return { success: false, error: result.error || 'OpenHands did not produce a fix' };
+  } catch (err) {
+    return { success: false, error: err.message };
   }
 }

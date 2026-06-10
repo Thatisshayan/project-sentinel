@@ -22,6 +22,7 @@ export const config = {
   },
   debugger: {
     maxRetries: 5,
-    agentOrder: ['OpenCode', 'Kilo CLI', 'Kiro'],
+    agentOrder: ['OpenCode', 'OpenHands'],
+    openHandsUrl: process.env.OPENHANDS_URL || '',
   },
 };
