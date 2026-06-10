@@ -1,7 +1,7 @@
 FROM node:22-slim
 
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
-RUN npm install -g opencode@1.17.0
+RUN npm install -g opencode-ai@1.17.0
 
 WORKDIR /app
 

@@ -32,5 +32,6 @@ export const config = {
     maxRetries: 5,
     agentOrder: ['OpenCode', 'OpenHands'],
     openHandsUrl: process.env.OPENHANDS_URL || '',
+    openCodeApiKey: process.env.OPENCODE_API_KEY || '',
   },
 };

@@ -8,6 +8,30 @@ import { checkGitHubActions } from './build/github-actions.js';
 import { checkVercel } from './build/vercel.js';
 import { checkRailway } from './build/railway-check.js';
 import { triggerDebugger } from './debugger/orchestrator.js';
+import { writeFileSync, mkdirSync } from 'fs';
+import { homedir } from 'os';
+
+const opencodeApiKey = config.debugger.openCodeApiKey;
+if (opencodeApiKey) {
+  const dir = `${homedir()}/.local/share/opencode`;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(`${dir}/auth.json`, JSON.stringify({
+    'opencode-go': { type: 'api', key: opencodeApiKey },
+  }));
+  writeFileSync(`${dir}/account.json`, JSON.stringify({
+    version: 2,
+    accounts: {
+      [`acc_${Date.now()}`]: {
+        id: `acc_${Date.now()}`,
+        serviceID: 'opencode-go',
+        description: 'default',
+        credential: { type: 'api', key: opencodeApiKey },
+      },
+    },
+    active: { 'opencode-go': `acc_${Date.now()}` },
+  }));
+  console.log('OpenCode auth configured');
+}
 
 const app = express();
 
