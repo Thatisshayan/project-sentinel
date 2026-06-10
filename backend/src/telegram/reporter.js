@@ -30,7 +30,7 @@ export async function sendMessage(text, repoName, parseMode = 'HTML') {
   return true;
 }
 
-export function buildReport({ project, repo, branch, commitMessage, author, filesChanged, risk, buildStatus, buildProvider, buildUrl, notionUpdated, changelogAppended, debuggerTriggered, retryAttempt, commitUrl }) {
+export function buildReport({ project, repo, branch, commitMessage, author, filesChanged, risk, buildStatus, buildProvider, buildUrl, notionUpdated, changelogAppended, debuggerTriggered, retryAttempt, commitUrl, summary }) {
   const statusIcon = buildStatus === 'failed' ? '❌' : buildStatus === 'success' ? '✅' : '⚠️';
   let text = `Project Sentinel update ${statusIcon}\n\n`;
   text += `Project: ${project}\n`;
@@ -39,8 +39,9 @@ export function buildReport({ project, repo, branch, commitMessage, author, file
   text += `Commit: ${commitMessage}\n`;
   text += `Author: ${author}\n`;
   text += `Files changed: ${filesChanged}\n`;
-  text += `Risk: ${risk}\n\n`;
-  text += `Build status: ${buildStatus}\n`;
+  text += `Risk: ${risk}\n`;
+  if (summary) text += `\n📝 ${summary}\n`;
+  text += `\nBuild status: ${buildStatus}\n`;
   text += `Provider: ${buildProvider}\n`;
   if (buildUrl) text += `Build URL: ${buildUrl}\n\n`;
   text += `Notion updated: ${notionUpdated ? 'Yes' : 'No'}\n`;

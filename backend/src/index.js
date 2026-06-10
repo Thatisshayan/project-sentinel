@@ -5,6 +5,7 @@ import { parsePushEvent, detectHighRiskChange } from './github/webhook.js';
 import { queryDatabase, findProjectByRepo, updatePage, appendBlocks } from './notion/client.js';
 import { sendMessage, buildReport, buildFailureReport, buildUnknownRepoWarning } from './telegram/reporter.js';
 import { computeRiskLevel } from './utils/risk.js';
+import { generateSummary } from './utils/summarize.js';
 import { checkGitHubActions } from './build/github-actions.js';
 import { checkVercel } from './build/vercel.js';
 import { checkRailway } from './build/railway-check.js';
@@ -254,6 +255,7 @@ async function handlePushEvent(payload) {
       console.error('Status update failed:', err.message);
     }
 
+    const aiSummary = generateSummary(event.commitMessage, event.changedFiles);
     const report = buildReport({
       project: projectName,
       repo: event.repoName,
@@ -269,6 +271,7 @@ async function handlePushEvent(payload) {
       changelogAppended,
       debuggerTriggered: overallBuildStatus === 'failed',
       commitUrl: event.commitUrl,
+      summary: aiSummary,
     });
 
     await sendMessage(report, event.repoName);

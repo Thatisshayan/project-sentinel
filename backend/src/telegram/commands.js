@@ -1,7 +1,11 @@
 import { config } from '../config.js';
-import { queryDatabase, findProjectByRepo } from '../notion/client.js';
-import { sendMessage } from '../telegram/reporter.js';
+import { queryDatabase, findProjectByRepo, updatePage } from '../notion/client.js';
+import { sendMessage, buildReport } from '../telegram/reporter.js';
 import { triggerDebugger } from '../debugger/orchestrator.js';
+import { checkGitHubActions } from '../build/github-actions.js';
+import { checkVercel } from '../build/vercel.js';
+import { checkRailway } from '../build/railway-check.js';
+import { generateSummary } from '../utils/summarize.js';
 
 const BASE = `https://api.telegram.org/bot${config.telegram.botToken}`;
 
@@ -27,6 +31,7 @@ export async function handleTelegramUpdate(update) {
     '/sentinel_status': handleStatus,
     '/sentinel_repos': handleRepos,
     '/sentinel_fix': handleFix,
+    '/sentinel_update': handleUpdate,
   }[command];
 
   if (handler) {
@@ -43,6 +48,7 @@ async function handleHelp({ chatId }) {
   const help = `Project Sentinel commands:
 
 /sentinel status <project>  —  Show project status from Notion
+/sentinel update <project>  —  Refresh build status for a project
 /sentinel repos             —  List all tracked repos
 /sentinel fix <repo>        —  Trigger debugger for a repo
 /sentinel help              —  Show this message`;
@@ -149,6 +155,78 @@ async function handleFix({ chatId, threadId, args }) {
     }
   } catch (err) {
     await sendMessage(`Error triggering debugger: ${err.message}`, null);
+  }
+}
+
+async function handleUpdate({ chatId, args }) {
+  const projectName = args.join(' ');
+  if (!projectName) {
+    return sendMessage('Usage: /sentinel update <project>\nChecks and refreshes build status from GitHub/Vercel/Railway.', null);
+  }
+
+  try {
+    const db = await queryDatabase();
+    const results = db.results || [];
+    const page = findProjectByRepo(results, projectName);
+
+    if (!page) {
+      return sendMessage(`Project "${projectName}" not found in Notion.`, null);
+    }
+
+    const p = page.properties;
+    const repoName = p['Repo Name']?.rich_text?.[0]?.plain_text || '';
+    const repoUrl = p['GitHub Repo URL']?.url || '';
+    const commitHash = p['Last Commit Hash']?.rich_text?.[0]?.plain_text || '';
+    const commitMessage = p['Last Commit Message']?.rich_text?.[0]?.plain_text || '';
+    const author = p['Last Commit Author']?.rich_text?.[0]?.plain_text || '';
+    const branch = p['Last Branch']?.rich_text?.[0]?.plain_text || 'main';
+    const projectTitle = p['Project Name']?.title?.[0]?.plain_text || projectName;
+
+    await sendMessage(`🔄 Checking build status for ${projectTitle}...`, null);
+
+    if (!repoUrl || !commitHash) {
+      return sendMessage(`No commit data for ${projectTitle}. Push a commit first.`, null);
+    }
+
+    const urlParts = repoUrl.replace('https://github.com/', '').split('/');
+    const owner = urlParts[0] || 'Thatisshayan';
+    const repo = urlParts[1] || repoName;
+
+    const ghaResult = await checkGitHubActions(owner, repo, commitHash);
+    const vercelResult = await checkVercel(null, commitHash);
+    const railwayResult = await checkRailway(commitHash);
+
+    const results_arr = [ghaResult, vercelResult, railwayResult].filter(r => r.status !== 'not_configured');
+    const failed = results_arr.some(r => r.status === 'failed');
+    const hasPending = results_arr.some(r => r.status === 'pending');
+    const overallBuildStatus = failed ? 'failed' : hasPending ? 'pending' : results_arr.length > 0 ? 'success' : 'not_configured';
+    const buildProvider = results_arr.map(r => r.provider).join(', ') || 'None';
+    const buildUrl = results_arr.find(r => r.inspectUrl || r.deploymentUrl)?.inspectUrl || results_arr.find(r => r.deploymentUrl)?.deploymentUrl || '';
+
+    const ciMap = { success: 'Passing', failed: 'Failing', pending: 'Unknown', not_configured: 'Unknown', unknown: 'Unknown' };
+    const depMap = { success: 'Deployed', failed: 'Degraded', pending: 'Unknown', not_configured: 'Not deployed', unknown: 'Unknown' };
+
+    await updatePage(page.id, {
+      'CI Status': { select: { name: ciMap[overallBuildStatus] || 'Unknown' } },
+      'Deployment Status': { select: { name: depMap[overallBuildStatus] || 'Unknown' } },
+      'Build Provider': results_arr.length > 0 ? { select: { name: buildProvider } } : undefined,
+      'Build URL': buildUrl ? { url: buildUrl } : undefined,
+    });
+
+    const summary = generateSummary(commitMessage, []);
+    const report = buildReport({
+      project: projectTitle, repo: repoName, branch, commitMessage,
+      author, filesChanged: p['Files Changed Count']?.number || 0,
+      risk: p['Risk Level']?.select?.name || '—',
+      buildStatus: overallBuildStatus, buildProvider, buildUrl,
+      notionUpdated: true, changelogAppended: false,
+      debuggerTriggered: false, commitUrl: p['Last Commit URL']?.url || '',
+      summary,
+    });
+
+    await sendMessage(report, null);
+  } catch (err) {
+    await sendMessage(`Error updating ${projectName}: ${err.message}`, null);
   }
 }
 
