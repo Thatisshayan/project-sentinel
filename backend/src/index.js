@@ -45,23 +45,24 @@ app.post('/webhook/telegram', async (req, res) => {
     if (req.body.callback_query) {
       const cb = req.body.callback_query;
       const data = cb.data || '';
-      if (data.startsWith('fix:')) {
+      if (data.startsWith('fix:') && cb.message?.chat) {
         const repo = data.slice(4);
-        const msg = cb.message;
         await handleTelegramUpdate({
           message: {
-            chat: msg.chat,
-            message_thread_id: msg.message_thread_id,
-            from: cb.from,
+            chat: cb.message.chat,
+            message_thread_id: cb.message.message_thread_id,
+            from: cb.from || {},
             text: `/sentinel fix ${repo}`,
           },
         });
       }
-      await fetch(`https://api.telegram.org/bot${config.telegram.botToken}/answerCallbackQuery`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callback_query_id: cb.id }),
-      });
+      if (cb.id) {
+        fetch(`https://api.telegram.org/bot${config.telegram.botToken}/answerCallbackQuery`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ callback_query_id: cb.id }),
+        }).catch(() => {});
+      }
     } else {
       await handleTelegramUpdate(req.body);
     }
@@ -75,15 +76,19 @@ app.get('/health', (req, res) => {
 });
 
 function verifyWebhookSignature(req, body) {
-  const secret = config.github.webhookSecret;
-  if (!secret) return true;
-  const sig = req.headers['x-hub-signature-256'];
-  if (!sig) return false;
-  if (!sig.startsWith('sha256=')) return false;
-  const hmac = crypto.createHmac('sha256', secret).update(JSON.stringify(body)).digest('hex');
-  const expected = `sha256=${hmac}`;
-  if (sig.length !== expected.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+  try {
+    const secret = config.github.webhookSecret;
+    if (!secret) return true;
+    const sig = req.headers['x-hub-signature-256'];
+    if (!sig) return false;
+    if (!sig.startsWith('sha256=')) return false;
+    const hmac = crypto.createHmac('sha256', secret).update(JSON.stringify(body || {})).digest('hex');
+    const expected = `sha256=${hmac}`;
+    if (sig.length !== expected.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+  } catch {
+    return false;
+  }
 }
 
 app.post('/webhook/github', async (req, res) => {
