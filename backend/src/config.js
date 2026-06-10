@@ -10,6 +10,7 @@ export const config = {
     repoTopics: {
       costpilot: 18,
       tapcash: 19,
+      alphonsoecosystem: 20,
       shiporex: 21,
       mint: 22,
       'project-sentinel': 29,
