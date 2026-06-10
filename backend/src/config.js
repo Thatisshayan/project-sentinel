@@ -17,14 +17,15 @@ export const config = {
     },
   },
   github: {
-    token: process.env.GITHUB_TOKEN,
+    token: process.env.GITHUB_TOKEN || process.env.GITHUB_ACCESS_TOKEN,
     webhookSecret: process.env.GITHUB_WEBHOOK_SECRET || '',
   },
   vercel: {
-    token: process.env.VERCEL_TOKEN,
+    token: process.env.VERCEL_TOKEN || process.env.VERCEL_ACCESS_TOKEN,
   },
   railway: {
-    token: process.env.RAILWAY_TOKEN,
+    token: process.env.RAILWAY_TOKEN || process.env['RAILWAY_API-TOKEN'],
+    apiToken: process.env['RAILWAY_API-TOKEN'] || process.env.RAILWAY_TOKEN,
     apiUrl: 'https://backboard.railway.com/graphql/v2',
     projectId: process.env.RAILWAY_PROJECT_ID || '2b2211cb-5177-4568-aefb-3d5fb0dc8cbc',
   },

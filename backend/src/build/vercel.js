@@ -1,56 +1,52 @@
 import { config } from '../config.js';
 
 export async function checkVercel(vercelProjectName, commitSha) {
-  const headers = {
-    Authorization: `Bearer ${config.vercel.token}`,
-    'Content-Type': 'application/json',
-  };
+  const token = config.vercel.token;
+  if (!token) return { provider: 'Vercel', status: 'not_configured' };
 
   try {
-    let url;
-    if (vercelProjectName) {
-      url = `https://api.vercel.com/v1/deployments?project=${vercelProjectName}&limit=5`;
-    } else {
-      url = `https://api.vercel.com/v1/deployments?limit=5`;
-    }
+    const params = vercelProjectName ? `?project=${vercelProjectName}&limit=5` : '?limit=5';
+    const res = await fetch(`https://api.vercel.com/v1/deployments${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-    const res = await fetch(url, { headers });
-    if (!res.ok) {
-      return { provider: 'Vercel', status: 'not_configured' };
-    }
+    if (!res.ok) return { provider: 'Vercel', status: 'not_configured' };
 
     const data = await res.json();
     const deployments = data.deployments || [];
 
     if (commitSha) {
-      const match = deployments.find(d => d.meta?.githubCommitSha === commitSha);
-      if (match) {
-        return {
-          provider: 'Vercel',
-          status: normalizeVercelStatus(match.state),
-          projectName: match.name,
-          deploymentUrl: match.url,
-          inspectUrl: match.inspectorUrl || `https://vercel.com/${match.owner?.username || ''}/${match.name}/${match.uid}`,
-          commitSha: match.meta?.githubCommitSha || '',
-          failureReason: match.error?.message || '',
-        };
+      for (const d of deployments) {
+        const depId = d.uid;
+        const depRes = await fetch(`https://api.vercel.com/v1/deployments/${depId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (depRes.ok) {
+          const depData = await depRes.json();
+          if (depData.meta?.githubCommitSha === commitSha) {
+            return {
+              provider: 'Vercel',
+              status: normalizeVercelStatus(d.readyState || depData.readyState),
+              projectName: d.name,
+              deploymentUrl: d.url ? `https://${d.url}` : '',
+              inspectUrl: d.inspectorUrl || '',
+              failureReason: depData.error?.message || '',
+            };
+          }
+        }
       }
     }
 
     const latest = deployments[0];
-    if (latest) {
-      return {
-        provider: 'Vercel',
-        status: normalizeVercelStatus(latest.state),
-        projectName: latest.name,
-        deploymentUrl: latest.url,
-        inspectUrl: latest.inspectorUrl || '',
-        commitSha: latest.meta?.githubCommitSha || '',
-        failureReason: latest.error?.message || '',
-      };
-    }
+    if (!latest) return { provider: 'Vercel', status: 'not_configured' };
 
-    return { provider: 'Vercel', status: 'not_configured' };
+    return {
+      provider: 'Vercel',
+      status: normalizeVercelStatus(latest.readyState),
+      projectName: latest.name,
+      deploymentUrl: latest.url ? `https://${latest.url}` : '',
+      inspectUrl: latest.inspectorUrl || '',
+    };
   } catch (err) {
     return { provider: 'Vercel', status: 'unknown', error: err.message };
   }

@@ -1,72 +1,62 @@
 import { config } from '../config.js';
 
-const API = config.railway.apiUrl;
-const HEADERS = {
-  Authorization: `Bearer ${config.railway.token}`,
-  'Content-Type': 'application/json',
-};
+const API = 'https://backboard.railway.com/graphql/v2';
 
 export async function checkRailway(commitSha) {
+  const token = config.railway.apiToken || config.railway.token;
+  if (!token) return { provider: 'Railway', status: 'not_configured' };
+
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
   try {
-    const query = {
-      query: `{ projects { edges { node { id name services { edges { node { id name } } } } } } }`,
-    };
-    const res = await fetch(API, {
+    const projRes = await fetch(API, {
       method: 'POST',
-      headers: HEADERS,
-      body: JSON.stringify(query),
+      headers,
+      body: JSON.stringify({ query: '{ projects { edges { node { id name } } } }' }),
     });
-    if (!res.ok) return { provider: 'Railway', status: 'not_configured' };
 
-    const data = await res.json();
-    const projects = data.data?.projects?.edges || [];
+    if (!projRes.ok) return { provider: 'Railway', status: 'not_configured' };
+    const projData = await projRes.json();
+    if (projData.errors) return { provider: 'Railway', status: 'not_configured' };
 
-    if (projects.length === 0) return { provider: 'Railway', status: 'not_configured' };
+    const projects = projData.data?.projects?.edges || [];
 
     for (const project of projects) {
-      const services = project.node?.services?.edges || [];
-      for (const service of services) {
-        const depQuery = {
-          query: `query($serviceId: String!) { deployments(serviceId: $serviceId, first: 5) { edges { node { id status createdAt meta } } } }`,
-          variables: { serviceId: service.node.id },
-        };
-        const depRes = await fetch(API, {
-          method: 'POST',
-          headers: HEADERS,
-          body: JSON.stringify(depQuery),
-        });
-        if (!depRes.ok) continue;
+      const depRes = await fetch(API, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          query: `{ deployments(input: {projectId: "${project.node.id}"}) { edges { node { id status meta } } } }`,
+        }),
+      });
 
-        const depData = await depRes.json();
-        const deployments = depData.data?.deployments?.edges || [];
+      if (!depRes.ok) continue;
+      const depData = await depRes.json();
+      const deployments = depData.data?.deployments?.edges || [];
 
-        if (commitSha) {
-          const match = deployments.find(d => d.node?.meta?.commitSha === commitSha);
-          if (match) {
+      if (commitSha) {
+        for (const dep of deployments) {
+          if (dep.node.meta?.commitHash === commitSha) {
             return {
               provider: 'Railway',
-              status: normalizeRailwayStatus(match.node.status),
+              status: normalizeRailwayStatus(dep.node.status),
               projectName: project.node.name,
-              serviceName: service.node.name,
-              deploymentUrl: `https://railway.app/project/${project.node.id}/service/${service.node.id}`,
-              commitSha: match.node.meta?.commitSha || '',
-              failureReason: '',
+              deploymentUrl: `https://railway.app/project/${project.node.id}`,
+              failureReason: dep.node.status === 'FAILED' ? 'Deployment failed' : '',
             };
           }
         }
+      }
 
-        if (deployments.length > 0) {
-          const latest = deployments[0].node;
-          return {
-            provider: 'Railway',
-            status: normalizeRailwayStatus(latest.status),
-            projectName: project.node.name,
-            serviceName: service.node.name,
-            deploymentUrl: `https://railway.app/project/${project.node.id}/service/${service.node.id}`,
-            commitSha: latest.meta?.commitSha || '',
-            failureReason: '',
-          };
-        }
+      if (deployments.length > 0) {
+        const latest = deployments[0].node;
+        return {
+          provider: 'Railway',
+          status: normalizeRailwayStatus(latest.status),
+          projectName: project.node.name,
+          deploymentUrl: `https://railway.app/project/${project.node.id}`,
+          failureReason: latest.status === 'FAILED' ? 'Deployment failed' : '',
+        };
       }
     }
 
