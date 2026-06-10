@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import { config } from './config.js';
 import { parsePushEvent, detectHighRiskChange } from './github/webhook.js';
 import { queryDatabase, findProjectByRepo, updatePage, appendBlocks } from './notion/client.js';
@@ -7,7 +8,6 @@ import { computeRiskLevel } from './utils/risk.js';
 import { checkGitHubActions } from './build/github-actions.js';
 import { checkVercel } from './build/vercel.js';
 import { checkRailway } from './build/railway-check.js';
-import { triggerDebugger } from './debugger/orchestrator.js';
 import { writeFileSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 
@@ -41,7 +41,21 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+function verifyWebhookSignature(req, body) {
+  const secret = config.github.webhookSecret;
+  if (!secret) return true;
+  const sig = req.headers['x-hub-signature-256'];
+  if (!sig) return false;
+  const hmac = crypto.createHmac('sha256', secret).update(JSON.stringify(body)).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(`sha256=${hmac}`));
+}
+
 app.post('/webhook/github', async (req, res) => {
+  if (!verifyWebhookSignature(req, req.body)) {
+    console.error('Invalid webhook signature');
+    return res.status(401).json({ error: 'invalid signature' });
+  }
+
   const event = req.headers['x-github-event'];
 
   if (event !== 'push') {
@@ -264,7 +278,10 @@ async function handlePushEvent(payload) {
           failureReason, attempt: 1,
         }), event.repoName);
 
-        await triggerDebugger(event, notionPage, projectName, buildProvider, buildUrl, failureReason);
+        await sendMessage(
+          `💡 To trigger the debugger manually, reply with:\n/sentinel fix ${event.repoName}`,
+          event.repoName
+        );
       }
     }
   } catch (err) {
