@@ -166,10 +166,17 @@ async function runOpenHands(context) {
   const url = config.debugger.openHandsUrl;
   if (!url) return { success: false, error: 'OpenHands URL not configured' };
 
+  const auth = config.debugger.openHandsUsername
+    ? 'Basic ' + Buffer.from(`${config.debugger.openHandsUsername}:${config.debugger.openHandsPassword}`).toString('base64')
+    : '';
+
   try {
     const res = await fetch(`${url}/api/sessions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(auth ? { Authorization: auth } : {}),
+      },
       body: JSON.stringify({
         repo_url: context.repoUrl,
         branch: context.branchName,
@@ -192,11 +199,14 @@ Commit fix to main. Push to GitHub.`,
     const sessionId = data.session_id;
 
     let result = { status: 'running' };
-    while (result.status === 'running' || result.status === 'initializing') {
-      await new Promise(r => setTimeout(r, 10000));
-      const statusRes = await fetch(`${url}/api/sessions/${sessionId}`, {
-        headers: { 'Content-Type': 'application/json' },
-      });
+      while (result.status === 'running' || result.status === 'initializing') {
+        await new Promise(r => setTimeout(r, 10000));
+        const statusRes = await fetch(`${url}/api/sessions/${sessionId}`, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(auth ? { Authorization: auth } : {}),
+          },
+        });
       if (statusRes.ok) result = await statusRes.json();
     }
 
