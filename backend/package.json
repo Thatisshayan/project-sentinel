@@ -1,0 +1,13 @@
+{
+  "name": "project-sentinel-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "@notionhq/client": "^2.3.0"
+  }
+}
