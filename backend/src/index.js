@@ -57,8 +57,11 @@ function verifyWebhookSignature(req, body) {
   if (!secret) return true;
   const sig = req.headers['x-hub-signature-256'];
   if (!sig) return false;
+  if (!sig.startsWith('sha256=')) return false;
   const hmac = crypto.createHmac('sha256', secret).update(JSON.stringify(body)).digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(`sha256=${hmac}`));
+  const expected = `sha256=${hmac}`;
+  if (sig.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 }
 
 app.post('/webhook/github', async (req, res) => {
