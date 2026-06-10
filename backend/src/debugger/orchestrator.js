@@ -2,11 +2,43 @@ import { config } from '../config.js';
 import { isHighRiskChange } from '../utils/risk.js';
 import { sendMessage, buildDebuggerUpdate, buildExhaustedReport } from '../telegram/reporter.js';
 import { updatePage, appendBlocks } from '../notion/client.js';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+
+const STATE_FILE = '/tmp/sentinel-retry-state.json';
+
+function loadRetryState() {
+  try {
+    if (!existsSync(STATE_FILE)) {
+      mkdirSync('/tmp', { recursive: true });
+      return {};
+    }
+    return JSON.parse(readFileSync(STATE_FILE, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function saveRetryState(state) {
+  try {
+    mkdirSync('/tmp', { recursive: true });
+    writeFileSync(STATE_FILE, JSON.stringify(state), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save retry state:', err.message);
+  }
+}
 
 const retryStore = {};
 
 export function getRetryState(commitHash) {
-  return retryStore[commitHash] || { attempts: 0, usedAgents: [], lastAgent: null };
+  if (!retryStore[commitHash]) {
+    const file = loadRetryState();
+    retryStore[commitHash] = file[commitHash] || { attempts: 0, usedAgents: [], lastAgent: null };
+  }
+  return retryStore[commitHash];
+}
+
+function persistRetryState() {
+  saveRetryState(retryStore);
 }
 
 export async function triggerDebugger(event, notionPage, projectName, buildProvider, buildUrl, failureReason) {
@@ -34,6 +66,7 @@ export async function triggerDebugger(event, notionPage, projectName, buildProvi
     state.lastAgent = agent;
     state.usedAgents.push(agent);
     retryStore[commitHash] = state;
+    persistRetryState();
 
     const repoDir = `/tmp/sentinel-repos/${event.repoName}`;
 
@@ -71,6 +104,7 @@ export async function triggerDebugger(event, notionPage, projectName, buildProvi
         }
 
         delete retryStore[commitHash];
+        persistRetryState();
         return { fixed: true, agent, attempts: state.attempts, fixUrl: result.fixUrl };
       }
 
