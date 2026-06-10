@@ -8,6 +8,7 @@ import { computeRiskLevel } from './utils/risk.js';
 import { checkGitHubActions } from './build/github-actions.js';
 import { checkVercel } from './build/vercel.js';
 import { checkRailway } from './build/railway-check.js';
+import { handleTelegramUpdate, registerTelegramWebhook } from './telegram/commands.js';
 import { writeFileSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 
@@ -36,6 +37,15 @@ if (opencodeApiKey) {
 const app = express();
 
 app.use(express.json({ limit: '5mb' }));
+
+app.post('/webhook/telegram', async (req, res) => {
+  res.status(200).end();
+  try {
+    await handleTelegramUpdate(req.body);
+  } catch (err) {
+    console.error('Telegram command error:', err.message);
+  }
+});
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -289,6 +299,11 @@ async function handlePushEvent(payload) {
   }
 }
 
-app.listen(config.port, () => {
+app.listen(config.port, async () => {
   console.log(`Project Sentinel backend running on port ${config.port}`);
+  try {
+    await registerTelegramWebhook();
+  } catch (err) {
+    console.error('Failed to register Telegram webhook:', err.message);
+  }
 });
