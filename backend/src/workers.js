@@ -13,6 +13,12 @@ const MAX_POLL_ATTEMPTS   = 20;         // 20 × 30s = 10 minutes max
 // ── Build poll worker ─────────────────────────────────────────────────────────
 
 function startBuildPollWorker() {
+  const conn = getRedisConnection();
+  if (!conn) {
+    logger.warn('REDIS_URL not configured — build poll worker not started');
+    return null;
+  }
+
   const worker = new Worker('build-poll', async (job) => {
     const data = job.data;
     const { repoFullName, commitSha, repoName, projectName,
@@ -136,7 +142,7 @@ function startBuildPollWorker() {
     }
 
   }, {
-    connection:  getRedisConnection(),
+    connection:  conn,
     concurrency: 5,
   });
 

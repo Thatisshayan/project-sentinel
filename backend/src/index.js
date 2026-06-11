@@ -5,13 +5,15 @@ const { initSchema }         = require('./dbClient');
 const { startBuildPollWorker } = require('./workers');
 
 const REQUIRED = [
-  // Phase 1
+  // Phase 1 (required)
   'GITHUB_WEBHOOK_SECRET',
   'NOTION_API_KEY',
   'NOTION_DATABASE_ID',
   'TELEGRAM_BOT_TOKEN',
   'TELEGRAM_CHAT_ID',
-  // Phase 2
+];
+// Phase 2 vars (optional - will work without them but Phase 2 features disabled)
+const PHASE2_VARS = [
   'GITHUB_TOKEN',
   'DATABASE_URL',
   'REDIS_URL',
@@ -25,6 +27,11 @@ if (missing.length > 0) {
   missing.forEach(k => console.error(`   • ${k}`));
   console.error('\nSet these in Railway Variables (production) or .env (local).\n');
   process.exit(1);
+}
+
+const missingPhase2 = PHASE2_VARS.filter(k => !process.env[k] || process.env[k].trim() === '');
+if (missingPhase2.length > 0) {
+  logger.warn({ missing: missingPhase2 }, 'Phase 2 environment variables not set — Phase 2 features disabled');
 }
 
 const express = require('express');

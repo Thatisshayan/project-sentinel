@@ -26,7 +26,6 @@ async function healthCheck(req, res) {
     health.services.notion = 'ok';
   } catch (err) {
     health.services.notion = 'error';
-    health.status = 'degraded';
     logger.warn({ err: err.message }, 'Health: Notion error');
   }
 
@@ -37,7 +36,6 @@ async function healthCheck(req, res) {
     health.services.database = 'ok';
   } catch (err) {
     health.services.database = 'error';
-    health.status = 'degraded';
     logger.warn({ err: err.message }, 'Health: DB error');
   }
 
@@ -49,7 +47,6 @@ async function healthCheck(req, res) {
     health.services.redis = 'ok';
   } catch (err) {
     health.services.redis = 'error';
-    health.status = 'degraded';
     logger.warn({ err: err.message }, 'Health: Redis error');
   }
 
@@ -57,8 +54,6 @@ async function healthCheck(req, res) {
   health.services.telegram = (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID)
     ? 'configured'
     : 'not_configured';
-
-  if (health.services.telegram === 'not_configured') health.status = 'degraded';
 
   // Queue counts
   try {
@@ -70,7 +65,9 @@ async function healthCheck(req, res) {
     health.queues.buildPoll = 'error';
   }
 
-  res.status(health.status === 'ok' ? 200 : 503).json(health);
+  // Always return 200 - container is healthy if Express is running
+  // Service dependencies reported in response but don't fail healthcheck
+  res.status(200).json(health);
 }
 
 module.exports = healthCheck;

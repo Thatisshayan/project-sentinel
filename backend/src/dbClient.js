@@ -1,24 +1,35 @@
 const { Pool } = require('pg');
 const logger   = require('./logger');
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production'
-    ? { rejectUnauthorized: false }
-    : false,
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-});
+let pool = null;
 
-pool.on('error', (err) => {
-  logger.error({ err: err.message }, 'PostgreSQL pool error');
-});
+function getPool() {
+  if (!pool && process.env.DATABASE_URL) {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production'
+        ? { rejectUnauthorized: false }
+        : false,
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    });
+
+    pool.on('error', (err) => {
+      logger.error({ err: err.message }, 'PostgreSQL pool error');
+    });
+  }
+  return pool;
+}
 
 async function query(text, params) {
+  const p = getPool();
+  if (!p) {
+    throw new Error('DATABASE_URL not configured');
+  }
   const start = Date.now();
   try {
-    const result = await pool.query(text, params);
+    const result = await p.query(text, params);
     logger.debug(
       { duration: Date.now() - start, rows: result.rowCount },
       'DB query executed'
@@ -31,6 +42,11 @@ async function query(text, params) {
 }
 
 async function initSchema() {
+  const p = getPool();
+  if (!p) {
+    logger.warn('DATABASE_URL not set — skipping schema init');
+    return;
+  }
   await query(`
     CREATE TABLE IF NOT EXISTS debug_attempts (
       id               SERIAL PRIMARY KEY,
