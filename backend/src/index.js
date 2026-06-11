@@ -46,10 +46,16 @@ app.get('/health',  require('./health'));
 
 // Telegram webhook for /sentinel commands
 app.post('/webhook/telegram', async (req, res) => {
+  const expectedSecret = process.env.DEBUGGER_SHARED_SECRET;
   const secret = req.headers['x-telegram-bot-api-secret-token'];
-  if (secret !== process.env.DEBUGGER_SHARED_SECRET) {
+  
+  if (expectedSecret && secret !== expectedSecret) {
     logger.warn({ ip: req.ip }, 'Telegram webhook secret mismatch');
     return res.status(401).json({ error: 'Invalid secret' });
+  }
+  
+  if (!expectedSecret) {
+    logger.warn('DEBUGGER_SHARED_SECRET not set — skipping secret validation');
   }
 
   const message = req.body.message || req.body.edited_message;
