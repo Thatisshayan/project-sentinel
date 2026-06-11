@@ -1,1 +1,0 @@
-Project Sentinel backend running on port 3000
