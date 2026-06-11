@@ -1,13 +1,21 @@
 require('dotenv').config();
 
 const logger = require('./logger');
+const { initSchema }         = require('./dbClient');
+const { startBuildPollWorker } = require('./workers');
 
 const REQUIRED = [
+  // Phase 1
   'GITHUB_WEBHOOK_SECRET',
   'NOTION_API_KEY',
   'NOTION_DATABASE_ID',
   'TELEGRAM_BOT_TOKEN',
   'TELEGRAM_CHAT_ID',
+  // Phase 2
+  'GITHUB_TOKEN',
+  'DATABASE_URL',
+  'REDIS_URL',
+  'DEBUGGER_SHARED_SECRET',
 ];
 
 const missing = REQUIRED.filter(k => !process.env[k] || process.env[k].trim() === '');
@@ -21,12 +29,38 @@ if (missing.length > 0) {
 
 const express = require('express');
 const app     = express();
+const { handleCommand } = require('./telegramCommands');
 
 app.use(express.json({ limit: '5mb' }));
 app.set('trust proxy', 1);
 
 app.use('/webhook', require('./webhook'));
 app.get('/health',  require('./health'));
+
+// Telegram webhook for /sentinel commands
+app.post('/webhook/telegram', async (req, res) => {
+  const secret = req.headers['x-telegram-bot-api-secret-token'];
+  if (secret !== process.env.DEBUGGER_SHARED_SECRET) {
+    logger.warn({ ip: req.ip }, 'Telegram webhook secret mismatch');
+    return res.status(401).json({ error: 'Invalid secret' });
+  }
+
+  const message = req.body.message || req.body.edited_message;
+  if (!message || !message.text) {
+    return res.status(200).json({ ok: true });
+  }
+
+  const chatId = message.chat.id;
+  const topicId = message.message_thread_id || null;
+
+  try {
+    await handleCommand(message.text, chatId, topicId);
+  } catch (err) {
+    logger.error({ err: err.message }, 'Telegram command handler error');
+  }
+
+  res.status(200).json({ ok: true });
+});
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
@@ -43,9 +77,22 @@ app.listen(PORT, () => {
   logger.info({
     port:    PORT,
     env:     process.env.NODE_ENV || 'development',
-    phase:   1,
+    phase:   2,
   }, '🛡️ Sentinel backend started');
 });
+
+// Init database schema and start workers
+(async () => {
+  try {
+    await initSchema();
+    logger.info('Database schema ready');
+    startBuildPollWorker();
+    logger.info('Workers started');
+  } catch (err) {
+    logger.error({ err: err.message }, 'Failed to initialise Phase 2 components');
+    // Do not crash — Phase 1 still works without Phase 2
+  }
+})();
 
 process.on('unhandledRejection', (reason) => {
   logger.error({ reason: String(reason) }, 'Unhandled promise rejection');

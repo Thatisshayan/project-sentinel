@@ -7,6 +7,7 @@ const { findNotionProject, updateNotionProject,
         appendChangelog }                                  = require('./notionClient');
 const { sendTelegramMessage }                              = require('./telegramClient');
 const { isAlreadyProcessed, markAsProcessed }              = require('./deduplication');
+const { enqueueBuildCheck }                                = require('./queueClient');
 
 const router = express.Router();
 
@@ -171,6 +172,28 @@ async function processWebhook(payload) {
     await sendTelegramMessage(buildSuccessMessage(data, changelogAppended), repoName);
   } catch (err) {
     logger.error({ err: err.message, repoName }, 'Telegram send failed');
+  }
+
+  // Phase 2 extension: queue build status check
+  // Only queue if we found a matching Notion project
+  if (notionProject) {
+    try {
+      await enqueueBuildCheck({
+        projectName:   notionProject.projectName,
+        repoName:      data.repoName,
+        repoFullName:  data.repoFullName,
+        branchName:    data.branchName,
+        commitSha:     data.commitSha,
+        commitUrl:     data.commitUrl,
+        commitMessage: data.commitMessage,
+        authorName:    data.authorName,
+        changedFiles:  data.changedFiles,
+        topicId:       notionProject.topicId || null,
+      });
+      logger.info({ repoName: data.repoName }, 'Build check job queued');
+    } catch (err) {
+      logger.warn({ err: err.message }, 'Failed to queue build check — non-blocking');
+    }
   }
 
   logger.info(
