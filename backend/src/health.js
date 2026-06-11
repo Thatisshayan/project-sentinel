@@ -19,7 +19,6 @@ async function healthCheck(req, res) {
     health.services.notion = 'ok';
   } catch (err) {
     health.services.notion = 'error';
-    health.status = 'degraded';
     logger.warn({ err: err.message }, 'Health check: Notion unreachable');
   }
 
@@ -27,11 +26,7 @@ async function healthCheck(req, res) {
     ? 'configured'
     : 'not_configured';
 
-  if (health.services.telegram === 'not_configured') {
-    health.status = 'degraded';
-  }
-
-  return res.status(health.status === 'ok' ? 200 : 503).json(health);
+  return res.status(200).json(health);
 }
 
 module.exports = healthCheck;
