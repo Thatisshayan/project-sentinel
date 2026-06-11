@@ -128,14 +128,15 @@ async function processWebhook(payload) {
   } catch (err) {
     logger.error({ err: err.message, repoName }, 'Notion search threw an error');
     await sendTelegramMessage(
-      buildErrorMessage('Notion search failed', repoName, err.message)
+      buildErrorMessage('Notion search failed', repoName, err.message),
+      repoName
     ).catch(() => {});
     return;
   }
 
   if (!notionProject) {
     logger.warn({ repoName }, 'No matching Notion project');
-    await sendTelegramMessage(buildUnknownRepoMessage(data)).catch(() => {});
+    await sendTelegramMessage(buildUnknownRepoMessage(data), repoName).catch(() => {});
     return;
   }
 
@@ -152,7 +153,8 @@ async function processWebhook(payload) {
   } catch (err) {
     logger.error({ err: err.message, repoName }, 'Notion update failed');
     await sendTelegramMessage(
-      buildErrorMessage('Notion update failed', repoName, err.message)
+      buildErrorMessage('Notion update failed', repoName, err.message),
+      repoName
     ).catch(() => {});
     return;
   }
@@ -166,7 +168,7 @@ async function processWebhook(payload) {
   }
 
   try {
-    await sendTelegramMessage(buildSuccessMessage(data, changelogAppended));
+    await sendTelegramMessage(buildSuccessMessage(data, changelogAppended), repoName);
   } catch (err) {
     logger.error({ err: err.message, repoName }, 'Telegram send failed');
   }

@@ -23,6 +23,7 @@ const express = require('express');
 const app     = express();
 
 app.use(express.json({ limit: '5mb' }));
+app.set('trust proxy', 1);
 
 app.use('/webhook', require('./webhook'));
 app.get('/health',  require('./health'));
