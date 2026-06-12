@@ -59,6 +59,7 @@ async function runAider(repoPath, context) {
       '--model',       model,
       '--yes-always',
       '--no-browser',
+      '--auto-commits',
       '--message-file', msgFile,
     ];
 
@@ -167,18 +168,22 @@ async function cloneAndFix(context) {
       };
     }
 
-    // Check if Aider made any commits
-    const log = await repoGit.log({ maxCount: 1 });
-    const latestCommit = log.latest;
+    // Check if Aider made any commits by comparing fix branch to base branch
+    const diffSummary = await repoGit.diffSummary([branchName, fixBranch]);
+    const hasChanges = diffSummary.files.length > 0;
 
-    if (!latestCommit || latestCommit.message.includes('Initial commit')) {
+    if (!hasChanges) {
       return {
         status:      'cannot_fix',
-        reason:      'Aider ran successfully but made no commits — could not identify a safe fix',
+        reason:      'Aider ran successfully but made no changes — could not identify a safe fix',
         fixBranch,
         aiderOutput: aiderResult.stdout,
       };
     }
+
+    // Get the latest commit on fix branch
+    const log = await repoGit.log({ maxCount: 1 });
+    const latestCommit = log.latest;
 
     // Push fix branch to GitHub
     await repoGit.push('origin', fixBranch);
