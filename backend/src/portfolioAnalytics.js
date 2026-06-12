@@ -40,19 +40,27 @@ const DEFAULT_PRIORITIES = {
 async function getRepoStats(repoFullName, repoName) {
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-  const builds = await query(`
-    SELECT
-      COUNT(*) FILTER (WHERE result = 'success') as passed,
-      COUNT(*) FILTER (WHERE result = 'failed')  as failed,
-      MAX(created_at) as last_build
+  // build_poll_jobs.result is never written — count rows as total build events instead.
+  // Each row = one push event that triggered polling.
+  const pollJobs = await query(`
+    SELECT COUNT(*) as total, MAX(created_at) as last_build
     FROM build_poll_jobs
     WHERE repo_full_name = $1 AND created_at > $2
   `, [repoFullName, since24h]);
 
-  const debugRuns = await query(`
-    SELECT COUNT(*) as count FROM debug_attempts
+  // debug_attempts are created only on build failure — count = failed builds today.
+  const failures = await query(`
+    SELECT COUNT(*) as failed_count
+    FROM debug_attempts
     WHERE repo_full_name = $1 AND created_at > $2
   `, [repoFullName, since24h]);
+
+  // Latest debug attempt status (any time) tells us the last known build state.
+  const latestDebug = await query(`
+    SELECT status FROM debug_attempts
+    WHERE repo_full_name = $1
+    ORDER BY created_at DESC LIMIT 1
+  `, [repoFullName]);
 
   const taskStats = await query(`
     SELECT
@@ -62,29 +70,46 @@ async function getRepoStats(repoFullName, repoName) {
     WHERE repo_full_name = $1
   `, [repoFullName]);
 
-  const b          = builds.rows[0];
-  const totalBuilds = parseInt(b.passed) + parseInt(b.failed);
-  const passRate    = totalBuilds > 0 ? parseInt(b.passed) / totalBuilds : 1;
-  const taskDone    = parseInt(taskStats.rows[0]?.done   || 0);
-  const taskQueued  = parseInt(taskStats.rows[0]?.queued || 0);
+  const totalBuilds  = parseInt(pollJobs.rows[0]?.total || '0');
+  const failedBuilds = parseInt(failures.rows[0]?.failed_count || '0');
+  const passedBuilds = Math.max(0, totalBuilds - failedBuilds);
+  const latestStatus = latestDebug.rows[0]?.status || null;
+  const taskDone     = parseInt(taskStats.rows[0]?.done   || 0);
+  const taskQueued   = parseInt(taskStats.rows[0]?.queued || 0);
+
+  // Infer build status from available data:
+  // - Recent poll jobs exist + no failures → passing
+  // - Recent poll jobs exist + failures → failed
+  // - No recent poll jobs → fall back to last known debug_attempt status
+  let buildStatus = 'unknown';
+  if (totalBuilds > 0) {
+    buildStatus = failedBuilds === 0 ? 'passing' : 'failed';
+  } else if (latestStatus === 'resolved') {
+    buildStatus = 'passing';
+  } else if (latestStatus && latestStatus !== 'stopped') {
+    buildStatus = 'failed';
+  }
+
+  const passRate = totalBuilds > 0
+    ? passedBuilds / totalBuilds
+    : buildStatus === 'passing' ? 1 : buildStatus === 'failed' ? 0 : 0.5;
 
   let healthScore = 5.0;
   healthScore += passRate * 3;
   if (taskDone   > 0) healthScore += Math.min(taskDone   * 0.2, 1.5);
   if (taskQueued > 0) healthScore -= Math.min(taskQueued * 0.1, 0.5);
-  if (parseInt(b.failed) > 0) healthScore -= parseInt(b.failed) * 0.5;
+  if (failedBuilds > 0) healthScore -= failedBuilds * 0.5;
   healthScore = Math.max(1, Math.min(10, healthScore));
 
   return {
-    buildsPassedToday: parseInt(b.passed || 0),
-    buildsFailedToday: parseInt(b.failed || 0),
-    debuggerRunsToday: parseInt(debugRuns.rows[0]?.count || 0),
+    buildsPassedToday: passedBuilds,
+    buildsFailedToday: failedBuilds,
+    debuggerRunsToday: failedBuilds,
     tasksDoneToday:    taskDone,
     tasksQueued:       taskQueued,
-    lastBuildAt:       b.last_build || null,
+    lastBuildAt:       pollJobs.rows[0]?.last_build || null,
     healthScore:       parseFloat(healthScore.toFixed(1)),
-    buildStatus:       parseInt(b.failed) > 0 ? 'failed' :
-                       totalBuilds > 0        ? 'passing' : 'unknown',
+    buildStatus,
   };
 }
 
