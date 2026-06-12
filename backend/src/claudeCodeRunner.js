@@ -3,6 +3,7 @@ const logger    = require('./logger');
 
 const BUILD_TIMEOUT_MS = () =>
   parseInt(process.env.DEBUG_TIMEOUT_MINUTES || '30') * 60 * 1000;
+const BUILD_MODEL = process.env.BUILD_MODEL || 'qwen/qwen2.5-coder-32b-instruct';
 
 function buildTaskPrompt(task, context) {
   const { projectName, repoName } = context;
@@ -49,6 +50,7 @@ async function runClaudeCodeForTask(repoPath, task, context) {
     const args = [
       '--no-interactive',
       '--allowedTools', 'Edit,Write,Read,Bash',
+      ...(BUILD_MODEL.startsWith('claude') ? ['--model', BUILD_MODEL] : []),
       '-p', prompt,
     ];
 

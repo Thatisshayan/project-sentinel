@@ -6,7 +6,34 @@ const BUILDERS = {
     label:       'Claude Code',
     type:        'claude_code',
     envKey:      'ANTHROPIC_API_KEY',
-    description: 'Anthropic subscription — primary builder for all Phase 3',
+    description: 'Anthropic — primary builder',
+  },
+  nvidia: {
+    id:          'nvidia',
+    label:       'NVIDIA NIM — Nemotron 70B',
+    type:        'openai_compatible',
+    aiderModel:  process.env.NVIDIA_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct',
+    apiBase:     'https://integrate.api.nvidia.com/v1',
+    envKey:      'NVIDIA_API_KEY',
+    description: 'NVIDIA NIM — best free reasoning model',
+  },
+  qwen_coder: {
+    id:          'qwen_coder',
+    label:       'Qwen 2.5 Coder 32B (NVIDIA)',
+    type:        'openai_compatible',
+    aiderModel:  'qwen/qwen2.5-coder-32b-instruct',
+    apiBase:     'https://integrate.api.nvidia.com/v1',
+    envKey:      'NVIDIA_API_KEY',
+    description: 'Best free code model for building tasks',
+  },
+  llama_fast: {
+    id:          'llama_fast',
+    label:       'Llama 3.1 8B (NVIDIA)',
+    type:        'openai_compatible',
+    aiderModel:  'meta/llama-3.1-8b-instruct',
+    apiBase:     'https://integrate.api.nvidia.com/v1',
+    envKey:      'NVIDIA_API_KEY',
+    description: 'Ultra fast fallback for low complexity tasks',
   },
   gemini: {
     id:          'gemini',
@@ -16,23 +43,41 @@ const BUILDERS = {
     envKey:      'GEMINI_API_KEY',
     description: 'Google free tier — solid quality fallback',
   },
-  qwen: {
-    id:          'qwen',
-    label:       'Aider + Qwen Max (DashScope)',
-    type:        'aider',
-    aiderModel:  'openai/qwen-max',
+  qwen_max: {
+    id:          'qwen_max',
+    label:       'Qwen Max (DashScope)',
+    type:        'openai_compatible',
+    aiderModel:  'qwen-max',
     apiBase:     'https://dashscope.aliyuncs.com/compatible-mode/v1',
     envKey:      'DASHSCOPE_API_KEY',
-    description: 'Alibaba Cloud — 1M free tokens per model',
+    description: 'Alibaba best — strongest reasoning',
   },
-  hermes: {
-    id:          'hermes',
-    label:       'Aider + Hermes',
-    type:        'aider',
-    aiderModel:  'openai/hermes-3-llama-3.1-405b',
-    apiBase:     'https://openrouter.ai/api/v1',
-    envKey:      'HERMES_API_KEY',
-    description: 'NousResearch Hermes — excellent instruction following',
+  qwen_plus: {
+    id:          'qwen_plus',
+    label:       'Qwen Plus (DashScope)',
+    type:        'openai_compatible',
+    aiderModel:  'qwen-plus',
+    apiBase:     'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    envKey:      'DASHSCOPE_API_KEY',
+    description: 'Alibaba balanced — good quality, fast',
+  },
+  qwen_coder_dash: {
+    id:          'qwen_coder_dash',
+    label:       'Qwen 2.5 Coder (DashScope)',
+    type:        'openai_compatible',
+    aiderModel:  'qwen2.5-coder-32b-instruct',
+    apiBase:     'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    envKey:      'DASHSCOPE_API_KEY',
+    description: 'Alibaba code specialist for building tasks',
+  },
+  qwen_turbo: {
+    id:          'qwen_turbo',
+    label:       'Qwen Turbo (DashScope)',
+    type:        'openai_compatible',
+    aiderModel:  'qwen-turbo',
+    apiBase:     'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    envKey:      'DASHSCOPE_API_KEY',
+    description: 'Alibaba fastest — bulk low complexity tasks',
   },
   deepseek: {
     id:          'deepseek',
@@ -78,13 +123,18 @@ function getAiderEnv(config) {
     case 'gemini':
       env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
       break;
-    case 'qwen':
+    case 'nvidia':
+    case 'qwen_coder':
+    case 'llama_fast':
+      env.OPENAI_API_KEY  = process.env.NVIDIA_API_KEY || '';
+      env.OPENAI_API_BASE = 'https://integrate.api.nvidia.com/v1';
+      break;
+    case 'qwen_max':
+    case 'qwen_plus':
+    case 'qwen_coder_dash':
+    case 'qwen_turbo':
       env.OPENAI_API_KEY  = process.env.DASHSCOPE_API_KEY || '';
       env.OPENAI_API_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-      break;
-    case 'hermes':
-      env.OPENAI_API_KEY  = process.env.HERMES_API_KEY || '';
-      env.OPENAI_API_BASE = 'https://openrouter.ai/api/v1';
       break;
     case 'deepseek':
       env.DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';

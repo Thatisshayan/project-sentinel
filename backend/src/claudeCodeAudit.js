@@ -1,9 +1,11 @@
 const { spawn }  = require('child_process');
+const axios      = require('axios');
 const simpleGit  = require('simple-git');
 const tmp        = require('tmp');
 const logger     = require('./logger');
 
 const AUDIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const AUDIT_MODEL = process.env.AUDIT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct';
 
 function buildAuditPrompt(payload) {
   const { repoFullName, repoName, projectName, commitSha } = payload;
@@ -70,6 +72,7 @@ async function runClaudeCodeAudit(repoPath, payload) {
     const args = [
       '--print',
       '--allowedTools', 'Read,Bash',
+      ...(AUDIT_MODEL.startsWith('claude') ? ['--model', AUDIT_MODEL] : []),
       '-p', prompt,
     ];
 
@@ -108,6 +111,34 @@ async function runClaudeCodeAudit(repoPath, payload) {
       resolve({ success: false, reason: `spawn failed: ${err.message}` });
     });
   });
+}
+
+// NVIDIA NIM fallback — used when ANTHROPIC_API_KEY is absent but NVIDIA_API_KEY is set.
+// Sends the same audit prompt directly to the NVIDIA NIM chat completions endpoint.
+async function runNvidiaAudit(payload) {
+  const prompt = buildAuditPrompt(payload);
+
+  logger.info({ repo: payload.repoFullName, model: AUDIT_MODEL }, 'NVIDIA NIM audit starting');
+
+  const response = await axios.post(
+    'https://integrate.api.nvidia.com/v1/chat/completions',
+    {
+      model:       AUDIT_MODEL,
+      messages:    [{ role: 'user', content: prompt }],
+      max_tokens:  4096,
+      temperature: 0.1,
+    },
+    {
+      headers: {
+        Authorization:  `Bearer ${process.env.NVIDIA_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: AUDIT_TIMEOUT_MS,
+    }
+  );
+
+  const text = response.data.choices[0]?.message?.content || '';
+  return parseAuditOutput(text);
 }
 
 function parseAuditOutput(stdout) {
@@ -149,6 +180,13 @@ function parseAuditOutput(stdout) {
 
 async function runAudit(payload) {
   const { repoFullName } = payload;
+
+  // Fallback: if ANTHROPIC_API_KEY is absent but NVIDIA_API_KEY is set,
+  // call NVIDIA NIM directly (no file access, but same structured output).
+  if (!process.env.ANTHROPIC_API_KEY && process.env.NVIDIA_API_KEY) {
+    return runNvidiaAudit(payload);
+  }
+
   const tmpDir = tmp.dirSync({ unsafeCleanup: true, prefix: 'sentinel-audit-' });
 
   try {

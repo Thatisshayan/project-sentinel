@@ -1,4 +1,5 @@
 const Anthropic = require('@anthropic-ai/sdk');
+const axios     = require('axios');
 const logger    = require('./logger');
 const { getPortfolioSummary }  = require('./portfolioAnalytics');
 const { getOpenPatterns,
@@ -14,7 +15,7 @@ const {
 } = require('./auditOrchestrator');
 const { stopAllTasksForRepo }  = require('./auditDb');
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const CHAT_MODEL = process.env.CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct';
 
 const SYSTEM_PROMPT = `You are Project Sentinel, an autonomous DevOps AI managing a portfolio of 12 GitHub repositories for a solo founder named Shayan based in Toronto.
 
@@ -70,9 +71,51 @@ API COSTS: $${dailyCost.toFixed(2)} today, $${monthlyCost.toFixed(2)} this month
   }
 }
 
+// Calls whichever AI provider is available.
+// Primary: Anthropic SDK (when ANTHROPIC_API_KEY is set).
+// Fallback: NVIDIA NIM via OpenAI-compatible endpoint (when NVIDIA_API_KEY is set).
+async function callChatAPI(prompt) {
+  if (process.env.ANTHROPIC_API_KEY) {
+    const model = CHAT_MODEL.startsWith('claude') ? CHAT_MODEL : 'claude-sonnet-4-6';
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const response = await client.messages.create({
+      model,
+      max_tokens: 500,
+      system:     SYSTEM_PROMPT,
+      messages:   [{ role: 'user', content: prompt }],
+    });
+    return response.content[0]?.text || '';
+  }
+
+  if (process.env.NVIDIA_API_KEY) {
+    const response = await axios.post(
+      'https://integrate.api.nvidia.com/v1/chat/completions',
+      {
+        model:       CHAT_MODEL,
+        messages:    [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user',   content: prompt },
+        ],
+        max_tokens:  500,
+        temperature: 0.3,
+      },
+      {
+        headers: {
+          Authorization:  `Bearer ${process.env.NVIDIA_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
+      }
+    );
+    return response.data.choices[0]?.message?.content || '';
+  }
+
+  throw new Error('No AI provider configured (ANTHROPIC_API_KEY or NVIDIA_API_KEY required)');
+}
+
 async function handleMessage(messageText, fromName, topicId) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    logger.warn('ANTHROPIC_API_KEY not set — AI responses disabled');
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.NVIDIA_API_KEY) {
+    logger.warn('No AI API key configured — AI responses disabled');
     return;
   }
 
@@ -80,17 +123,10 @@ async function handleMessage(messageText, fromName, topicId) {
     'AI handling Telegram message');
 
   try {
-    const context  = await buildContext();
-    const prompt   = `${context}\n\nMessage from ${fromName}: ${messageText}`;
+    const context = await buildContext();
+    const prompt  = `${context}\n\nMessage from ${fromName}: ${messageText}`;
 
-    const response = await client.messages.create({
-      model:      'claude-sonnet-4-5',
-      max_tokens: 500,
-      system:     SYSTEM_PROMPT,
-      messages:   [{ role: 'user', content: prompt }],
-    });
-
-    const raw = response.content[0]?.text ||
+    const raw = await callChatAPI(prompt) ||
       '{"action":"answer","message":"Sorry, I had trouble understanding that."}';
 
     await trackChatCost(prompt.length, raw.length);
