@@ -5,6 +5,7 @@ const { initSchema }           = require('./dbClient');
 const { initAuditSchema }      = require('./auditDb');
 const { initPortfolioSchema }  = require('./portfolioDb');
 const { initSprintSchema }     = require('./sprintDb');
+const { initAgentSchema }      = require('./agentDb');
 const { startBuildPollWorker, startDailyReportWorker, startSprintWorker } = require('./workers');
 
 const REQUIRED = [
@@ -109,6 +110,8 @@ app.listen(PORT, () => {
     logger.info('Portfolio schema ready');
     await initSprintSchema();
     logger.info('Sprint schema ready');
+    await initAgentSchema();
+    logger.info('Agent schema ready');
     startBuildPollWorker();
     startDailyReportWorker();
     startSprintWorker();
@@ -127,8 +130,3 @@ process.on('uncaughtException', (err) => {
   logger.error({ err: err.message }, 'Uncaught exception — shutting down');
   process.exit(1);
 });
-// syntax error for sentinel test
-// syntax error for sentinel test
-// another syntax error test
-// test 3
-// test 4
