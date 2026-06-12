@@ -20,6 +20,10 @@ const PHASE2_VARS = [
   'DEBUGGER_SHARED_SECRET',
 ];
 
+// syntax error for sentinel test - missing closing brace
+if (true) {
+  console.log('test'
+
 const missing = REQUIRED.filter(k => !process.env[k] || process.env[k].trim() === '');
 
 if (missing.length > 0) {
