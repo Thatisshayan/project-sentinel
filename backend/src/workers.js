@@ -38,6 +38,7 @@ function startBuildPollWorker() {
         logger.warn({ repoFullName }, 'Build poll timeout');
         await sendTelegramMessage(
           `Project Sentinel — Build Timeout ⏱️\n\nRepo: ${repoName}\nBuild still pending after 10 minutes.\nCheck manually: ${result.buildUrl || 'N/A'}`,
+          null,
           topicId
         ).catch(() => {});
         return;
@@ -99,6 +100,7 @@ function startBuildPollWorker() {
           `Provider: ${result.buildProvider}`,
           result.buildUrl ? `Build: ${result.buildUrl}` : '',
         ].filter(Boolean).join('\n'),
+        null,
         topicId
       ).catch(() => {});
       return;
@@ -120,6 +122,7 @@ function startBuildPollWorker() {
           ``,
           `Assessing whether automatic repair is safe...`,
         ].filter(Boolean).join('\n'),
+        null,
         topicId
       ).catch(() => {});
 

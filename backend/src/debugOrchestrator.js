@@ -60,7 +60,8 @@ async function orchestrateDebug(payload) {
 
     await sendTelegramMessage(
       buildHighRiskMessage({ projectName, repoName, branchName, commitSha,
-                             buildProvider, buildUrl, failureReason, reason }),
+                           buildProvider, buildUrl, failureReason, reason }),
+      null,
       topicId
     );
 
@@ -92,6 +93,7 @@ async function orchestrateDebug(payload) {
     await sendTelegramMessage(
       buildExhaustedMessage({ projectName, repoName, branchName, commitUrl,
                               attempt, buildUrl }),
+      null,
       topicId
     );
     await updateDebugAttempt(repoFullName, commitSha, { status: 'exhausted' });
@@ -111,6 +113,7 @@ async function orchestrateDebug(payload) {
   await sendTelegramMessage(
     buildStartingMessage({ projectName, repoName, attemptNumber: nextAttemptNum,
                            max, agentLabel }),
+    null,
     topicId
   );
 
@@ -120,6 +123,7 @@ async function orchestrateDebug(payload) {
     await sendTelegramMessage(
       buildDryRunMessage({ projectName, repoName, attemptNumber: nextAttemptNum,
                            agentLabel, failureReason: sanitizeLogs(failureReason || '') }),
+      null,
       topicId
     );
     await updateDebugAttempt(repoFullName, commitSha, { status: 'dry_run' });
@@ -178,6 +182,7 @@ async function orchestrateDebug(payload) {
         projectName, repoName, attemptNumber: nextAttemptNum,
         agentLabel, fixResult, prUrl, prNumber,
       }),
+      null,
       topicId
     );
 
@@ -195,6 +200,7 @@ async function orchestrateDebug(payload) {
         projectName, repoName, attemptNumber: nextAttemptNum,
         agentLabel, reason: fixResult.reason, attemptsLeft,
       }),
+      null,
       topicId
     );
 

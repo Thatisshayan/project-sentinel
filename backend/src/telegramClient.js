@@ -25,7 +25,7 @@ function getTopicId(repoName) {
   return (topicId && topicId > 0) ? topicId : null;
 }
 
-async function sendTelegramMessage(text, repoName) {
+async function sendTelegramMessage(text, repoName, explicitTopicId) {
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
   const CHAT_ID   = process.env.TELEGRAM_CHAT_ID;
 
@@ -45,7 +45,10 @@ async function sendTelegramMessage(text, repoName) {
     disable_web_page_preview: true,
   };
 
-  const topicId = getTopicId(repoName);
+  let topicId = explicitTopicId;
+  if (!topicId && repoName) {
+    topicId = getTopicId(repoName);
+  }
   if (topicId) {
     body.message_thread_id = topicId;
   }

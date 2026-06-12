@@ -33,7 +33,7 @@ async function handleCommand(text, chatId, topicId) {
 
 async function handleStop(projectArg, topicId) {
   if (!projectArg) {
-    await sendTelegramMessage('Usage: /sentinel stop <repo-name>', topicId);
+    await sendTelegramMessage('Usage: /sentinel stop <repo-name>', null, topicId);
     return true;
   }
 
@@ -41,40 +41,42 @@ async function handleStop(projectArg, topicId) {
     await stopDebugAttempts(projectArg);
     await sendTelegramMessage(
       `✅ Debug attempts stopped for: ${projectArg}\nNo further automatic fixes will run.`,
+      null,
       topicId
     );
   } catch (err) {
-    await sendTelegramMessage(`❌ Error stopping: ${err.message}`, topicId);
+    await sendTelegramMessage(`❌ Error stopping: ${err.message}`, null, topicId);
   }
   return true;
 }
 
 async function handleStatus(projectArg, topicId) {
   if (!projectArg) {
-    await sendTelegramMessage('Usage: /sentinel status <repo-name>', topicId);
+    await sendTelegramMessage('Usage: /sentinel status <repo-name>', null, topicId);
     return true;
   }
 
   try {
     const project = await findNotionProject(projectArg);
     if (!project) {
-      await sendTelegramMessage(`No Notion project found for: ${projectArg}`, topicId);
+      await sendTelegramMessage(`No Notion project found for: ${projectArg}`, null, topicId);
       return true;
     }
 
     await sendTelegramMessage(
       `Project: ${project.projectName}\nNotion: ${project.url}`,
+      null,
       topicId
     );
   } catch (err) {
-    await sendTelegramMessage(`❌ Error: ${err.message}`, topicId);
+    await sendTelegramMessage(`❌ Error: ${err.message}`, null, topicId);
   }
   return true;
 }
 
 async function handleBuilds(projectArg, topicId) {
   if (!projectArg) {
-    await sendTelegramMessage('Usage: /sentinel builds <repo-name>', topicId);
+    await sendTelegramMessage('Usage: /sentinel builds <repo-name>', null, topicId);
     return true;
   }
 
@@ -82,29 +84,31 @@ async function handleBuilds(projectArg, topicId) {
     // Need to find the full repo name — look up from Notion
     const project = await findNotionProject(projectArg);
     if (!project) {
-      await sendTelegramMessage(`No project found for: ${projectArg}`, topicId);
+      await sendTelegramMessage(`No project found for: ${projectArg}`, null, topicId);
       return true;
     }
 
     // Use the repo name to find latest commit SHA from Notion
     await sendTelegramMessage(
       `Checking builds for ${projectArg}...\n\nNote: Provide a commit SHA for detailed status.\nCheck GitHub Actions / Vercel / Railway directly for latest build.`,
+      null,
       topicId
     );
   } catch (err) {
-    await sendTelegramMessage(`❌ Error: ${err.message}`, topicId);
+    await sendTelegramMessage(`❌ Error: ${err.message}`, null, topicId);
   }
   return true;
 }
 
 async function handleRetry(projectArg, topicId) {
   if (!projectArg) {
-    await sendTelegramMessage('Usage: /sentinel retry <repo-name>', topicId);
+    await sendTelegramMessage('Usage: /sentinel retry <repo-name>', null, topicId);
     return true;
   }
 
   await sendTelegramMessage(
     `Manual retry for ${projectArg} is noted.\nPush a new commit to trigger the full loop, or check the latest build manually.`,
+    null,
     topicId
   );
   return true;
@@ -121,6 +125,7 @@ async function handleHelp(topicId) {
       `/sentinel retry <repo>   — manual retry note`,
       `/sentinel help           — show this message`,
     ].join('\n'),
+    null,
     topicId
   );
   return true;
