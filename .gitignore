@@ -4,3 +4,5 @@ node_modules/
 *.log
 .DS_Store
 .aider*
+PHASE2_*.md
+session-sentinel-phase1-build.md
