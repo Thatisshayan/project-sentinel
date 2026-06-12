@@ -1,4 +1,4 @@
-const { Worker }              = require('bullmq');
+const { Worker, Queue }       = require('bullmq');
 const { getRedisConnection }  = require('./queueClient');
 const { checkAllProviders }   = require('./buildPoller');
 const { orchestrateDebug }    = require('./debugOrchestrator');
@@ -10,6 +10,10 @@ const {
   triggerAudit,
   handleBuildPassedAfterSentinelMerge,
 } = require('./auditOrchestrator');
+const { sendDailyReport }    = require('./dailyReport');
+const { detectPatterns }     = require('./patternDetector');
+const { refreshAllMetrics }  = require('./portfolioAnalytics');
+const { updateDashboard }    = require('./notionDashboard');
 
 const POLL_INTERVAL_MS    = 30  * 1000; // 30 seconds between polls
 const MAX_POLL_ATTEMPTS   = 20;         // 20 × 30s = 10 minutes max
@@ -137,6 +141,9 @@ function startBuildPollWorker() {
           logger.error({ err: err.message }, 'Audit trigger failed — non-blocking')
         );
       }
+
+      // Phase 4 — update dashboard on every build result
+      updateDashboard().catch(() => {});
       return;
     }
 
@@ -178,6 +185,9 @@ function startBuildPollWorker() {
         failureLogs:   '',
         topicId,
       });
+
+      // Phase 4 — update dashboard on build failure too
+      updateDashboard().catch(() => {});
     }
 
   }, {
@@ -193,4 +203,36 @@ function startBuildPollWorker() {
   return worker;
 }
 
-module.exports = { startBuildPollWorker };
+// ── Daily report worker (9am Toronto) ────────────────────────────────────────
+
+function startDailyReportWorker() {
+  const conn = getRedisConnection();
+  if (!conn) {
+    logger.warn('REDIS_URL not configured — daily report worker not started');
+    return null;
+  }
+
+  const queue = new Queue('daily-report', { connection: conn });
+
+  // Schedule the 9am Toronto cron — idempotent: same jobId won't duplicate
+  queue.add('report', {}, {
+    repeat:  { pattern: '0 9 * * *', tz: 'America/Toronto' },
+    jobId:   'daily-report-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule daily report cron'));
+
+  const worker = new Worker('daily-report', async () => {
+    await refreshAllMetrics();
+    await sendDailyReport();
+    await detectPatterns();
+    await updateDashboard();
+  }, { connection: conn });
+
+  worker.on('failed', (job, err) => {
+    logger.error({ err: err.message }, 'Daily report worker failed');
+  });
+
+  logger.info('Daily report worker started — fires at 9am Toronto');
+  return worker;
+}
+
+module.exports = { startBuildPollWorker, startDailyReportWorker };

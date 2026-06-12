@@ -16,8 +16,15 @@ const {
   updateAuditTask,
 } = require('./auditDb');
 const { updateNotionTaskStatus } = require('./auditTaskWriter');
+const { handleMessage }          = require('./telegramAI');
 
-async function handleCommand(text, chatId, topicId) {
+async function handleCommand(text, chatId, topicId, fromName) {
+  // Route non-slash messages to AI agent
+  if (!text.trim().startsWith('/')) {
+    handleMessage(text, fromName || 'Shayan', topicId);
+    return false;
+  }
+
   const parts   = text.trim().split(/\s+/);
   const command = parts[0]?.toLowerCase();
   const project = parts[1];
@@ -48,6 +55,36 @@ async function handleCommand(text, chatId, topicId) {
       return handleListTasks(parts[2], topicId);
     case 'skip-batch':
       return handleSkipBatch(parts[2], parts[3], topicId);
+    case 'report': {
+      const { sendDailyReport } = require('./dailyReport');
+      await sendDailyReport();
+      return true;
+    }
+    case 'costs': {
+      const { getCostReport } = require('./costTracker');
+      const report = await getCostReport();
+      await sendTelegramMessage(report.formatted, null, topicId);
+      return true;
+    }
+    case 'patterns': {
+      const { getOpenPatterns } = require('./portfolioDb');
+      const patterns = await getOpenPatterns();
+      if (patterns.length === 0) {
+        await sendTelegramMessage('No cross-repo patterns detected.', null, topicId);
+      } else {
+        const lines = patterns.map(p =>
+          `· ${p.description}\n  Repos: ${(p.affected_repos || []).join(', ')}`
+        ).join('\n\n');
+        await sendTelegramMessage(`Cross-Repo Patterns:\n\n${lines}`, null, topicId);
+      }
+      return true;
+    }
+    case 'dashboard': {
+      const { updateDashboard } = require('./notionDashboard');
+      await updateDashboard();
+      await sendTelegramMessage('Notion dashboard updated.', null, topicId);
+      return true;
+    }
     default:
       return false;
   }

@@ -1,9 +1,10 @@
 require('dotenv').config();
 
 const logger = require('./logger');
-const { initSchema }         = require('./dbClient');
-const { initAuditSchema }    = require('./auditDb');
-const { startBuildPollWorker } = require('./workers');
+const { initSchema }           = require('./dbClient');
+const { initAuditSchema }      = require('./auditDb');
+const { initPortfolioSchema }  = require('./portfolioDb');
+const { startBuildPollWorker, startDailyReportWorker } = require('./workers');
 
 const REQUIRED = [
   // Phase 1 (required)
@@ -64,11 +65,12 @@ app.post('/webhook/telegram', async (req, res) => {
     return res.status(200).json({ ok: true });
   }
 
-  const chatId = message.chat.id;
-  const topicId = message.message_thread_id || null;
+  const chatId   = message.chat.id;
+  const topicId  = message.message_thread_id || null;
+  const fromName = message.from?.first_name || message.from?.username || 'User';
 
   try {
-    await handleCommand(message.text, chatId, topicId);
+    await handleCommand(message.text, chatId, topicId, fromName);
   } catch (err) {
     logger.error({ err: err.message }, 'Telegram command handler error');
   }
@@ -102,7 +104,10 @@ app.listen(PORT, () => {
     logger.info('Database schema ready');
     await initAuditSchema();
     logger.info('Audit schema ready');
+    await initPortfolioSchema();
+    logger.info('Portfolio schema ready');
     startBuildPollWorker();
+    startDailyReportWorker();
     logger.info('Workers started');
   } catch (err) {
     logger.error({ err: err.message }, 'Failed to initialise Phase 2 components');
