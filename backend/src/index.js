@@ -118,3 +118,4 @@ process.on('uncaughtException', (err) => {
 // syntax error for sentinel test
 // syntax error for sentinel test
 // another syntax error test
+// test 3
