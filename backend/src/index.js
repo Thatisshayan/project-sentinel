@@ -115,3 +115,4 @@ process.on('uncaughtException', (err) => {
   logger.error({ err: err.message }, 'Uncaught exception — shutting down');
   process.exit(1);
 });
+// syntax error for sentinel test
