@@ -10,10 +10,12 @@ const {
   triggerAudit,
   handleBuildPassedAfterSentinelMerge,
 } = require('./auditOrchestrator');
-const { sendDailyReport }    = require('./dailyReport');
-const { detectPatterns }     = require('./patternDetector');
-const { refreshAllMetrics }  = require('./portfolioAnalytics');
-const { updateDashboard }    = require('./notionDashboard');
+const { sendDailyReport }        = require('./dailyReport');
+const { detectPatterns }         = require('./patternDetector');
+const { refreshAllMetrics }      = require('./portfolioAnalytics');
+const { updateDashboard }        = require('./notionDashboard');
+const { generateSprintProposal } = require('./sprintPlanner');
+const { recordWeeklyVelocity }   = require('./velocityTracker');
 
 const POLL_INTERVAL_MS    = 30  * 1000; // 30 seconds between polls
 const MAX_POLL_ATTEMPTS   = 20;         // 20 × 30s = 10 minutes max
@@ -235,4 +237,46 @@ function startDailyReportWorker() {
   return worker;
 }
 
-module.exports = { startBuildPollWorker, startDailyReportWorker };
+// ── Sprint worker (Sunday 8pm proposal + Wednesday 9am mid-week update) ───────
+
+function startSprintWorker() {
+  const conn = getRedisConnection();
+  if (!conn) {
+    logger.warn('REDIS_URL not configured — sprint worker not started');
+    return null;
+  }
+
+  const queue = new Queue('sprint', { connection: conn });
+
+  // Sunday 8pm Toronto — generate weekly sprint proposal
+  queue.add('propose', {}, {
+    repeat: { pattern: '0 20 * * 0', tz: 'America/Toronto' },
+    jobId:  'sprint-proposal-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule sprint proposal cron'));
+
+  // Wednesday 9am Toronto — mid-week progress update
+  queue.add('midweek', {}, {
+    repeat: { pattern: '0 9 * * 3', tz: 'America/Toronto' },
+    jobId:  'sprint-midweek-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule sprint midweek cron'));
+
+  const worker = new Worker('sprint', async (job) => {
+    if (job.name === 'propose') {
+      await recordWeeklyVelocity();
+      await generateSprintProposal();
+    }
+    if (job.name === 'midweek') {
+      const { getSprintStatus } = require('./sprintOrchestrator');
+      await getSprintStatus(null);
+    }
+  }, { connection: conn });
+
+  worker.on('failed', (job, err) => {
+    logger.error({ err: err.message, job: job?.name }, 'Sprint worker job failed');
+  });
+
+  logger.info('Sprint worker started — proposes Sunday 8pm, mid-week update Wednesday 9am');
+  return worker;
+}
+
+module.exports = { startBuildPollWorker, startDailyReportWorker, startSprintWorker };

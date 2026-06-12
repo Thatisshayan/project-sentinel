@@ -17,6 +17,11 @@ const {
 } = require('./auditDb');
 const { updateNotionTaskStatus } = require('./auditTaskWriter');
 const { handleMessage }          = require('./telegramAI');
+const {
+  approveSprint, getSprintStatus,
+  pauseSprint, resumeSprint,
+} = require('./sprintOrchestrator');
+const { getVelocityReport } = require('./velocityTracker');
 
 async function handleCommand(text, chatId, topicId, fromName) {
   // Route non-slash messages to AI agent
@@ -83,6 +88,39 @@ async function handleCommand(text, chatId, topicId, fromName) {
       const { updateDashboard } = require('./notionDashboard');
       await updateDashboard();
       await sendTelegramMessage('Notion dashboard updated.', null, topicId);
+      return true;
+    }
+    case 'approve-sprint': {
+      approveSprint(topicId)
+        .catch(err => logger.error({ err: err.message }, 'approve-sprint failed'));
+      return true;
+    }
+    case 'skip-sprint': {
+      const { getCurrentSprint, updateSprint } = require('./sprintDb');
+      const skipSprint = await getCurrentSprint();
+      if (skipSprint) {
+        await updateSprint(skipSprint.id, { status: 'skipped' });
+        await sendTelegramMessage('Sprint skipped. Next proposal Sunday 8pm.', null, topicId);
+      } else {
+        await sendTelegramMessage('No active sprint proposal to skip.', null, topicId);
+      }
+      return true;
+    }
+    case 'sprint-status': {
+      getSprintStatus(topicId).catch(() => {});
+      return true;
+    }
+    case 'pause-sprint': {
+      pauseSprint(topicId).catch(() => {});
+      return true;
+    }
+    case 'resume-sprint': {
+      resumeSprint(topicId).catch(() => {});
+      return true;
+    }
+    case 'velocity': {
+      const report = await getVelocityReport();
+      await sendTelegramMessage(report, null, topicId);
       return true;
     }
     default:
