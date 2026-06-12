@@ -6,6 +6,10 @@ const { sendTelegramMessage } = require('./telegramClient');
 const { findNotionProject, updateNotionProject } = require('./notionClient');
 const { enqueueBuildCheck }   = require('./queueClient');
 const logger                  = require('./logger');
+const {
+  triggerAudit,
+  handleBuildPassedAfterSentinelMerge,
+} = require('./auditOrchestrator');
 
 const POLL_INTERVAL_MS    = 30  * 1000; // 30 seconds between polls
 const MAX_POLL_ATTEMPTS   = 20;         // 20 × 30s = 10 minutes max
@@ -103,6 +107,36 @@ function startBuildPollWorker() {
         null,
         topicId
       ).catch(() => {});
+
+      // Phase 3 — route based on whether this is a Sentinel PR or human commit
+      const isSentinelBranch = (data.branchName || '').startsWith('sentinel/');
+
+      if (isSentinelBranch) {
+        // Build passed after Sentinel PR was merged — mark tasks done, start next batch
+        handleBuildPassedAfterSentinelMerge(
+          repoFullName,
+          data.repoName,
+          data.branchName,
+          data.topicId
+        ).catch(err =>
+          logger.error({ err: err.message }, 'handleBuildPassedAfterSentinelMerge failed')
+        );
+      } else if (process.env.AUDIT_AGENT_ENABLED !== 'false') {
+        // Human commit — trigger fresh audit (subject to 4 rules in auditOrchestrator)
+        triggerAudit({
+          repoFullName,
+          repoName:      data.repoName,
+          projectName:   data.projectName,
+          commitSha,
+          commitMessage: data.commitMessage,
+          branchName:    data.branchName,
+          authorName:    data.authorName,
+          authorEmail:   data.authorEmail,
+          topicId:       data.topicId,
+        }).catch(err =>
+          logger.error({ err: err.message }, 'Audit trigger failed — non-blocking')
+        );
+      }
       return;
     }
 

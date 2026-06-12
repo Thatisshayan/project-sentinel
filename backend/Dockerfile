@@ -8,6 +8,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --only=production && npm cache clean --force
 
+# Install Claude Code CLI for Phase 3 audit and task execution
+RUN npm install -g @anthropic-ai/claude-code
+
 # Install Aider
 RUN pip3 install aider-install --break-system-packages \
   && aider-install \

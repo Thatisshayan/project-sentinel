@@ -5,6 +5,17 @@ const { stopDebugAttempts,
         getDebugAttempt }             = require('./dbClient');
 const { checkAllProviders }           = require('./buildPoller');
 const { orchestrateDebug }            = require('./debugOrchestrator');
+const {
+  executeApprovedTasks,
+  triggerAudit,
+  processNextBatch,
+} = require('./auditOrchestrator');
+const {
+  stopAllTasksForRepo,
+  getNextBatch,
+  updateAuditTask,
+} = require('./auditDb');
+const { updateNotionTaskStatus } = require('./auditTaskWriter');
 
 async function handleCommand(text, chatId, topicId) {
   const parts   = text.trim().split(/\s+/);
@@ -26,6 +37,17 @@ async function handleCommand(text, chatId, topicId) {
       return handleRetry(parts[2], topicId);
     case 'help':
       return handleHelp(topicId);
+    case 'execute':
+      return handleExecute(parts[2], topicId);
+    case 'skip':
+      if (parts[2]) return handleSkipAudit(parts[2], topicId);
+      break;
+    case 'audit':
+      return handleManualAudit(parts[2], topicId);
+    case 'tasks':
+      return handleListTasks(parts[2], topicId);
+    case 'skip-batch':
+      return handleSkipBatch(parts[2], parts[3], topicId);
     default:
       return false;
   }
@@ -128,6 +150,105 @@ async function handleHelp(topicId) {
     null,
     topicId
   );
+  return true;
+}
+
+async function handleExecute(repoArg, topicId) {
+  if (!repoArg) {
+    await sendTelegramMessage('Usage: /sentinel execute <repo-name>', null, topicId);
+    return true;
+  }
+  await sendTelegramMessage(`Starting task execution for ${repoArg}...`, null, topicId);
+  executeApprovedTasks(`Thatisshayan/${repoArg}`, repoArg, topicId)
+    .catch(err => logger.error({ err: err.message }, 'Execute failed'));
+  return true;
+}
+
+async function handleSkipAudit(repoArg, topicId) {
+  await stopAllTasksForRepo(`Thatisshayan/${repoArg}`);
+  await sendTelegramMessage(
+    `Audit skipped for ${repoArg}. Tasks remain in Notion as Queued.`,
+    null,
+    topicId
+  );
+  return true;
+}
+
+async function handleManualAudit(repoArg, topicId) {
+  if (!repoArg) {
+    await sendTelegramMessage('Usage: /sentinel audit <repo-name>', null, topicId);
+    return true;
+  }
+  const project = await findNotionProject(repoArg).catch(() => null);
+  await sendTelegramMessage(`Manual audit triggered for ${repoArg}...`, null, topicId);
+  triggerAudit({
+    repoFullName:  `Thatisshayan/${repoArg}`,
+    repoName:      repoArg,
+    projectName:   project?.projectName || repoArg,
+    commitSha:     'HEAD',
+    commitMessage: '[manual-audit]',
+    branchName:    'main',
+    authorName:    'Human',
+    authorEmail:   '',
+    topicId,
+  }).catch(err => logger.error({ err: err.message }, 'Manual audit failed'));
+  return true;
+}
+
+async function handleListTasks(repoArg, topicId) {
+  if (!repoArg) {
+    await sendTelegramMessage('Usage: /sentinel tasks <repo-name>', null, topicId);
+    return true;
+  }
+  const { query } = require('./dbClient');
+  const r = await query(`
+    SELECT task_number, title, priority, status,
+           safe_to_auto_execute, batch_number
+    FROM audit_tasks
+    WHERE repo_full_name=$1
+      AND status IN ('queued','in_progress','failed','build_check')
+    ORDER BY task_number ASC LIMIT 12
+  `, [`Thatisshayan/${repoArg}`]);
+
+  if (r.rows.length === 0) {
+    await sendTelegramMessage(`No active tasks for ${repoArg}.`, null, topicId);
+    return true;
+  }
+
+  const EMOJI = { critical:'🔴', high:'🟠', medium:'🟡', low:'🟢' };
+  const list  = r.rows.map(t =>
+    `${t.task_number}. [B${t.batch_number}] ${EMOJI[t.priority]||'⚪'} ${t.title} — ${t.status}${t.safe_to_auto_execute?'':' 🔒'}`
+  ).join('\n');
+
+  await sendTelegramMessage(`Tasks for ${repoArg}:\n\n${list}`, null, topicId);
+  return true;
+}
+
+async function handleSkipBatch(repoArg, batchNumArg, topicId) {
+  if (!repoArg || !batchNumArg) {
+    await sendTelegramMessage(
+      'Usage: /sentinel skip-batch <repo-name> <batch-number>', null, topicId
+    );
+    return true;
+  }
+  const { query } = require('./dbClient');
+  const r = await query(`
+    SELECT id FROM audit_tasks
+    WHERE repo_full_name=$1
+      AND batch_number=$2
+      AND status IN ('queued','in_progress')
+  `, [`Thatisshayan/${repoArg}`, parseInt(batchNumArg)]);
+
+  for (const row of r.rows) {
+    await updateAuditTask(row.id, { status: 'skipped' });
+  }
+
+  await sendTelegramMessage(
+    `Batch ${batchNumArg} skipped for ${repoArg}. Moving to next batch...`,
+    null,
+    topicId
+  );
+  processNextBatch(`Thatisshayan/${repoArg}`, repoArg, topicId).catch(() => {});
   return true;
 }
 

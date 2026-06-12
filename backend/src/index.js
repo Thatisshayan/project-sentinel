@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const logger = require('./logger');
 const { initSchema }         = require('./dbClient');
+const { initAuditSchema }    = require('./auditDb');
 const { startBuildPollWorker } = require('./workers');
 
 const REQUIRED = [
@@ -99,6 +100,8 @@ app.listen(PORT, () => {
   try {
     await initSchema();
     logger.info('Database schema ready');
+    await initAuditSchema();
+    logger.info('Audit schema ready');
     startBuildPollWorker();
     logger.info('Workers started');
   } catch (err) {

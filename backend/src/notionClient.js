@@ -52,9 +52,10 @@ async function findNotionProject(repoName) {
     : repoName;
 
   return {
-    pageId:      match.id,
+    pageId:       match.id,
     projectName,
-    url:         match.url,
+    url:          match.url,
+    builderAgent: match.properties['Builder Agent']?.select?.name || null,
   };
 }
 

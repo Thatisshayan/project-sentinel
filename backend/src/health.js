@@ -5,7 +5,7 @@ async function healthCheck(req, res) {
     status:     'ok',
     timestamp:  new Date().toISOString(),
     uptime:     Math.floor(process.uptime()),
-    phase:      2,
+    phase:      3,
     dryRunMode: process.env.DEBUGGER_DRY_RUN === 'true',
     services:   {
       notion:   'unchecked',
@@ -64,6 +64,24 @@ async function healthCheck(req, res) {
   } catch (err) {
     health.queues.buildPoll = 'error';
   }
+
+  // Audit stats
+  try {
+    const { query } = require('./dbClient');
+    const r = await query(`
+      SELECT
+        COUNT(*) FILTER (WHERE status='awaiting_approval') AS awaiting_approval,
+        COUNT(*) FILTER (WHERE status='executing')         AS executing,
+        COUNT(*) FILTER (WHERE status='complete'
+          AND created_at > NOW() - INTERVAL '7 days')      AS completed_7d
+      FROM audit_cycles
+    `);
+    health.auditCycles = r.rows[0] || {};
+  } catch (e) {
+    health.auditCycles = 'error';
+  }
+
+  health.dryRunMode = false;
 
   // Always return 200 - container is healthy if Express is running
   // Service dependencies reported in response but don't fail healthcheck
