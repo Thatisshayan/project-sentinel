@@ -57,7 +57,9 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
       prNumber: res.data.number,
     };
   } catch (err) {
-    logger.error({ err: err.message, repoFullName }, 'Failed to create PR');
+    const status = err.response?.status;
+    const data = err.response?.data;
+    logger.error({ err: err.message, status, data, repoFullName }, 'Failed to create PR');
     return { prUrl: null, prNumber: null };
   }
 }

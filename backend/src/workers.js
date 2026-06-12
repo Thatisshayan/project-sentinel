@@ -44,11 +44,13 @@ function startBuildPollWorker() {
       }
 
       // Re-queue with incremented attempt count
-      const queue = job.queue;
+      const { Queue } = require('bullmq');
+      const queue = new Queue('build-poll', { connection: conn });
       await queue.add('check', { ...data, attemptNumber: attemptNumber + 1 }, {
         jobId: `${job.id}-${attemptNumber + 1}`,
         delay: POLL_INTERVAL_MS,
       });
+      await queue.close();
       return;
     }
 
