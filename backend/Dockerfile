@@ -15,6 +15,9 @@ RUN pip3 install aider-install --break-system-packages \
 
 ENV PATH="/root/.local/bin:${PATH}"
 
+# Limit Node.js heap to prevent OOM kills (Railway default ~512MB)
+ENV NODE_OPTIONS="--max-old-space-size=256"
+
 COPY src/ ./src/
 
 RUN addgroup -S sentinel && adduser -S sentinel -G sentinel
@@ -23,10 +26,10 @@ USER sentinel
 EXPOSE 3000
 
 HEALTHCHECK \
-  --interval=30s \
-  --timeout=15s \
-  --start-period=40s \
-  --retries=3 \
+  --interval=60s \
+  --timeout=30s \
+  --start-period=60s \
+  --retries=5 \
   CMD node -e "require('http').get('http://localhost:3000/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1));"
 
 CMD ["node", "src/index.js"]
