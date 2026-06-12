@@ -25,6 +25,15 @@ function getTopicId(repoName) {
   return (topicId && topicId > 0) ? topicId : null;
 }
 
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 async function sendTelegramMessage(text, repoName, explicitTopicId) {
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
   const CHAT_ID   = process.env.TELEGRAM_CHAT_ID;
@@ -38,9 +47,11 @@ async function sendTelegramMessage(text, repoName, explicitTopicId) {
     ? text.substring(0, MAX_LENGTH - 30) + '\n\n[message truncated]'
     : text;
 
+  const escapedText = escapeHtml(safeText);
+
   const body = {
     chat_id:                  CHAT_ID,
-    text:                     safeText,
+    text:                     escapedText,
     parse_mode:               'HTML',
     disable_web_page_preview: true,
   };
