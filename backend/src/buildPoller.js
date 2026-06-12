@@ -19,8 +19,34 @@ async function checkGitHubActions(repoFullName, commitSha) {
       { headers, params: { head_sha: commitSha, per_page: 10 } }
     );
 
-    const runs = runsRes.data.workflow_runs || [];
-    if (runs.length === 0) return { provider: 'github_actions', status: 'not_configured' };
+    let runs = runsRes.data.workflow_runs || [];
+
+    // Fix 1: SHA lookup may return empty if GitHub hasn't registered the run yet
+    // (typically 20-40s after push). Fall back to the most recent run if it was
+    // created within the last 5 minutes.
+    if (runs.length === 0) {
+      try {
+        const recentRes = await axios.get(
+          `https://api.github.com/repos/${repoFullName}/actions/runs`,
+          { headers, params: { per_page: 5 } }
+        );
+        const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+        const latestRun = (recentRes.data.workflow_runs || []).find(r =>
+          new Date(r.created_at).getTime() > fiveMinutesAgo
+        );
+        if (latestRun) {
+          runs = [latestRun];
+          logger.info({ repoFullName, runId: latestRun.id },
+            'SHA lookup empty — using latest recent run as fallback');
+        }
+      } catch (e) {
+        logger.warn({ err: e.message }, 'Branch fallback run lookup failed');
+      }
+    }
+
+    // Fix 3: if still no runs found, return pending so the poller retries
+    // rather than treating the repo as unconfigured and giving up
+    if (runs.length === 0) return { provider: 'github_actions', status: 'pending' };
 
     // Find the most relevant run
     const activeRun = runs.find(r => r.status !== 'completed') || runs[0];

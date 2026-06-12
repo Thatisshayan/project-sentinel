@@ -78,7 +78,7 @@ async function enqueueBuildCheck(data) {
 
   return queue.add('check', data, {
     jobId,
-    delay: 5000, // Wait 5s before first check (beat container restarts)
+    delay: 45000, // Wait 45s before first check — GitHub Actions takes 20-40s to register a run
   });
 }
 
