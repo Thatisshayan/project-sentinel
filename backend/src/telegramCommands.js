@@ -22,15 +22,39 @@ const {
   pauseSprint, resumeSprint,
 } = require('./sprintOrchestrator');
 const { getVelocityReport }      = require('./velocityTracker');
-const { getAgentRoomSummary }    = require('./agentRoom');
+const { getAgentRoomSummary,
+        answerCallback }         = require('./agentRoom');
 const { executePortfolioTasks }  = require('./parallelExecutor');
+const { getAllAgents }            = require('./agentDb');
+const {
+  getPendingConflict,
+  resolvePendingConflict,
+  releaseAllLocks,
+} = require('./conflictDetector');
+
+const KNOWN_AGENT_IDS = ['nvidia','qwen_coder','qwen_coder_dash','llama_fast','gemini','qwen_max','qwen_turbo','deepseek','qwen_plus','opencode'];
 
 async function handleCommand(text, chatId, topicId, fromName) {
   // Route non-slash messages to AI agent
   if (!text.trim().startsWith('/')) {
     const isAgentRoom = topicId != null && String(topicId) === String(process.env.AGENT_ROOM_TOPIC_ID);
     if (isAgentRoom) {
-      const roomContext = await getAgentRoomSummary().catch(() => '');
+      let roomContext = await getAgentRoomSummary().catch(() => '');
+
+      // Improvement 3 — @mention detection: enrich roomContext with specific agent status
+      const mentioned = KNOWN_AGENT_IDS.filter(id => text.toLowerCase().includes(`@${id}`));
+      if (mentioned.length > 0) {
+        const agents     = await getAllAgents().catch(() => []);
+        const mentionLines = mentioned.map(id => {
+          const a = agents.find(x => x.agent_id === id);
+          if (!a) return `@${id}: not registered`;
+          return a.status === 'working'
+            ? `@${id}: working on ${a.repo_full_name?.split('/')[1]} — ${a.task_title}`
+            : `@${id}: idle (${a.completed_tasks} done, ${a.failed_tasks} failed)`;
+        }).join('\n');
+        roomContext += `\n\nMENTIONED AGENTS:\n${mentionLines}`;
+      }
+
       handleMessage(text, fromName || 'Shayan', topicId, roomContext);
     } else {
       handleMessage(text, fromName || 'Shayan', topicId);
@@ -348,4 +372,55 @@ async function handleSkipBatch(repoArg, batchNumArg, topicId) {
   return true;
 }
 
-module.exports = { handleCommand };
+// Improvement 4 — conflict resolution via inline keyboard button presses.
+// Wire in index.js: const cb = req.body.callback_query; if (cb) { await handleCallbackQuery(cb); return res.status(200).json({ok:true}); }
+async function handleCallbackQuery(callbackQuery) {
+  const data    = callbackQuery.data || '';
+  const queryId = callbackQuery.id;
+  const topicId = callbackQuery.message?.message_thread_id;
+
+  if (!data.startsWith('conflict:')) return false;
+
+  const parts      = data.split(':');
+  const action     = parts[1];
+  const conflictId = parts.slice(2).join(':');
+
+  await answerCallback(queryId).catch(() => {});
+
+  const conflict = getPendingConflict(conflictId);
+  if (!conflict) {
+    await sendTelegramMessage('Conflict already resolved or expired.', null, topicId).catch(() => {});
+    return true;
+  }
+
+  const repoName = conflict.repoFullName.split('/')[1];
+
+  switch (action) {
+    case 'wait':
+      await sendTelegramMessage(
+        `⏳ ${conflict.agentId} will wait. Conflict locks held — agent will retry.`,
+        null, topicId
+      ).catch(() => {});
+      break;
+
+    case 'skip':
+      await sendTelegramMessage(
+        `⏭️ ${conflict.agentId} skipping conflicted files on ${repoName} and proceeding with the rest.`,
+        null, topicId
+      ).catch(() => {});
+      break;
+
+    case 'reassign':
+      await releaseAllLocks(conflict.repoFullName, conflict.lockedBy || conflict.agentId).catch(() => {});
+      await sendTelegramMessage(
+        `🔄 Locks released for ${repoName}. ${conflict.agentId} can now acquire the files or be reassigned.`,
+        null, topicId
+      ).catch(() => {});
+      break;
+  }
+
+  resolvePendingConflict(conflictId);
+  return true;
+}
+
+module.exports = { handleCommand, handleCallbackQuery };

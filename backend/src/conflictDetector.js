@@ -1,11 +1,15 @@
 const logger = require('./logger');
 const { acquireFileLocks, releaseFileLocks,
         releaseExpiredLocks }  = require('./agentDb');
-const { announceConflict }     = require('./agentRoom');
+const { announceConflict,
+        sendConflictKeyboard } = require('./agentRoom');
 
 const DEPENDENT_REPOS = [
   ['Thatisshayan/AlphonsoEcosystem', 'Thatisshayan/session-guard'],
 ];
+
+// In-memory pending conflicts — resolved via Telegram inline keyboard
+const pendingConflicts = new Map();
 
 async function checkAndLockFiles(repoFullName, filePaths, agentId, agentLabel, taskId) {
   await releaseExpiredLocks().catch(() => {});
@@ -19,7 +23,18 @@ async function checkAndLockFiles(repoFullName, filePaths, agentId, agentLabel, t
   );
 
   if (conflicts.length > 0) {
-    await announceConflict(agentId, agentLabel, repoFullName.split('/')[1], conflicts);
+    const conflictId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    pendingConflicts.set(conflictId, {
+      repoFullName, agentId, agentLabel, filePaths, taskId, conflicts,
+      createdAt: Date.now(),
+    });
+    // Auto-expire after 30 min
+    setTimeout(() => pendingConflicts.delete(conflictId), 30 * 60 * 1000);
+
+    const repoName = repoFullName.split('/')[1];
+    // Send keyboard first (Improvement 4), then text fallback
+    await sendConflictKeyboard(agentId, agentLabel, repoName, conflicts, conflictId);
+    await announceConflict(agentId, agentLabel, repoName, conflicts);
   }
 
   const canProceed = acquired.length > 0 || filePaths.length === 0;
@@ -60,9 +75,19 @@ async function checkDependencyConflicts(repoFullName) {
   return { hasConflict: false };
 }
 
+function getPendingConflict(conflictId) {
+  return pendingConflicts.get(conflictId) || null;
+}
+
+function resolvePendingConflict(conflictId) {
+  pendingConflicts.delete(conflictId);
+}
+
 module.exports = {
   checkAndLockFiles,
   releaseAllLocks,
   checkDependencyConflicts,
   getDependentRepos,
+  getPendingConflict,
+  resolvePendingConflict,
 };

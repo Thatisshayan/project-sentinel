@@ -53,6 +53,13 @@ async function initAgentSchema() {
     );
   `);
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS agent_room_config (
+      key   TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+
   logger.info('Agent schema initialised');
 }
 
@@ -190,6 +197,20 @@ async function getRecentMessages(limit = 20) {
   return r.rows.reverse();
 }
 
+// ── Agent room config ─────────────────────────────────────────────────────────
+
+async function getConfig(key) {
+  const r = await query('SELECT value FROM agent_room_config WHERE key = $1', [key]);
+  return r.rows[0]?.value || null;
+}
+
+async function setConfig(key, value) {
+  await query(`
+    INSERT INTO agent_room_config (key, value) VALUES ($1, $2)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+  `, [key, String(value)]);
+}
+
 module.exports = {
   initAgentSchema,
   registerAgent,
@@ -203,4 +224,6 @@ module.exports = {
   releaseExpiredLocks,
   logAgentMessage,
   getRecentMessages,
+  getConfig,
+  setConfig,
 };

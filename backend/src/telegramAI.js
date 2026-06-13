@@ -152,7 +152,24 @@ async function handleMessage(messageText, fromName, topicId, roomContext) {
     const agentSection = roomContext
       ? `\nAGENT ROOM CONTEXT:\n${roomContext}\n`
       : '';
-    const prompt  = `${context}${agentSection}\nMessage from ${fromName}: ${messageText}`;
+
+    // Improvement 3 — @mention detection: add live status for any mentioned agent
+    const AGENT_IDS     = ['nvidia','qwen_coder','qwen_coder_dash','llama_fast','gemini','qwen_max','qwen_turbo','deepseek','qwen_plus','opencode'];
+    const mentionedIds  = AGENT_IDS.filter(id => messageText.toLowerCase().includes(`@${id}`));
+    let mentionSection  = '';
+    if (mentionedIds.length > 0) {
+      const agents      = await getAllAgents().catch(() => []);
+      const lines       = mentionedIds.map(id => {
+        const a = agents.find(x => x.agent_id === id);
+        if (!a) return `@${id}: not registered`;
+        return a.status === 'working'
+          ? `@${id}: working on ${a.repo_full_name?.split('/')[1]} — ${a.task_title}`
+          : `@${id}: idle (${a.completed_tasks} done, ${a.failed_tasks} failed)`;
+      }).join('\n');
+      mentionSection = `\nMENTIONED AGENTS:\n${lines}\n`;
+    }
+
+    const prompt  = `${context}${agentSection}${mentionSection}\nMessage from ${fromName}: ${messageText}`;
 
     const raw = await callChatAPI(prompt) ||
       '{"action":"answer","message":"Sorry, I had trouble understanding that."}';

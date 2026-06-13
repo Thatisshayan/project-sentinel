@@ -1,6 +1,7 @@
 const { Worker, Queue }       = require('bullmq');
 const { getRedisConnection }  = require('./queueClient');
-const { releaseExpiredLocks } = require('./agentDb');
+const { releaseExpiredLocks }                          = require('./agentDb');
+const { updatePinnedStatusBoard, sendMorningBriefing } = require('./agentRoom');
 const { checkAllProviders }   = require('./buildPoller');
 const { orchestrateDebug }    = require('./debugOrchestrator');
 const { sendTelegramMessage } = require('./telegramClient');
@@ -223,7 +224,17 @@ function startDailyReportWorker() {
     jobId:   'daily-report-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule daily report cron'));
 
-  const worker = new Worker('daily-report', async () => {
+  // 8am Toronto — agent room morning briefing (Improvement 5)
+  queue.add('morning-briefing', {}, {
+    repeat: { pattern: '0 8 * * *', tz: 'America/Toronto' },
+    jobId:  'morning-briefing-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule morning briefing cron'));
+
+  const worker = new Worker('daily-report', async (job) => {
+    if (job.name === 'morning-briefing') {
+      await sendMorningBriefing();
+      return;
+    }
     await refreshAllMetrics();
     await sendDailyReport();
     await detectPatterns();
@@ -283,10 +294,20 @@ function startSprintWorker() {
 // ── Agent cleanup worker (expired file locks every 1h) ────────────────────────
 
 function startAgentCleanupWorker() {
+  // Release expired file locks every hour
   setInterval(() => {
     releaseExpiredLocks().catch(() => {});
   }, 60 * 60 * 1000);
-  logger.info('Agent cleanup worker started (expired locks every 1h)');
+
+  // Improvement 1 — update pinned status board every 30 minutes
+  setInterval(() => {
+    updatePinnedStatusBoard().catch(() => {});
+  }, 30 * 60 * 1000);
+
+  // Send initial status board on startup (non-blocking)
+  updatePinnedStatusBoard().catch(() => {});
+
+  logger.info('Agent cleanup worker started (locks every 1h, status board every 30m)');
 }
 
 module.exports = { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAgentCleanupWorker };
