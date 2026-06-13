@@ -1,5 +1,6 @@
 const { Worker, Queue }       = require('bullmq');
 const { getRedisConnection }  = require('./queueClient');
+const { releaseExpiredLocks } = require('./agentDb');
 const { checkAllProviders }   = require('./buildPoller');
 const { orchestrateDebug }    = require('./debugOrchestrator');
 const { sendTelegramMessage } = require('./telegramClient');
@@ -279,4 +280,13 @@ function startSprintWorker() {
   return worker;
 }
 
-module.exports = { startBuildPollWorker, startDailyReportWorker, startSprintWorker };
+// ── Agent cleanup worker (expired file locks every 1h) ────────────────────────
+
+function startAgentCleanupWorker() {
+  setInterval(() => {
+    releaseExpiredLocks().catch(() => {});
+  }, 60 * 60 * 1000);
+  logger.info('Agent cleanup worker started (expired locks every 1h)');
+}
+
+module.exports = { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAgentCleanupWorker };

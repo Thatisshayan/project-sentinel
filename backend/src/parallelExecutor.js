@@ -1,0 +1,141 @@
+const logger = require('./logger');
+const { selectAgent, assignAgent, freeAgent } = require('./agentRegistry');
+const { checkAndLockFiles,
+        releaseAllLocks,
+        checkDependencyConflicts }  = require('./conflictDetector');
+const { announceStart, announceComplete,
+        announceFailed }            = require('./agentRoom');
+const { executeBatch }              = require('./taskBuilder');
+const { createPullRequest }         = require('./prCreator');
+const { findNotionProject }         = require('./notionClient');
+const { getBuilderConfig }          = require('./builderRouter');
+
+const MAX_PARALLEL = () => parseInt(process.env.MAX_PARALLEL_AGENTS || '3');
+
+async function executeTaskParallel(task, context) {
+  const { repoFullName, repoName } = context;
+
+  const depCheck = await checkDependencyConflicts(repoFullName);
+  if (depCheck.hasConflict) {
+    logger.warn({ repoFullName, reason: depCheck.reason }, 'Dependency conflict — queuing task');
+    return { status: 'deferred', reason: depCheck.reason };
+  }
+
+  const agentId     = await selectAgent(task.complexity || 'medium', task.builder_agent);
+  const agentConfig = getBuilderConfig(agentId);
+
+  const lockResult = await checkAndLockFiles(
+    repoFullName,
+    task.affected_files || [],
+    agentId,
+    agentConfig.label,
+    task.id
+  );
+
+  if (!lockResult.canProceed) {
+    return { status: 'deferred', reason: 'All files locked by other agents' };
+  }
+
+  await assignAgent(agentId, {
+    repoFullName,
+    taskType:  task.task_type || 'build',
+    taskId:    task.id,
+    taskTitle: task.title || task.task_title,
+  });
+
+  await announceStart(
+    agentId, agentConfig.label,
+    task.task_type || 'build',
+    repoName,
+    task.title || task.task_title
+  );
+
+  try {
+    const notionProject = await findNotionProject(repoName).catch(() => null);
+
+    const batchResult = await executeBatch(
+      [task],
+      {
+        repoFullName,
+        repoName,
+        projectName: notionProject?.projectName || repoName,
+        branchName:  'main',
+      },
+      agentId
+    );
+
+    if (batchResult.status === 'completed') {
+      const { prUrl } = await createPullRequest({
+        repoFullName,
+        fixBranch:  batchResult.taskBranch,
+        baseBranch: 'main',
+        context: {
+          projectName:   notionProject?.projectName || repoName,
+          repoName,
+          commitSha:     batchResult.commitSha,
+          attemptNumber: 1,
+          buildProvider: 'parallel',
+          failureReason: task.title || task.task_title,
+        },
+      });
+
+      await announceComplete(agentId, agentConfig.label, repoName,
+        task.title || task.task_title, prUrl);
+      await freeAgent(agentId, true);
+      await releaseAllLocks(repoFullName, agentId);
+
+      return { status: 'completed', prUrl, agentId, builderUsed: agentConfig.label };
+    } else {
+      await announceFailed(agentId, agentConfig.label, repoName,
+        task.title || task.task_title, batchResult.reason);
+      await freeAgent(agentId, false);
+      await releaseAllLocks(repoFullName, agentId);
+
+      return { status: 'failed', reason: batchResult.reason };
+    }
+
+  } catch (err) {
+    await announceFailed(agentId, agentConfig.label, repoName,
+      task.title || task.task_title, err.message);
+    await freeAgent(agentId, false);
+    await releaseAllLocks(repoFullName, agentId);
+    return { status: 'error', reason: err.message };
+  }
+}
+
+async function executePortfolioTasks(tasks) {
+  const maxParallel = MAX_PARALLEL();
+  const results     = [];
+  const queue       = [...tasks];
+  const running     = [];
+
+  while (queue.length > 0 || running.length > 0) {
+    while (running.length < maxParallel && queue.length > 0) {
+      const task    = queue.shift();
+      const context = {
+        repoFullName: task.repo_full_name,
+        repoName:     task.repo_name || task.repo_full_name?.split('/')[1],
+      };
+
+      const promise = executeTaskParallel(task, context)
+        .then(result => {
+          results.push({ task, result });
+          running.splice(running.indexOf(promise), 1);
+        })
+        .catch(err => {
+          results.push({ task, result: { status: 'error', reason: err.message } });
+          running.splice(running.indexOf(promise), 1);
+        });
+
+      running.push(promise);
+    }
+
+    if (running.length > 0) {
+      await Promise.race(running);
+    }
+  }
+
+  return results;
+}
+
+module.exports = { executeTaskParallel, executePortfolioTasks };

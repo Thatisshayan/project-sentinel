@@ -21,7 +21,9 @@ const {
   approveSprint, getSprintStatus,
   pauseSprint, resumeSprint,
 } = require('./sprintOrchestrator');
-const { getVelocityReport } = require('./velocityTracker');
+const { getVelocityReport }      = require('./velocityTracker');
+const { getAgentRoomSummary }    = require('./agentRoom');
+const { executePortfolioTasks }  = require('./parallelExecutor');
 
 async function handleCommand(text, chatId, topicId, fromName) {
   // Route non-slash messages to AI agent
@@ -121,6 +123,19 @@ async function handleCommand(text, chatId, topicId, fromName) {
     case 'velocity': {
       const report = await getVelocityReport();
       await sendTelegramMessage(report, null, topicId);
+      return true;
+    }
+    case 'agents': {
+      const summary = await getAgentRoomSummary();
+      await sendTelegramMessage(summary, null, topicId);
+      return true;
+    }
+    case 'agent-room': {
+      await sendTelegramMessage(
+        `Agent room topic ID: ${process.env.AGENT_ROOM_TOPIC_ID || 'not configured'}\n` +
+        `Set AGENT_ROOM_TOPIC_ID in Railway to activate.`,
+        null, topicId
+      );
       return true;
     }
     default:

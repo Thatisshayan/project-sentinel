@@ -17,6 +17,7 @@ const { stopAllTasksForRepo }  = require('./auditDb');
 const { approveSprint,
         getSprintStatus }      = require('./sprintOrchestrator');
 const { getVelocityReport }    = require('./velocityTracker');
+const { getAgentRoomSummary }  = require('./agentRoom');
 
 const CHAT_MODEL = process.env.CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct';
 
@@ -33,6 +34,7 @@ AVAILABLE ACTIONS (respond with JSON action objects):
 - { "action": "approve_sprint" }
 - { "action": "sprint_status" }
 - { "action": "velocity_report" }
+- { "action": "show_agents" }
 - { "action": "answer", "message": "<your response>" }
 
 RULES:
@@ -211,6 +213,12 @@ async function executeAction(action, topicId) {
     case 'velocity_report': {
       const report = await getVelocityReport().catch(() => 'Velocity data unavailable.');
       await sendTelegramMessage(report, null, topicId).catch(() => {});
+      break;
+    }
+
+    case 'show_agents': {
+      const summary = await getAgentRoomSummary();
+      await sendTelegramMessage(summary, null, topicId).catch(() => {});
       break;
     }
 

@@ -6,7 +6,8 @@ const { initAuditSchema }      = require('./auditDb');
 const { initPortfolioSchema }  = require('./portfolioDb');
 const { initSprintSchema }     = require('./sprintDb');
 const { initAgentSchema }      = require('./agentDb');
-const { startBuildPollWorker, startDailyReportWorker, startSprintWorker } = require('./workers');
+const { initAgentPool }        = require('./agentRegistry');
+const { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAgentCleanupWorker } = require('./workers');
 
 const REQUIRED = [
   // Phase 1 (required)
@@ -112,9 +113,12 @@ app.listen(PORT, () => {
     logger.info('Sprint schema ready');
     await initAgentSchema();
     logger.info('Agent schema ready');
+    await initAgentPool();
+    logger.info('Agent pool ready');
     startBuildPollWorker();
     startDailyReportWorker();
     startSprintWorker();
+    startAgentCleanupWorker();
     logger.info('Workers started');
   } catch (err) {
     logger.error({ err: err.message }, 'Failed to initialise Phase 2 components');
