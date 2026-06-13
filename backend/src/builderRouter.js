@@ -96,7 +96,7 @@ const BUILDERS = {
   },
 };
 
-const DEFAULT_BUILDER = 'claude';
+const DEFAULT_BUILDER = 'nvidia';
 
 function getBuilderConfig(assignment) {
   const key    = (assignment || DEFAULT_BUILDER).toLowerCase().trim();
@@ -110,7 +110,7 @@ function getBuilderConfig(assignment) {
 
   if (config.envKey && !process.env[config.envKey]) {
     logger.warn({ builder: key, envKey: config.envKey, fallback: DEFAULT_BUILDER },
-      'Builder API key missing — falling back to claude');
+      'Builder API key missing — falling back to nvidia');
     return BUILDERS[DEFAULT_BUILDER];
   }
 
