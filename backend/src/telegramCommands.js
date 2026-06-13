@@ -26,6 +26,9 @@ const { getAgentRoomSummary,
         answerCallback }         = require('./agentRoom');
 const { executePortfolioTasks }  = require('./parallelExecutor');
 const { getAllAgents }            = require('./agentDb');
+const { getPerformanceReport }   = require('./performanceTracker');
+const { getPromptReport }        = require('./promptOptimizer');
+const { runSelfAudit }           = require('./selfAuditor');
 const {
   getPendingConflict,
   resolvePendingConflict,
@@ -166,6 +169,31 @@ async function handleCommand(text, chatId, topicId, fromName) {
         `Set AGENT_ROOM_TOPIC_ID in Railway to activate.`,
         null, topicId
       );
+      return true;
+    }
+    case 'self-audit': {
+      await sendTelegramMessage('Triggering Sentinel self-audit...', null, topicId);
+      runSelfAudit().catch(err => logger.error({ err: err.message }, 'Self-audit failed'));
+      return true;
+    }
+    case 'self-approve': {
+      const { executeApprovedTasks } = require('./auditOrchestrator');
+      await sendTelegramMessage('Approving Sentinel self-improvement tasks...', null, topicId);
+      executeApprovedTasks(
+        'Thatisshayan/project-sentinel',
+        'project-sentinel',
+        topicId
+      ).catch(() => {});
+      return true;
+    }
+    case 'performance': {
+      const report = await getPerformanceReport();
+      await sendTelegramMessage(report, null, topicId);
+      return true;
+    }
+    case 'prompts': {
+      const report = await getPromptReport();
+      await sendTelegramMessage(report, null, topicId);
       return true;
     }
     default:

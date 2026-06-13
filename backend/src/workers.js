@@ -2,6 +2,8 @@ const { Worker, Queue }       = require('bullmq');
 const { getRedisConnection }  = require('./queueClient');
 const { releaseExpiredLocks }                          = require('./agentDb');
 const { updatePinnedStatusBoard, sendMorningBriefing } = require('./agentRoom');
+const { runSelfAudit }  = require('./selfAuditor');
+const { checkAndHeal }  = require('./selfHealer');
 const { checkAllProviders }   = require('./buildPoller');
 const { orchestrateDebug }    = require('./debugOrchestrator');
 const { sendTelegramMessage } = require('./telegramClient');
@@ -272,6 +274,12 @@ function startSprintWorker() {
     jobId:  'sprint-midweek-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule sprint midweek cron'));
 
+  // Sunday 9pm Toronto — Sentinel self-audit (after sprint proposal at 8pm)
+  queue.add('self-audit', {}, {
+    repeat: { pattern: '0 21 * * 0', tz: 'America/Toronto' },
+    jobId:  'self-audit-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule self-audit cron'));
+
   const worker = new Worker('sprint', async (job) => {
     if (job.name === 'propose') {
       await recordWeeklyVelocity();
@@ -280,6 +288,10 @@ function startSprintWorker() {
     if (job.name === 'midweek') {
       const { getSprintStatus } = require('./sprintOrchestrator');
       await getSprintStatus(null);
+    }
+    if (job.name === 'self-audit') {
+      await runSelfAudit();
+      await checkAndHeal();
     }
   }, { connection: conn });
 

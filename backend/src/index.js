@@ -7,6 +7,8 @@ const { initPortfolioSchema }  = require('./portfolioDb');
 const { initSprintSchema }     = require('./sprintDb');
 const { initAgentSchema }      = require('./agentDb');
 const { initAgentPool }        = require('./agentRegistry');
+const { initSelfAuditSchema }  = require('./selfAuditDb');
+const { initDefaultPrompts }   = require('./promptOptimizer');
 const { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAgentCleanupWorker } = require('./workers');
 
 const REQUIRED = [
@@ -41,7 +43,7 @@ if (missingPhase2.length > 0) {
 
 const express = require('express');
 const app     = express();
-const { handleCommand } = require('./telegramCommands');
+const { handleCommand, handleCallbackQuery } = require('./telegramCommands');
 
 app.use(express.json({ limit: '5mb' }));
 app.set('trust proxy', 1);
@@ -61,6 +63,12 @@ app.post('/webhook/telegram', async (req, res) => {
   
   if (!expectedSecret) {
     logger.warn('DEBUGGER_SHARED_SECRET not set — skipping secret validation');
+  }
+
+  const cb = req.body.callback_query;
+  if (cb) {
+    await handleCallbackQuery(cb).catch(() => {});
+    return res.status(200).json({ ok: true });
   }
 
   const message = req.body.message || req.body.edited_message;
@@ -113,6 +121,10 @@ app.listen(PORT, () => {
     logger.info('Sprint schema ready');
     await initAgentSchema();
     logger.info('Agent schema ready');
+    await initSelfAuditSchema();
+    logger.info('Self-audit schema ready');
+    await initDefaultPrompts();
+    logger.info('Prompts initialised');
     await initAgentPool();
     logger.info('Agent pool ready');
     startBuildPollWorker();

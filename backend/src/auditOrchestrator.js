@@ -13,7 +13,9 @@ const {
   updateAuditTask, countTasksExecutedToday,
   stopAllTasksForRepo, markTasksDoneForBranch,
 } = require('./auditDb');
-const { getBuilderConfig } = require('./builderRouter');
+const { getBuilderConfig }             = require('./builderRouter');
+const { reportFailure, reportSuccess } = require('./selfHealer');
+const { trackModelCall }               = require('./performanceTracker');
 
 const AUDIT_ENABLED      = () => process.env.AUDIT_AGENT_ENABLED    !== 'false';
 const BUILDER_ENABLED    = () => process.env.BUILDER_AGENT_ENABLED  !== 'false';
@@ -127,14 +129,21 @@ async function triggerAudit(payload) {
     topicId
   ).catch(() => {});
 
-  // Run Claude Code audit
+  // Run Claude Code audit — wrapped for performance tracking and self-healing
   let auditResult;
   try {
-    auditResult = await runAudit({
-      repoFullName, repoName, projectName,
-      commitSha, commitMessage, branchName: branchName || 'main',
-    });
+    auditResult = await trackModelCall(
+      process.env.AUDIT_MODEL || 'nvidia',
+      'audit',
+      'medium',
+      () => runAudit({
+        repoFullName, repoName, projectName,
+        commitSha, commitMessage, branchName: branchName || 'main',
+      })
+    );
+    await reportSuccess('auditOrchestrator');
   } catch (err) {
+    await reportFailure('auditOrchestrator', err);
     logger.error({ err: err.message, repoFullName }, 'Audit failed');
     await updateAuditCycle(cycle.id, { status: 'failed' });
     await sendTelegramMessage(
