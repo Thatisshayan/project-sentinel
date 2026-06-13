@@ -9,6 +9,7 @@ const { initAgentSchema }      = require('./agentDb');
 const { initAgentPool }        = require('./agentRegistry');
 const { initSelfAuditSchema }  = require('./selfAuditDb');
 const { initDefaultPrompts }   = require('./promptOptimizer');
+const { initBusinessSchema }   = require('./businessDb');
 const { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAgentCleanupWorker } = require('./workers');
 
 const REQUIRED = [
@@ -125,6 +126,8 @@ app.listen(PORT, () => {
     logger.info('Self-audit schema ready');
     await initDefaultPrompts();
     logger.info('Prompts initialised');
+    await initBusinessSchema();
+    logger.info('Business intelligence schema ready');
     await initAgentPool();
     logger.info('Agent pool ready');
     startBuildPollWorker();

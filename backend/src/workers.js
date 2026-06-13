@@ -2,8 +2,11 @@ const { Worker, Queue }       = require('bullmq');
 const { getRedisConnection }  = require('./queueClient');
 const { releaseExpiredLocks }                          = require('./agentDb');
 const { updatePinnedStatusBoard, sendMorningBriefing } = require('./agentRoom');
-const { runSelfAudit }  = require('./selfAuditor');
-const { checkAndHeal }  = require('./selfHealer');
+const { runSelfAudit }          = require('./selfAuditor');
+const { checkAndHeal }          = require('./selfHealer');
+const { pullAllMetrics }        = require('./businessMetrics');
+const { scoreAllQueuedTasks }   = require('./roiScorer');
+const { generateWeeklyReport }  = require('./weeklyBusinessReport');
 const { checkAllProviders }   = require('./buildPoller');
 const { orchestrateDebug }    = require('./debugOrchestrator');
 const { sendTelegramMessage } = require('./telegramClient');
@@ -226,15 +229,36 @@ function startDailyReportWorker() {
     jobId:   'daily-report-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule daily report cron'));
 
-  // 8am Toronto — agent room morning briefing (Improvement 5)
+  // 8am Toronto — agent room morning briefing (Phase 6 Improvement 5)
   queue.add('morning-briefing', {}, {
     repeat: { pattern: '0 8 * * *', tz: 'America/Toronto' },
     jobId:  'morning-briefing-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule morning briefing cron'));
 
+  // 6am Toronto — pull business metrics before daily report (Phase 8)
+  queue.add('pull-metrics', {}, {
+    repeat: { pattern: '0 6 * * *', tz: 'America/Toronto' },
+    jobId:  'metrics-pull-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule metrics pull cron'));
+
+  // Monday 8am Toronto — weekly business + technical report (Phase 8)
+  queue.add('weekly-report', {}, {
+    repeat: { pattern: '0 8 * * 1', tz: 'America/Toronto' },
+    jobId:  'weekly-report-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule weekly report cron'));
+
   const worker = new Worker('daily-report', async (job) => {
     if (job.name === 'morning-briefing') {
       await sendMorningBriefing();
+      return;
+    }
+    if (job.name === 'pull-metrics') {
+      await pullAllMetrics();
+      await scoreAllQueuedTasks();
+      return;
+    }
+    if (job.name === 'weekly-report') {
+      await generateWeeklyReport();
       return;
     }
     await refreshAllMetrics();

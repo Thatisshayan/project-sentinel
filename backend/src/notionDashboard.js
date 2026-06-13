@@ -3,6 +3,7 @@ const logger     = require('./logger');
 const { getPortfolioSummary }              = require('./portfolioAnalytics');
 const { getDailyCost, getMonthlyCost,
         getOpenPatterns }                  = require('./portfolioDb');
+const { getLatestMetrics }                 = require('./businessDb');
 
 const notion  = () => new Client({ auth: process.env.NOTION_API_KEY });
 const PAGE_ID = () => process.env.NOTION_DASHBOARD_PAGE_ID;
@@ -20,11 +21,12 @@ async function updateDashboard() {
   }
 
   try {
-    const [summary, patterns, dailyCost, monthlyCost] = await Promise.all([
+    const [summary, patterns, dailyCost, monthlyCost, businessBlocks] = await Promise.all([
       getPortfolioSummary(),
       getOpenPatterns(),
       getDailyCost(),
       getMonthlyCost(),
+      buildBusinessSection(),
     ]);
 
     const { metrics, avgHealth, healthy, broken } = summary;
@@ -67,13 +69,18 @@ async function updateDashboard() {
           ).join('\n'), '🔍')
         : bulletText('✅ No patterns detected'),
       divider(),
+      heading3('💼 Business Metrics'),
+      ...businessBlocks,
+      divider(),
       heading3('📋 Quick Commands'),
       code(
         '/sentinel execute <repo>  — run pending tasks\n' +
         '/sentinel audit <repo>    — trigger audit\n' +
         '/sentinel status <repo>   — repo details\n' +
         '/sentinel report          — get daily report now\n' +
-        '/sentinel costs           — show API spend breakdown'
+        '/sentinel costs           — show API spend breakdown\n' +
+        '/sentinel business <repo> — business metrics\n' +
+        '/sentinel weekly          — weekly combined report'
       ),
     ];
 
@@ -97,6 +104,35 @@ async function updateDashboard() {
 
   } catch (err) {
     logger.error({ err: err.message }, 'Dashboard update failed — non-blocking');
+  }
+}
+
+// ── Business metrics section ──────────────────────────────────────────────────
+
+const REVENUE_REPOS = ['tapcash', 'acc', 'costpilot'];
+
+async function buildBusinessSection() {
+  try {
+    const blocks = [];
+
+    for (const repoName of REVENUE_REPOS) {
+      const metrics = await getLatestMetrics(repoName).catch(() => []);
+      if (metrics.length === 0) continue;
+
+      const lines = metrics.map(m => {
+        const val = m.metric_unit === 'usd'
+          ? `$${parseFloat(m.metric_value).toFixed(2)}`
+          : parseFloat(m.metric_value).toLocaleString();
+        return `${m.metric_name.replace(/_/g, ' ')}: ${val}`;
+      }).join('\n');
+
+      blocks.push(callout(`${repoName}\n${lines}`, '💼'));
+    }
+
+    return blocks.length > 0 ? blocks : [bulletText('No business metrics connected yet')];
+  } catch (err) {
+    logger.warn({ err: err.message }, 'Business section build failed');
+    return [bulletText('Business metrics unavailable')];
   }
 }
 

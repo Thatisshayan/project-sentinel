@@ -29,6 +29,10 @@ const { getAllAgents }            = require('./agentDb');
 const { getPerformanceReport }   = require('./performanceTracker');
 const { getPromptReport }        = require('./promptOptimizer');
 const { runSelfAudit }           = require('./selfAuditor');
+const { generateWeeklyReport }   = require('./weeklyBusinessReport');
+const { getRepoBusinessSummary } = require('./businessMetrics');
+const { getCorrelationSummary }  = require('./correlationEngine');
+const { scoreAllQueuedTasks }    = require('./roiScorer');
 const {
   getPendingConflict,
   resolvePendingConflict,
@@ -194,6 +198,47 @@ async function handleCommand(text, chatId, topicId, fromName) {
     case 'prompts': {
       const report = await getPromptReport();
       await sendTelegramMessage(report, null, topicId);
+      return true;
+    }
+    case 'business': {
+      if (parts[2]) {
+        const summary = await getRepoBusinessSummary(parts[2]);
+        await sendTelegramMessage(
+          summary || `No business metrics for ${parts[2]} yet.`,
+          null, topicId
+        );
+      } else {
+        await generateWeeklyReport();
+      }
+      return true;
+    }
+    case 'roi': {
+      await scoreAllQueuedTasks();
+      await sendTelegramMessage('ROI scores updated for all queued tasks.', null, topicId);
+      return true;
+    }
+    case 'impact': {
+      if (!parts[2]) {
+        await sendTelegramMessage('Usage: /sentinel impact <repo-name>', null, topicId);
+        return true;
+      }
+      const corr = await getCorrelationSummary(parts[2]);
+      if (!corr || !corr.pr_count) {
+        await sendTelegramMessage(`No PR impact data for ${parts[2]} yet.`, null, topicId);
+        return true;
+      }
+      await sendTelegramMessage([
+        `📊 PR Impact — ${parts[2]} (last 30 days)`,
+        `PRs analysed: ${corr.pr_count}`,
+        `Avg impact score: ${parseFloat(corr.avg_impact).toFixed(1)}`,
+        `Positive PRs: ${corr.positive_prs}/${corr.pr_count}`,
+        `Best PR score: ${parseFloat(corr.best_impact).toFixed(1)}`,
+        `Worst PR score: ${parseFloat(corr.worst_impact).toFixed(1)}`,
+      ].join('\n'), null, topicId);
+      return true;
+    }
+    case 'weekly': {
+      await generateWeeklyReport();
       return true;
     }
     default:
