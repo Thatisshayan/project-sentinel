@@ -3,8 +3,14 @@ const logger     = require('./logger');
 const { checkDuplicateTask, createAuditTask } = require('./auditDb');
 
 const notion      = () => new Client({ auth: process.env.NOTION_API_KEY });
-const TASKS_DB_ID = () =>
-  process.env.NOTION_TASKS_DATABASE_ID || process.env.NOTION_DATABASE_ID;
+const TASKS_DB_ID = () => {
+  const raw = process.env.NOTION_TASKS_DATABASE_ID || process.env.NOTION_DATABASE_ID || '';
+  // Strip full Notion URL to bare ID if someone pastes the URL instead of the UUID
+  if (raw.startsWith('http')) {
+    return raw.split('/').pop();
+  }
+  return raw;
+};
 
 const PRIORITY_EMOJI = {
   critical: '🔴', high: '🟠', medium: '🟡', low: '🟢',
