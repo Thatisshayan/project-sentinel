@@ -181,4 +181,11 @@ Commit URL: ${commitUrl}`;
   });
 }
 
-module.exports = { findNotionProject, updateNotionProject, appendChangelog };
+async function updateBuilderAgent(pageId, agentId) {
+  await getClient().pages.update({
+    page_id:    pageId,
+    properties: { 'Builder Agent': { select: { name: agentId } } },
+  });
+}
+
+module.exports = { findNotionProject, updateNotionProject, appendChangelog, updateBuilderAgent };

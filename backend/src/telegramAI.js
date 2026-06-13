@@ -18,6 +18,10 @@ const { approveSprint,
         getSprintStatus }      = require('./sprintOrchestrator');
 const { getVelocityReport }    = require('./velocityTracker');
 const { getAgentRoomSummary }  = require('./agentRoom');
+const { setAgentIdle,
+        getAllAgents }          = require('./agentDb');
+const { findNotionProject,
+        updateBuilderAgent }   = require('./notionClient');
 
 const CHAT_MODEL = process.env.CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct';
 
@@ -35,7 +39,19 @@ AVAILABLE ACTIONS (respond with JSON action objects):
 - { "action": "sprint_status" }
 - { "action": "velocity_report" }
 - { "action": "show_agents" }
+- { "action": "agent_status", "agent": "<agentId>" }
+- { "action": "assign_repo", "repo": "<repoName>", "agent": "<agentId>" }
+- { "action": "stop_agent", "agent": "<agentId>" }
 - { "action": "answer", "message": "<your response>" }
+
+NATURAL LANGUAGE TRIGGERS:
+- "assign <repo> to <agent>"   → action: assign_repo
+- "swap <repo> to <agent>"     → action: assign_repo
+- "what is <agent> doing?"     → action: agent_status
+- "what is <agent> working on?"→ action: agent_status
+- "stop <agent>"               → action: stop_agent
+
+AGENT IDs: nvidia, qwen_coder, qwen_coder_dash, llama_fast, gemini, qwen_max, qwen_plus, qwen_turbo, deepseek, opencode
 
 RULES:
 1. Always respond with a JSON object containing an "action" field.
@@ -46,6 +62,7 @@ RULES:
 6. If asked to "focus on" or "prioritize" a repo, execute its tasks.
 7. Address Shayan by name occasionally but not every message.
 8. Tone: direct, confident, like a sharp technical co-founder.
+9. When AGENT ROOM CONTEXT is provided, you know exactly what every agent is doing right now — use it.
 
 Respond ONLY with valid JSON. No preamble. No markdown.`;
 
@@ -121,7 +138,7 @@ async function callChatAPI(prompt) {
   throw new Error('No AI provider configured (ANTHROPIC_API_KEY or NVIDIA_API_KEY required)');
 }
 
-async function handleMessage(messageText, fromName, topicId) {
+async function handleMessage(messageText, fromName, topicId, roomContext) {
   if (!process.env.ANTHROPIC_API_KEY && !process.env.NVIDIA_API_KEY) {
     logger.warn('No AI API key configured — AI responses disabled');
     return;
@@ -132,7 +149,10 @@ async function handleMessage(messageText, fromName, topicId) {
 
   try {
     const context = await buildContext();
-    const prompt  = `${context}\n\nMessage from ${fromName}: ${messageText}`;
+    const agentSection = roomContext
+      ? `\nAGENT ROOM CONTEXT:\n${roomContext}\n`
+      : '';
+    const prompt  = `${context}${agentSection}\nMessage from ${fromName}: ${messageText}`;
 
     const raw = await callChatAPI(prompt) ||
       '{"action":"answer","message":"Sorry, I had trouble understanding that."}';
@@ -219,6 +239,54 @@ async function executeAction(action, topicId) {
     case 'show_agents': {
       const summary = await getAgentRoomSummary();
       await sendTelegramMessage(summary, null, topicId).catch(() => {});
+      break;
+    }
+
+    case 'agent_status': {
+      const agents = await getAllAgents();
+      const target = agents.find(a => a.agent_id === action.agent);
+      if (!target) {
+        await sendTelegramMessage(
+          `Unknown agent: ${action.agent}`, null, topicId
+        ).catch(() => {});
+        break;
+      }
+      const status = target.status === 'working'
+        ? `working on ${target.repo_full_name?.split('/')[1]} — ${target.task_title}`
+        : `idle (${target.completed_tasks} done, ${target.failed_tasks} failed)`;
+      await sendTelegramMessage(
+        `${action.agent}: ${status}`, null, topicId
+      ).catch(() => {});
+      break;
+    }
+
+    case 'assign_repo': {
+      if (!repoFullName || !action.agent) break;
+      const project = await findNotionProject(action.repo).catch(() => null);
+      if (!project) {
+        await sendTelegramMessage(
+          `No Notion project found for ${action.repo}.`, null, topicId
+        ).catch(() => {});
+        break;
+      }
+      await updateBuilderAgent(project.pageId, action.agent);
+      await sendTelegramMessage(
+        `${action.repo} assigned to ${action.agent} in Notion.`, null, topicId
+      ).catch(() => {});
+      break;
+    }
+
+    case 'stop_agent': {
+      if (!action.agent) break;
+      const agents = await getAllAgents();
+      const target = agents.find(a => a.agent_id === action.agent);
+      if (target?.repo_full_name) {
+        await stopAllTasksForRepo(target.repo_full_name);
+      }
+      await setAgentIdle(action.agent, false);
+      await sendTelegramMessage(
+        `${action.agent} stopped and marked idle.`, null, topicId
+      ).catch(() => {});
       break;
     }
 

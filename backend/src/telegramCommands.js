@@ -28,7 +28,13 @@ const { executePortfolioTasks }  = require('./parallelExecutor');
 async function handleCommand(text, chatId, topicId, fromName) {
   // Route non-slash messages to AI agent
   if (!text.trim().startsWith('/')) {
-    handleMessage(text, fromName || 'Shayan', topicId);
+    const isAgentRoom = topicId != null && String(topicId) === String(process.env.AGENT_ROOM_TOPIC_ID);
+    if (isAgentRoom) {
+      const roomContext = await getAgentRoomSummary().catch(() => '');
+      handleMessage(text, fromName || 'Shayan', topicId, roomContext);
+    } else {
+      handleMessage(text, fromName || 'Shayan', topicId);
+    }
     return false;
   }
 
