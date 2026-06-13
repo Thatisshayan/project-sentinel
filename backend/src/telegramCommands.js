@@ -275,7 +275,7 @@ async function handleManualAudit(repoArg, topicId) {
     repoFullName:  `Thatisshayan/${repoArg}`,
     repoName:      repoArg,
     projectName:   project?.projectName || repoArg,
-    commitSha:     'HEAD',
+    commitSha:     `manual-${Date.now()}`,
     commitMessage: '[manual-audit]',
     branchName:    'main',
     authorName:    'Human',

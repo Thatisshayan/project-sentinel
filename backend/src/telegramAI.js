@@ -177,7 +177,7 @@ async function executeAction(action, topicId) {
       ).catch(() => {});
       triggerAudit({
         repoFullName, repoName: action.repo,
-        projectName: action.repo, commitSha: 'HEAD',
+        projectName: action.repo, commitSha: `manual-${Date.now()}`,
         commitMessage: '[manual-audit]', branchName: 'main',
         authorName: 'Human', authorEmail: '', topicId,
       }).catch(err => logger.error({ err: err.message }, 'AI audit failed'));
