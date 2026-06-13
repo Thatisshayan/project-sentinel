@@ -111,12 +111,12 @@ async function triggerAudit(payload) {
   logger.info({ repoFullName, cycleId: cycle.id }, 'Audit cycle started');
 
   // Get builder assignment from Notion
-  let builderAgent = 'claude';
+  let builderAgent = 'nvidia';
   try {
     const project = await findNotionProject(repoName);
-    if (project?.builderAgent) builderAgent = project.builderAgent;
+    builderAgent = project?.builderAgent || 'nvidia';
   } catch (e) {
-    logger.warn({ err: e.message }, 'Could not read builder from Notion — using claude');
+    logger.warn({ err: e.message }, 'Could not read builder from Notion — using nvidia');
   }
 
   const builderConfig = getBuilderConfig(builderAgent);
@@ -269,7 +269,7 @@ async function processNextBatch(repoFullName, repoName, topicId) {
     await updateNotionTaskStatus(task.notion_page_id, 'in_progress');
   }
 
-  const builderConfig = getBuilderConfig(tasks[0].builder_agent || 'claude');
+  const builderConfig = getBuilderConfig(tasks[0].builder_agent || 'nvidia');
   const batchNum      = tasks[0].batch_number;
   const taskTitles    = tasks.map(t => `${t.task_number}. ${t.title}`).join('\n');
 
@@ -289,7 +289,7 @@ async function processNextBatch(repoFullName, repoName, topicId) {
     repoFullName, repoName,
     projectName: notionProject?.projectName || repoName,
     branchName:  'main',
-  }, tasks[0].builder_agent || 'claude');
+  }, tasks[0].builder_agent || 'nvidia');
 
   if (batchResult.status === 'completed') {
     const completedNums = batchResult.completedTasks.map(t => t.task_number).join(', ');
