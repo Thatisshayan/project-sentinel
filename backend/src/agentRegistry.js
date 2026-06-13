@@ -5,8 +5,8 @@ const { getBuilderConfig }               = require('./builderRouter');
 const { broadcastToAll }                 = require('./agentRoom');
 
 const AGENT_POOL = [
-  { id: 'claude',          priority: 1, maxConcurrent: 2 },
-  { id: 'nvidia',          priority: 2, maxConcurrent: 3 },
+  // { id: 'claude', priority: 1, maxConcurrent: 2 },  // re-add when ANTHROPIC_API_KEY is set
+  { id: 'nvidia',          priority: 1, maxConcurrent: 3 },
   { id: 'qwen_coder',      priority: 2, maxConcurrent: 3 },
   { id: 'qwen_coder_dash', priority: 3, maxConcurrent: 3 },
   { id: 'gemini',          priority: 3, maxConcurrent: 2 },

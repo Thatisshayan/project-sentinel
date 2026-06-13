@@ -1,13 +1,13 @@
 const logger = require('./logger');
 
 const BUILDERS = {
-  claude: {
-    id:          'claude',
-    label:       'Claude Code',
-    type:        'claude_code',
-    envKey:      'ANTHROPIC_API_KEY',
-    description: 'Anthropic — primary builder',
-  },
+  // claude: {
+  //   id:          'claude',
+  //   label:       'Claude Code',
+  //   type:        'claude_code',
+  //   envKey:      'ANTHROPIC_API_KEY',
+  //   description: 'Anthropic — primary builder',
+  // },
   nvidia: {
     id:          'nvidia',
     label:       'NVIDIA NIM — Nemotron 70B',

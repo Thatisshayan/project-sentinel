@@ -181,9 +181,8 @@ function parseAuditOutput(stdout) {
 async function runAudit(payload) {
   const { repoFullName } = payload;
 
-  // Fallback: if ANTHROPIC_API_KEY is absent but NVIDIA_API_KEY is set,
-  // call NVIDIA NIM directly (no file access, but same structured output).
-  if (!process.env.ANTHROPIC_API_KEY && process.env.NVIDIA_API_KEY) {
+  // NVIDIA NIM is the primary audit path — no ANTHROPIC_API_KEY required.
+  if (process.env.NVIDIA_API_KEY) {
     return runNvidiaAudit(payload);
   }
 
