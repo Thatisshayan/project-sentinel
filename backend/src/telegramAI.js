@@ -35,7 +35,6 @@ function pickSpeakingAgent(messageText) {
   if (/\b(audit|analy|review|secur|score|report)\b/.test(t))           return 'nvidia';
   if (/\b(debug|fail|broke|crash|log)\b/.test(t))                      return 'gemini';
   if (/\b(fast|quick|simple|check|status)\b/.test(t))                  return 'deepseek';
-  if (/\b(plan|sprint|architect|design|refactor|creative|idea)\b/.test(t)) return 'hermes';
   return 'nvidia'; // Nemotron is the default speaker
 }
 
@@ -73,14 +72,13 @@ NATURAL LANGUAGE TRIGGERS:
 - "run the tasks for <repo>"         → action: execute_tasks
 - "audit <repo>"                     → action: trigger_audit
 
-AGENT IDs: nvidia, qwen_coder, qwen_coder_dash, llama_fast, gemini, qwen_max, qwen_plus, qwen_turbo, deepseek, hermes, opencode
+AGENT IDs: nvidia, qwen_coder, qwen_coder_dash, llama_fast, gemini, qwen_max, qwen_plus, qwen_turbo, deepseek, opencode
 
 AGENT PERSONALITIES:
 - nvidia (Nemotron):  Deep reasoning, audit analysis, portfolio intelligence
 - qwen_coder:         Code specialist, PR author, implementation tasks
 - gemini:             Debugging, log analysis, creative problem-solving
 - deepseek:           Fast execution, routine tasks, quick lookups
-- hermes:             Sprint planning, architecture decisions, complex refactors — the creative strategist
 - llama_fast:         Ultra fast, low complexity batch tasks
 
 RULES:

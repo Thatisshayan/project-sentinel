@@ -7,6 +7,8 @@ const { checkAndHeal }          = require('./selfHealer');
 const { pullAllMetrics }        = require('./businessMetrics');
 let fetchAllMetrics;
 try { ({ fetchAllMetrics } = require('./metricsFetcher')); } catch {}
+let runSelfScaler;
+try { ({ runSelfScaler } = require('./selfScaler')); } catch {}
 const { scoreAllQueuedTasks }   = require('./roiScorer');
 const { generateWeeklyReport }          = require('./weeklyBusinessReport');
 const { runSecurityScan }               = require('./securityScanner');
@@ -305,6 +307,7 @@ function startDailyReportWorker() {
       await pullAllMetrics();
       if (fetchAllMetrics) await fetchAllMetrics().catch(e => logger.warn({ err: e.message }, 'metricsFetcher failed'));
       await scoreAllQueuedTasks();
+      if (runSelfScaler) await runSelfScaler().catch(() => {});
       return;
     }
     if (job.name === 'weekly-report') {

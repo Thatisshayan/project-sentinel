@@ -138,7 +138,24 @@ async function processWebhook(payload) {
 
   if (!notionProject) {
     logger.warn({ repoName }, 'No matching Notion project');
-    await sendTelegramMessage(buildUnknownRepoMessage(data), repoName).catch(() => {});
+    // T13 — fetch all page titles so user knows what names exist in Notion
+    let suggestionNote = '';
+    try {
+      const { Client } = require('@notionhq/client');
+      const nc = new Client({ auth: process.env.NOTION_API_KEY });
+      const resp = await nc.databases.query({
+        database_id: process.env.NOTION_DATABASE_ID,
+        page_size: 20,
+      }).catch(() => null);
+      if (resp?.results?.length) {
+        const names = resp.results.map(p => {
+          const t = p.properties['Name'] || p.properties['Project'] || p.properties['Title'];
+          return t?.title?.[0]?.plain_text || '(untitled)';
+        }).filter(Boolean);
+        suggestionNote = `\n\nExisting Notion pages: ${names.join(', ')}\nAdd a "Repo Name" property with value "${repoName}" to the matching page.`;
+      }
+    } catch {}
+    await sendTelegramMessage(buildUnknownRepoMessage(data) + suggestionNote, repoName).catch(() => {});
     return;
   }
 
@@ -175,6 +192,21 @@ async function processWebhook(payload) {
     logger.error({ err: err.message, repoName }, 'Telegram send failed');
   }
 
+  // T11 — trigger security scan immediately on high-risk pushes (don't wait for build pass)
+  if (notionProject && data.riskLevel === 'High') {
+    try {
+      const { runSecurityScan } = require('./securityScanner');
+      runSecurityScan({
+        repoFullName:  data.repoFullName,
+        repoName:      data.repoName,
+        commitSha:     data.commitSha,
+        branchName:    data.branchName,
+        topicId:       notionProject.topicId || null,
+      }).catch(err => logger.warn({ err: err.message }, 'High-risk security scan failed — non-blocking'));
+      logger.info({ repoName: data.repoName, risk: 'High' }, 'Security scan triggered for high-risk push');
+    } catch {}
+  }
+
   // Phase 2 extension: queue build status check
   // Only queue if we found a matching Notion project
   if (notionProject) {
@@ -201,6 +233,12 @@ async function processWebhook(payload) {
     { repoName, projectName: notionProject.projectName, changelogAppended },
     'Webhook processing complete'
   );
+
+  // T8 — notify dependent repos that this repo changed
+  try {
+    const { notifyDependents } = require('./crossRepoCoordinator');
+    notifyDependents(repoName, data.commitSha, data.authorName).catch(() => {});
+  } catch {}
 }
 
 // ── PR event handler ─────────────────────────────────────────────────────────

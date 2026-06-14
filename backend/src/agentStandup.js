@@ -1,10 +1,39 @@
 const logger = require('./logger');
 const { getAllAgents }         = require('./agentDb');
+const { query }               = require('./dbClient');
 const { sendAsAgent }         = require('./agentBots');
 const { getStandupLine }      = require('./agentPersonality');
 const { sendTelegramMessage } = require('./telegramClient');
 
 const AGENT_ROOM_TOPIC = () => parseInt(process.env.AGENT_ROOM_TOPIC_ID || '494');
+
+async function getRealAgentStats(agentId) {
+  const [taskRows, cycleRows] = await Promise.all([
+    query(`
+      SELECT
+        COUNT(CASE WHEN status IN ('done','build_check') THEN 1 END)::int AS done,
+        COUNT(CASE WHEN status = 'failed' THEN 1 END)::int                AS failed,
+        COUNT(CASE WHEN status = 'queued' THEN 1 END)::int                AS queued,
+        COUNT(pr_url)::int                                                 AS prs
+      FROM audit_tasks
+      WHERE builder_agent = $1
+        AND created_at > NOW() - INTERVAL '7 days'
+    `, [agentId]).catch(() => ({ rows: [{}] })),
+    query(`
+      SELECT COUNT(*)::int AS audits
+      FROM audit_cycles
+      WHERE audit_agent = $1
+        AND created_at > NOW() - INTERVAL '7 days'
+    `, [agentId]).catch(() => ({ rows: [{}] })),
+  ]);
+  return {
+    done:   parseInt(taskRows.rows[0]?.done    || 0),
+    failed: parseInt(taskRows.rows[0]?.failed  || 0),
+    queued: parseInt(taskRows.rows[0]?.queued  || 0),
+    prs:    parseInt(taskRows.rows[0]?.prs     || 0),
+    audits: parseInt(cycleRows.rows[0]?.audits || 0),
+  };
+}
 
 async function runAgentStandup() {
   logger.info('Running agent standup');
@@ -15,12 +44,15 @@ async function runAgentStandup() {
     for (const agent of agents) {
       if (agent.status === 'disabled') continue;
 
+      const real  = await getRealAgentStats(agent.agent_id).catch(() => ({}));
+
       const stats = {
-        tasks:          agent.completed_tasks || 0,
-        done:           agent.completed_tasks || 0,
-        failed:         agent.failed_tasks    || 0,
-        prs:            0,
-        audits:         0,
+        tasks:          real.done   || 0,
+        done:           real.done   || 0,
+        failed:         real.failed || 0,
+        prs:            real.prs    || 0,
+        audits:         real.audits || 0,
+        queued:         real.queued || 0,
         tasksGenerated: 0,
         debugs:         0,
         issues:         0,

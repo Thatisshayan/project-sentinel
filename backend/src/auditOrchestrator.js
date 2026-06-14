@@ -13,15 +13,24 @@ const {
   updateAuditTask, countTasksExecutedToday,
   stopAllTasksForRepo, markTasksDoneForBranch,
 } = require('./auditDb');
-const { getBuilderConfig }             = require('./builderRouter');
+const { getBuilderConfig, getFallbackBuilder } = require('./builderRouter');
 const { reportFailure, reportSuccess } = require('./selfHealer');
 const { trackModelCall }               = require('./performanceTracker');
 const { isRepoLocked }                 = require('./repoLock');
 
-const AUDIT_ENABLED      = () => process.env.AUDIT_AGENT_ENABLED    !== 'false';
-const BUILDER_ENABLED    = () => process.env.BUILDER_AGENT_ENABLED  !== 'false';
-const BATCH_SIZE         = () => parseInt(process.env.TASK_BATCH_SIZE             || '5');
-const DAILY_LIMIT        = () => parseInt(process.env.MAX_BUILDER_TASKS_PER_DAY   || '10');
+const AUDIT_ENABLED      = () => process.env.AUDIT_AGENT_ENABLED   !== 'false';
+const BUILDER_ENABLED    = () => process.env.BUILDER_AGENT_ENABLED !== 'false';
+
+let getEffectiveBatchSize, getEffectiveDailyLimit;
+try {
+  ({ getEffectiveBatchSize, getEffectiveDailyLimit } = require('./selfScaler'));
+} catch {
+  getEffectiveBatchSize  = () => parseInt(process.env.TASK_BATCH_SIZE           || '5');
+  getEffectiveDailyLimit = () => parseInt(process.env.MAX_BUILDER_TASKS_PER_DAY || '10');
+}
+
+const BATCH_SIZE  = () => getEffectiveBatchSize();
+const DAILY_LIMIT = () => getEffectiveDailyLimit();
 const COOLDOWN_HOURS     = () => parseInt(process.env.AUDIT_COOLDOWN_HOURS        || '12');
 const QUEUED_THRESHOLD   = () => parseInt(process.env.MIN_QUEUED_BEFORE_SKIP_AUDIT || '3');
 const APPROVAL_TIMEOUT_H = () => parseInt(process.env.AUDIT_APPROVAL_TIMEOUT_H    || '24');
@@ -336,12 +345,31 @@ async function processNextBatch(repoFullName, repoName, topicId) {
 
   const notionProject = await findNotionProject(repoName).catch(() => null);
 
-  const batchResult = await executeBatch(tasks, {
+  const primaryBuilder  = tasks[0].builder_agent || 'nvidia';
+  let   batchResult     = await executeBatch(tasks, {
     repoFullName, repoName,
     projectName: notionProject?.projectName || repoName,
     branchName:  'main',
     topicId,
-  }, tasks[0].builder_agent || 'nvidia');
+  }, primaryBuilder);
+
+  // T10 — retry with fallback builder on failure (once)
+  if (batchResult.status !== 'completed') {
+    const fallback = getFallbackBuilder(primaryBuilder);
+    if (fallback) {
+      logger.info({ primaryBuilder, fallback, repoFullName }, 'Primary builder failed — retrying with fallback');
+      await sendTelegramMessage(
+        `Builder ${primaryBuilder} failed for ${repoName}. Retrying with ${fallback}...`,
+        null, topicId
+      ).catch(() => {});
+      batchResult = await executeBatch(tasks, {
+        repoFullName, repoName,
+        projectName: notionProject?.projectName || repoName,
+        branchName:  'main',
+        topicId,
+      }, fallback);
+    }
+  }
 
   if (batchResult.status === 'completed') {
     const completedNums = batchResult.completedTasks.map(t => t.task_number).join(', ');

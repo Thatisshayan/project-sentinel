@@ -22,6 +22,12 @@ jest.mock('../src/queueClient', () => ({
   enqueueBuildCheck: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('@notionhq/client', () => ({
+  Client: jest.fn().mockImplementation(() => ({
+    databases: { query: jest.fn().mockResolvedValue({ results: [], has_more: false }) },
+  })),
+}));
+
 jest.mock('../src/telegramClient', () => ({
   sendTelegramMessage: jest.fn().mockResolvedValue(true),
 }));
@@ -147,8 +153,10 @@ describe('POST /webhook/github', () => {
       .post('/webhook/github')
       .set('x-hub-signature-256', sign(payload))
       .send(payload);
-    await wait(200);
-    const msg = sendTelegramMessage.mock.calls[0][0];
+    await waitLong();
+    const calls = sendTelegramMessage.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const msg = calls[0][0];
     expect(msg).toContain('Unknown repo received');
     expect(msg).toContain('tapcash');
   });

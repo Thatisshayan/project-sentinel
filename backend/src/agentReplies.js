@@ -9,7 +9,6 @@ const BOT_USERNAME_TO_AGENT = {
   qwendashsentinel:      'qwen_coder_dash', // @qwendashsentinelbot
   geminisentinel:        'gemini',          // @geminisentinelbot
   deepseeksentinel:      'deepseek',        // @deepseeksentinelBot
-  hermessentinel:        'hermes',          // @hermessentinelbot  (create via BotFather)
   // qwen_max, qwen_turbo, llama_fast — bots not yet created, fall back to Sentinel bot
 };
 

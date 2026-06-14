@@ -87,15 +87,6 @@ const BUILDERS = {
     envKey:      'DEEPSEEK_API_KEY',
     description: 'Very cheap — routine low-complexity tasks',
   },
-  hermes: {
-    id:          'hermes',
-    label:       'Hermes 3 — Nous Research (Together.ai)',
-    type:        'openai_compatible',
-    aiderModel:  process.env.HERMES_MODEL || 'NousResearch/Hermes-3-Llama-3.1-70B',
-    apiBase:     'https://api.together.xyz/v1',
-    envKey:      'TOGETHER_API_KEY',
-    description: 'Best open model for planning, structured JSON, creative refactoring',
-  },
   opencode: {
     id:          'opencode',
     label:       'OpenCode',
@@ -106,6 +97,31 @@ const BUILDERS = {
 };
 
 const DEFAULT_BUILDER = 'nvidia';
+
+// Ordered fallback chain when a builder fails
+const FALLBACK_CHAIN = {
+  nvidia:          ['qwen_coder', 'gemini', 'deepseek'],
+  qwen_coder:      ['nvidia',    'gemini', 'deepseek'],
+  qwen_coder_dash: ['qwen_coder','nvidia', 'deepseek'],
+  gemini:          ['nvidia',    'qwen_coder', 'deepseek'],
+  qwen_max:        ['nvidia',    'qwen_coder', 'deepseek'],
+  qwen_plus:       ['qwen_max',  'nvidia',     'deepseek'],
+  qwen_turbo:      ['qwen_coder','nvidia',     'deepseek'],
+  llama_fast:      ['nvidia',    'qwen_coder', 'deepseek'],
+  deepseek:        ['nvidia',    'qwen_coder', 'gemini'],
+  opencode:        ['nvidia'],
+};
+
+function getFallbackBuilder(failedBuilder) {
+  const chain = FALLBACK_CHAIN[failedBuilder] || ['nvidia'];
+  for (const candidate of chain) {
+    const config = BUILDERS[candidate];
+    if (config && (!config.envKey || process.env[config.envKey])) {
+      return candidate;
+    }
+  }
+  return null;
+}
 
 function getBuilderConfig(assignment) {
   const key    = (assignment || DEFAULT_BUILDER).toLowerCase().trim();
@@ -150,10 +166,6 @@ function getAiderEnv(config) {
       env.OPENAI_API_BASE  = 'https://api.deepseek.com';
       env.OPENAI_API_KEY   = process.env.DEEPSEEK_API_KEY || '';
       break;
-    case 'hermes':
-      env.OPENAI_API_KEY  = process.env.TOGETHER_API_KEY || '';
-      env.OPENAI_API_BASE = 'https://api.together.xyz/v1';
-      break;
   }
   return env;
 }
@@ -167,4 +179,4 @@ function listBuilders() {
   }));
 }
 
-module.exports = { getBuilderConfig, getAiderEnv, listBuilders };
+module.exports = { getBuilderConfig, getAiderEnv, listBuilders, getFallbackBuilder };

@@ -32,6 +32,7 @@ async function getHistory(topicId, limit = 15) {
     SELECT from_name, message, response, agent_id, created_at
     FROM conversation_history
     WHERE topic_id = $1
+      AND created_at > NOW() - INTERVAL '7 days'
     ORDER BY created_at DESC
     LIMIT $2
   `, [String(topicId || 'main'), limit]).catch(() => ({ rows: [] }));

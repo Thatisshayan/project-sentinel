@@ -135,9 +135,50 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
       return true;
     }
     case 'dashboard': {
-      const { updateDashboard } = require('./notionDashboard');
-      await updateDashboard();
-      await sendTelegramMessage('Notion dashboard updated.', null, topicId);
+      const { updateDashboard }      = require('./notionDashboard');
+      const { getAllLatestMetrics }   = require('./portfolioDb');
+      const { getCapacityStatus }    = require('./capacityManager');
+      const { getMonthlyCost,
+              getDailyCost }         = require('./portfolioDb');
+      const { query: dbq }           = require('./dbClient');
+
+      const [metrics, capacity, dailyCost, monthlyCost, activeAgents, queuedCount] =
+        await Promise.all([
+          getAllLatestMetrics().catch(() => []),
+          getCapacityStatus().catch(() => ({})),
+          getDailyCost().catch(() => 0),
+          getMonthlyCost().catch(() => 0),
+          getAllAgents().catch(() => []),
+          dbq(`SELECT COUNT(*) as c FROM audit_tasks WHERE status = 'queued' AND safe_to_auto_execute = true`).catch(() => ({ rows: [{ c: 0 }] })),
+        ]);
+
+      const avgHealth = metrics.length
+        ? (metrics.reduce((s, m) => s + parseFloat(m.health_score || 5), 0) / metrics.length).toFixed(1)
+        : 'N/A';
+      const brokenRepos = metrics.filter(m => m.build_status === 'failed').map(m => m.repo_name);
+      const working     = activeAgents.filter(a => a.status === 'working');
+
+      const card = [
+        `Project Sentinel — Live Dashboard`,
+        ``,
+        `Portfolio Health: ${avgHealth}/10 (${metrics.length} repos)`,
+        brokenRepos.length ? `Broken: ${brokenRepos.join(', ')}` : `All builds passing`,
+        ``,
+        `Queued tasks (safe): ${queuedCount.rows[0]?.c || 0}`,
+        `Agents working now: ${working.length}/${activeAgents.length}`,
+        working.length
+          ? working.map(a => `  · ${a.agent_id}: ${(a.repo_full_name || '').split('/')[1] || '?'} — ${a.task_title || '?'}`).join('\n')
+          : '',
+        ``,
+        `Today's API spend: $${parseFloat(dailyCost).toFixed(3)}`,
+        `Month: $${parseFloat(monthlyCost).toFixed(2)} / $${capacity.monthlyBudget || 30} (${capacity.usagePercent || 0}%)`,
+        `Recommended builder: ${capacity.recommendedBuilder || 'nvidia'}`,
+        ``,
+        `Notion updated.`,
+      ].filter(l => l !== null).join('\n');
+
+      updateDashboard().catch(() => {});
+      await sendTelegramMessage(card, null, topicId);
       return true;
     }
     case 'approve-sprint': {
@@ -572,6 +613,43 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
         selfAudit: false,
         security:  null,
       });
+      return true;
+    }
+
+    // T7 — shows which repos have been sending webhook events recently
+    case 'webhook-status': {
+      const { query: dbq } = require('./dbClient');
+      const [seen, allMetrics] = await Promise.all([
+        dbq(`
+          SELECT repo_name, MAX(processed_at) as last_seen, COUNT(*) as events
+          FROM processed_commits
+          WHERE processed_at > NOW() - INTERVAL '7 days'
+          GROUP BY repo_name
+          ORDER BY last_seen DESC
+          LIMIT 20
+        `).catch(() => ({ rows: [] })),
+        dbq(`SELECT DISTINCT repo_name FROM portfolio_metrics`).catch(() => ({ rows: [] })),
+      ]);
+
+      const seenNames = new Set(seen.rows.map(r => r.repo_name.toLowerCase()));
+      const allNames  = allMetrics.rows.map(r => r.repo_name.toLowerCase());
+      const missing   = allNames.filter(n => !seenNames.has(n));
+
+      const receivingLines = seen.rows.map(r =>
+        `✅ ${r.repo_name} — last event ${new Date(r.last_seen).toLocaleDateString('en-CA')} (${r.events} events)`
+      );
+      const missingLines = missing.map(n => `❌ ${n} — no webhook events in 7 days`);
+
+      await sendTelegramMessage([
+        `Webhook Status (last 7 days)`,
+        ``,
+        ...receivingLines,
+        ...(missingLines.length ? ['', 'Missing webhooks:', ...missingLines] : []),
+        ``,
+        `For missing repos: GitHub repo → Settings → Webhooks → Add`,
+        `URL: ${process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}/webhook/github` : '<RAILWAY_URL>/webhook/github'}`,
+        `Events: push, pull_request`,
+      ].join('\n'), null, topicId);
       return true;
     }
 

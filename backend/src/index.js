@@ -19,6 +19,9 @@ try { ({ checkAndOnboardNewRepos } = require('./repoOnboarder')); } catch {}
 
 async function probeTools() {
   const { execSync } = require('child_process');
+  const axios        = require('axios');
+
+  // Check aider
   try {
     const v = execSync('aider --version 2>&1', { timeout: 8000 }).toString().trim();
     logger.info({ version: v }, 'Aider is available');
@@ -31,6 +34,57 @@ async function probeTools() {
       null, null
     ).catch(() => {});
   }
+
+  // T15 — probe each configured AI provider (quick ping, non-blocking)
+  const probes = [
+    {
+      name: 'NVIDIA NIM', key: 'NVIDIA_API_KEY',
+      url:  'https://integrate.api.nvidia.com/v1/models',
+      auth: () => `Bearer ${process.env.NVIDIA_API_KEY}`,
+    },
+    {
+      name: 'Gemini',    key: 'GEMINI_API_KEY',
+      url:  'https://generativelanguage.googleapis.com/v1beta/openai/models',
+      auth: () => `Bearer ${process.env.GEMINI_API_KEY}`,
+    },
+    {
+      name: 'DashScope (Qwen)', key: 'DASHSCOPE_API_KEY',
+      url:  'https://dashscope.aliyuncs.com/compatible-mode/v1/models',
+      auth: () => `Bearer ${process.env.DASHSCOPE_API_KEY}`,
+    },
+    {
+      name: 'DeepSeek', key: 'DEEPSEEK_API_KEY',
+      url:  'https://api.deepseek.com/models',
+      auth: () => `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+    },
+  ];
+
+  const results = [];
+  for (const p of probes) {
+    if (!process.env[p.key]) {
+      results.push(`  ○ ${p.name}: key not set`);
+      continue;
+    }
+    try {
+      await axios.get(p.url, {
+        headers: { Authorization: p.auth() },
+        timeout: 6000,
+      });
+      results.push(`  ✓ ${p.name}: reachable`);
+      logger.info({ provider: p.name }, 'AI provider reachable');
+    } catch (err) {
+      const status = err.response?.status;
+      // 401/403 means key is wrong but endpoint is reachable; 200+ means OK
+      if (status === 401 || status === 403) {
+        results.push(`  ✗ ${p.name}: key invalid (${status})`);
+      } else {
+        results.push(`  ? ${p.name}: ${status || err.code || err.message}`);
+      }
+      logger.warn({ provider: p.name, status }, 'AI provider probe failed');
+    }
+  }
+
+  logger.info({ results }, 'AI provider health check complete');
 }
 
 const REQUIRED = [
