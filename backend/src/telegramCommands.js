@@ -352,6 +352,86 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
       );
       return true;
     }
+
+    // ── Phase 10 — Repo Lock ──────────────────────────────────────────────────
+    case 'lock': {
+      if (!parts[2]) { await sendTelegramMessage('Usage: /sentinel lock <repo>', null, topicId); return true; }
+      const { lockRepo } = require('./repoLock');
+      await lockRepo(parts[2], 'manual');
+      await sendTelegramMessage(
+        `🔐 ${parts[2]} locked. No agents will touch it until /sentinel unlock ${parts[2]}`,
+        null, topicId
+      );
+      return true;
+    }
+
+    case 'unlock': {
+      if (!parts[2]) { await sendTelegramMessage('Usage: /sentinel unlock <repo>', null, topicId); return true; }
+      const { unlockRepo } = require('./repoLock');
+      await unlockRepo(parts[2]);
+      await sendTelegramMessage(`🔓 ${parts[2]} unlocked.`, null, topicId);
+      return true;
+    }
+
+    case 'locked': {
+      const { getAllLocked } = require('./repoLock');
+      const locked = await getAllLocked();
+      if (locked.length === 0) {
+        await sendTelegramMessage('No repos currently locked.', null, topicId);
+        return true;
+      }
+      const lines = locked.map(l =>
+        `🔐 ${l.repoName} — ${l.reason} (since ${new Date(l.lockedAt).toLocaleTimeString('en-CA')})`
+      );
+      await sendTelegramMessage(lines.join('\n'), null, topicId);
+      return true;
+    }
+
+    case 'health': {
+      const { getPortfolioSummary } = require('./portfolioAnalytics');
+      const s = await getPortfolioSummary().catch(() => null);
+      if (!s) { await sendTelegramMessage('Portfolio data unavailable.', null, topicId); return true; }
+      const lines = [...s.metrics]
+        .sort((a, b) => parseFloat(a.health_score) - parseFloat(b.health_score))
+        .map(m => {
+          const score = parseFloat(m.health_score);
+          const dot   = score >= 7 ? '🟢' : score >= 5 ? '🟡' : '🔴';
+          return `${dot} ${m.repo_name}: ${m.health_score}/10`;
+        });
+      await sendTelegramMessage(`Portfolio Health\n\n${lines.join('\n')}`, null, topicId);
+      return true;
+    }
+
+    case 'what': {
+      const working = (await getAllAgents().catch(() => [])).filter(a => a.status === 'working');
+      if (working.length === 0) {
+        await sendTelegramMessage('Sentinel is idle. No active agent tasks.', null, topicId);
+        return true;
+      }
+      const lines = working.map(a =>
+        `· ${a.agent_label} → ${a.repo_full_name?.split('/')[1]} — ${a.task_title}`
+      );
+      await sendTelegramMessage(`🤖 Active right now:\n\n${lines.join('\n')}`, null, topicId);
+      return true;
+    }
+
+    case 'pause': {
+      try {
+        const { cancelAutoApprove } = require('./autoApprover');
+        await cancelAutoApprove().catch(() => {});
+      } catch {}
+      await sendTelegramMessage(
+        '⏸ All automation paused.\nSprints, audits, and builds will not auto-execute.\nSend /sentinel resume to restart.',
+        null, topicId
+      );
+      return true;
+    }
+
+    case 'resume': {
+      await sendTelegramMessage('▶️ Automation resumed.', null, topicId);
+      return true;
+    }
+
     default:
       return false;
   }

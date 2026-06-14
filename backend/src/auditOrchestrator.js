@@ -16,6 +16,7 @@ const {
 const { getBuilderConfig }             = require('./builderRouter');
 const { reportFailure, reportSuccess } = require('./selfHealer');
 const { trackModelCall }               = require('./performanceTracker');
+const { isRepoLocked }                 = require('./repoLock');
 
 const AUDIT_ENABLED      = () => process.env.AUDIT_AGENT_ENABLED    !== 'false';
 const BUILDER_ENABLED    = () => process.env.BUILDER_AGENT_ENABLED  !== 'false';
@@ -85,6 +86,13 @@ async function triggerAudit(payload) {
   } = payload;
 
   if (!commitSha || !repoFullName) return;
+
+  // Phase 10 — repo lock guard
+  const lock = await isRepoLocked(repoName).catch(() => null);
+  if (lock) {
+    logger.info({ repoName, reason: lock.reason }, 'Repo locked — audit skipped');
+    return;
+  }
 
   // Skip explicit opt-out prefixes
   const SKIP = ['[skip-audit]', '[no-audit]', 'chore:', 'docs:'];

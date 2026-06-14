@@ -9,11 +9,19 @@ const { executeBatch }              = require('./taskBuilder');
 const { createPullRequest }         = require('./prCreator');
 const { findNotionProject }         = require('./notionClient');
 const { getBuilderConfig }          = require('./builderRouter');
+const { isRepoLocked }              = require('./repoLock');
 
 const MAX_PARALLEL = () => parseInt(process.env.MAX_PARALLEL_AGENTS || '3');
 
 async function executeTaskParallel(task, context) {
   const { repoFullName, repoName } = context;
+
+  // Phase 10 — repo lock guard
+  const lock = await isRepoLocked(repoName).catch(() => null);
+  if (lock) {
+    logger.warn({ repoName, reason: lock.reason }, 'Repo locked — task execution skipped');
+    return { status: 'skipped', reason: `Repo locked: ${lock.reason}` };
+  }
 
   const depCheck = await checkDependencyConflicts(repoFullName);
   if (depCheck.hasConflict) {
