@@ -4,14 +4,12 @@ const { handleMessage } = require('./telegramAI');
 
 // Telegram bot username (lowercase, no @) → agent ID
 const BOT_USERNAME_TO_AGENT = {
-  sentinelnemotron:  'nvidia',
-  sentinelqwencoder: 'qwen_coder',
-  sentinelqwendash:  'qwen_coder_dash',
-  sentinelgemini:    'gemini',
-  sentinelqwenmax:   'qwen_max',
-  sentinelqwenturbo: 'qwen_turbo',
-  sentinelllama:     'llama_fast',
-  sentineldeepseek:  'deepseek',
+  nemotronsintel:        'nvidia',        // @nemotronsintelbot
+  qwencodersintenel:     'qwen_coder',    // @qwencodersintenelbot (note: typo in username)
+  qwendashsentinel:      'qwen_coder_dash',// @qwendashsentinelbot
+  geminisentinel:        'gemini',        // @geminisentinelbot
+  deepseeksentinel:      'deepseek',      // @deepseeksentinelBot
+  // qwen_max, qwen_turbo, llama_fast — bots not yet created, fall back to Sentinel bot
 };
 
 // Returns agent ID if the message is a reply to a specific agent bot, else null
