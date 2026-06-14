@@ -229,7 +229,7 @@ Respond with ONLY valid JSON:
     `${i + 1}. ${PRIORITY_EMOJI[t.priority] || '⚪'} ${t.repoName}: ${t.taskTitle}`
   ).join('\n');
 
-  await sendTelegramMessage([
+  const sprintText = [
     `Project Sentinel — Sprint Proposal 📋`,
     `Week of ${weekStart}`,
     ``,
@@ -240,13 +240,26 @@ Respond with ONLY valid JSON:
     ``,
     `Estimated cost: $${(proposal.estimatedCost || 0).toFixed(2)}`,
     `Budget remaining: $${capacity.remaining.toFixed(2)} (${100 - capacity.usagePercent}% left)`,
-    ``,
     process.env.SPRINT_AUTO_APPROVE === 'true'
-      ? `⏳ Auto-approves in 2h — send /sentinel skip-sprint to cancel`
-      : `/sentinel approve-sprint  — start executing Monday`,
-    `/sentinel skip-sprint     — skip this week`,
-    `/sentinel sprint-status   — view task list`,
-  ].join('\n'), null, null);
+      ? `\n⏳ Auto-approves in 2h unless you skip below.`
+      : '',
+  ].filter(Boolean).join('\n');
+
+  try {
+    const { sendMenu } = require('./telegramMenus');
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    await sendMenu(chatId, null, sprintText, [
+      [
+        { text: '✅ Approve Sprint',  callback_data: 'approve:sprint'      },
+        { text: '⏭ Skip Sprint',     callback_data: 'approve:skip-sprint'  },
+      ],
+      [
+        { text: '📋 View Tasks',     callback_data: 'menu:sprint'          },
+      ],
+    ]);
+  } catch {
+    await sendTelegramMessage(sprintText, null, null).catch(() => {});
+  }
 
   // Phase 10 — schedule auto-approval after 2h unless cancelled
   try {

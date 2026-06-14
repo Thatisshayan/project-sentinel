@@ -55,14 +55,22 @@ AVAILABLE ACTIONS (respond with JSON action objects):
 - { "action": "agent_status", "agent": "<agentId>" }
 - { "action": "assign_repo", "repo": "<repoName>", "agent": "<agentId>" }
 - { "action": "stop_agent", "agent": "<agentId>" }
+- { "action": "create_task", "repo": "<repoName>", "title": "<task title>", "description": "<detailed description>", "priority": "critical|high|medium|low" }
 - { "action": "answer", "message": "<your response>" }
 
 NATURAL LANGUAGE TRIGGERS:
-- "assign <repo> to <agent>"   → action: assign_repo
-- "swap <repo> to <agent>"     → action: assign_repo
-- "what is <agent> doing?"     → action: agent_status
-- "what is <agent> working on?"→ action: agent_status
-- "stop <agent>"               → action: stop_agent
+- "assign <repo> to <agent>"         → action: assign_repo
+- "swap <repo> to <agent>"           → action: assign_repo
+- "what is <agent> doing?"           → action: agent_status
+- "what is <agent> working on?"      → action: agent_status
+- "stop <agent>"                     → action: stop_agent
+- "add dark mode to <repo>"          → action: create_task (convert the request to a concrete task)
+- "fix the login bug in <repo>"      → action: create_task
+- "I need <feature> in <repo>"       → action: create_task
+- "build <feature>"                  → action: create_task
+- "start working on <repo>"          → action: execute_tasks
+- "run the tasks for <repo>"         → action: execute_tasks
+- "audit <repo>"                     → action: trigger_audit
 
 AGENT IDs: nvidia, qwen_coder, qwen_coder_dash, llama_fast, gemini, qwen_max, qwen_plus, qwen_turbo, deepseek, opencode
 
@@ -400,6 +408,56 @@ async function executeAction(action, topicId) {
       await sendTelegramMessage(
         `${action.agent} stopped and marked idle.`, null, topicId
       ).catch(() => {});
+      break;
+    }
+
+    case 'create_task': {
+      if (!action.repo || !action.title) break;
+      const repoFull = `Thatisshayan/${action.repo}`;
+      try {
+        const { createAuditTask } = require('./auditDb');
+        const { createAuditCycle, getActiveCycleForRepo } = require('./auditDb');
+
+        let cycle = await getActiveCycleForRepo(repoFull).catch(() => null);
+        if (!cycle) {
+          cycle = await createAuditCycle({
+            repoFullName: repoFull,
+            commitSha:    `nl-task-${Date.now()}`,
+            projectName:  action.repo,
+          }).catch(() => null);
+        }
+
+        if (cycle) {
+          await createAuditTask({
+            auditCycleId:      cycle.id,
+            repoFullName:      repoFull,
+            taskNumber:        1,
+            title:             action.title,
+            description:       action.description || action.title,
+            priority:          action.priority || 'medium',
+            estimatedComplexity: 'medium',
+            affectedFiles:     [],
+            acceptanceCriteria: `Complete: ${action.title}`,
+            safeToAutoExecute: false,
+            batchNumber:       1,
+          });
+
+          await sendTelegramMessage([
+            `✅ Task created for ${action.repo}`,
+            ``,
+            `Title: ${action.title}`,
+            `Priority: ${action.priority || 'medium'}`,
+            `Status: queued (needs approval)`,
+            ``,
+            `Use /sentinel force-execute ${action.repo} to run it now.`,
+          ].join('\n'), null, topicId).catch(() => {});
+        }
+      } catch (err) {
+        logger.error({ err: err.message }, 'create_task action failed');
+        await sendTelegramMessage(
+          `Failed to create task: ${err.message}`, null, topicId
+        ).catch(() => {});
+      }
       break;
     }
 

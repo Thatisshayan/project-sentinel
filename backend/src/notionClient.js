@@ -13,41 +13,51 @@ function getClient() {
 const DATABASE_ID = () => process.env.NOTION_DATABASE_ID;
 
 async function findNotionProject(repoName) {
-  const client      = getClient();
-  const repoLower   = repoName.toLowerCase();
+  const client    = getClient();
+  const repoLower = repoName.toLowerCase().replace(/[-_]/g, '');
 
-  let cursor    = undefined;
-  let allPages  = [];
+  // Fetch ALL pages in the database (no filter — so we try all of them)
+  let cursor   = undefined;
+  let allPages = [];
 
   do {
     const response = await client.databases.query({
-      database_id:   DATABASE_ID(),
-      start_cursor:  cursor,
-      page_size:     100,
-      filter: {
-        property:   'Repo Name',
-        rich_text:  { is_not_empty: true },
-      },
+      database_id:  DATABASE_ID(),
+      start_cursor: cursor,
+      page_size:    100,
     });
-
-    allPages  = allPages.concat(response.results);
-    cursor    = response.has_more ? response.next_cursor : undefined;
+    allPages = allPages.concat(response.results);
+    cursor   = response.has_more ? response.next_cursor : undefined;
   } while (cursor);
 
-  const match = allPages.find(page => {
+  function normalize(s) { return (s || '').toLowerCase().replace(/[-_\s]/g, ''); }
+
+  // Pass 1 — exact match on "Repo Name" rich_text property
+  let match = allPages.find(page => {
     const prop = page.properties['Repo Name'];
-    if (!prop || !prop.rich_text || prop.rich_text.length === 0) return false;
-    const value = prop.rich_text.map(t => t.plain_text).join('').trim();
-    return value.toLowerCase() === repoLower;
+    if (!prop?.rich_text?.length) return false;
+    return normalize(prop.rich_text.map(t => t.plain_text).join('')) === repoLower;
   });
 
-  if (!match) return null;
+  // Pass 2 — match on page Title / Name / Project properties
+  if (!match) {
+    match = allPages.find(page => {
+      const titleProp = page.properties['Name'] || page.properties['Project'] || page.properties['Title'];
+      if (!titleProp?.title?.length) return false;
+      return normalize(titleProp.title.map(t => t.plain_text).join('')) === repoLower;
+    });
+    if (match) {
+      logger.info({ repoName }, 'Notion project matched via title fallback — consider adding Repo Name property');
+    }
+  }
 
-  const titleProp = match.properties['Name']
-    || match.properties['Project']
-    || match.properties['Title'];
+  if (!match) {
+    logger.warn({ repoName }, 'Notion project not found — check Repo Name property is filled in for this page');
+    return null;
+  }
 
-  const projectName = (titleProp && titleProp.title && titleProp.title.length > 0)
+  const titleProp   = match.properties['Name'] || match.properties['Project'] || match.properties['Title'];
+  const projectName = titleProp?.title?.length
     ? titleProp.title.map(t => t.plain_text).join('').trim()
     : repoName;
 
