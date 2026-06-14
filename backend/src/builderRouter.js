@@ -87,6 +87,15 @@ const BUILDERS = {
     envKey:      'DEEPSEEK_API_KEY',
     description: 'Very cheap — routine low-complexity tasks',
   },
+  hermes: {
+    id:          'hermes',
+    label:       'Hermes 3 — Nous Research (Together.ai)',
+    type:        'openai_compatible',
+    aiderModel:  process.env.HERMES_MODEL || 'NousResearch/Hermes-3-Llama-3.1-70B',
+    apiBase:     'https://api.together.xyz/v1',
+    envKey:      'TOGETHER_API_KEY',
+    description: 'Best open model for planning, structured JSON, creative refactoring',
+  },
   opencode: {
     id:          'opencode',
     label:       'OpenCode',
@@ -140,6 +149,10 @@ function getAiderEnv(config) {
       env.DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
       env.OPENAI_API_BASE  = 'https://api.deepseek.com';
       env.OPENAI_API_KEY   = process.env.DEEPSEEK_API_KEY || '';
+      break;
+    case 'hermes':
+      env.OPENAI_API_KEY  = process.env.TOGETHER_API_KEY || '';
+      env.OPENAI_API_BASE = 'https://api.together.xyz/v1';
       break;
   }
   return env;

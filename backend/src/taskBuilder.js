@@ -10,7 +10,7 @@ const { updateAuditTask }    = require('./auditDb');
 const { updateNotionTaskStatus } = require('./auditTaskWriter');
 
 async function executeBatch(tasks, context, builderAssignment) {
-  const { repoFullName, branchName, projectName, repoName } = context;
+  const { repoFullName, branchName, projectName, repoName, topicId } = context;
   const builderConfig = getBuilderConfig(builderAssignment);
   const batchNum      = tasks[0].batch_number;
   const batchNums     = `${tasks[0].task_number}-${tasks[tasks.length - 1].task_number}`;
@@ -45,15 +45,32 @@ async function executeBatch(tasks, context, builderAssignment) {
       logger.info({ taskNumber: task.task_number, builder: builderConfig.id },
         'Executing task in batch');
 
+      // Send heartbeat every 2 minutes so Telegram isn't silent during long runs
+      const heartbeatStart = Date.now();
+      const heartbeatTimer = topicId
+        ? setInterval(() => {
+            const elapsed = Math.round((Date.now() - heartbeatStart) / 60000);
+            const { sendTelegramMessage } = require('./telegramClient');
+            sendTelegramMessage(
+              `Agent working on task ${task.task_number}/${tasks.length} — ${task.title}\nElapsed: ${elapsed}m | Builder: ${builderConfig.label}`,
+              null, topicId
+            ).catch(() => {});
+          }, 2 * 60 * 1000)
+        : null;
+
       let taskResult;
 
-      if (builderConfig.type === 'claude_code') {
-        taskResult = await runClaudeCodeForTask(tmpDir.name, task, context);
-      } else if (builderConfig.type === 'aider' || builderConfig.type === 'openai_compatible') {
-        // openai_compatible uses aider with OPENAI_API_BASE set in getAiderEnv
-        taskResult = await runAiderForTask(tmpDir.name, task, context, builderConfig);
-      } else {
-        taskResult = { success: false, reason: `Unknown builder type: ${builderConfig.type}` };
+      try {
+        if (builderConfig.type === 'claude_code') {
+          taskResult = await runClaudeCodeForTask(tmpDir.name, task, context);
+        } else if (builderConfig.type === 'aider' || builderConfig.type === 'openai_compatible') {
+          // openai_compatible uses aider with OPENAI_API_BASE set in getAiderEnv
+          taskResult = await runAiderForTask(tmpDir.name, task, context, builderConfig);
+        } else {
+          taskResult = { success: false, reason: `Unknown builder type: ${builderConfig.type}` };
+        }
+      } finally {
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
       }
 
       if (!taskResult.success) {

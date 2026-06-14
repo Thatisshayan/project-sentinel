@@ -80,9 +80,8 @@ function getWeekDates() {
 // ── Context builder ───────────────────────────────────────────────────────────
 
 async function buildPlannerContext(metrics, capacity, velocityTrend) {
-  // audit_tasks.estimated_complexity is the correct column name
   const queuedTasks = await query(`
-    SELECT id, repo_full_name, title, description, priority, estimated_complexity
+    SELECT id, repo_full_name, title, description, priority, complexity AS estimated_complexity
     FROM audit_tasks
     WHERE status = 'queued'
       AND safe_to_auto_execute = true

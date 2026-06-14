@@ -5,6 +5,8 @@ const { updatePinnedStatusBoard, sendMorningBriefing } = require('./agentRoom');
 const { runSelfAudit }          = require('./selfAuditor');
 const { checkAndHeal }          = require('./selfHealer');
 const { pullAllMetrics }        = require('./businessMetrics');
+let fetchAllMetrics;
+try { ({ fetchAllMetrics } = require('./metricsFetcher')); } catch {}
 const { scoreAllQueuedTasks }   = require('./roiScorer');
 const { generateWeeklyReport }          = require('./weeklyBusinessReport');
 const { runSecurityScan }               = require('./securityScanner');
@@ -301,6 +303,7 @@ function startDailyReportWorker() {
     }
     if (job.name === 'pull-metrics') {
       await pullAllMetrics();
+      if (fetchAllMetrics) await fetchAllMetrics().catch(e => logger.warn({ err: e.message }, 'metricsFetcher failed'));
       await scoreAllQueuedTasks();
       return;
     }

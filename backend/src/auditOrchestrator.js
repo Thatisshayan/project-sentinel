@@ -340,6 +340,7 @@ async function processNextBatch(repoFullName, repoName, topicId) {
     repoFullName, repoName,
     projectName: notionProject?.projectName || repoName,
     branchName:  'main',
+    topicId,
   }, tasks[0].builder_agent || 'nvidia');
 
   if (batchResult.status === 'completed') {

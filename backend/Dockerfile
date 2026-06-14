@@ -11,12 +11,14 @@ RUN npm ci --only=production && npm cache clean --force
 # Install Claude Code CLI for Phase 3 audit and task execution
 RUN npm install -g @anthropic-ai/claude-code
 
-# Install Aider
+# Install Aider — install to /usr/local so the non-root sentinel user can reach it
 RUN pip3 install aider-install --break-system-packages \
   && aider-install \
+  && ln -sf /root/.local/bin/aider /usr/local/bin/aider \
   || pip3 install aider-chat --break-system-packages
 
-ENV PATH="/root/.local/bin:${PATH}"
+# Verify aider is reachable system-wide before we switch users
+RUN aider --version || (echo "ERROR: aider not found after install" && exit 1)
 
 # Limit Node.js heap to prevent OOM kills (Railway default ~512MB)
 ENV NODE_OPTIONS="--max-old-space-size=256"

@@ -8,6 +8,7 @@ const AGENT_POOL = [
   // { id: 'claude', priority: 1, maxConcurrent: 2 },  // re-add when ANTHROPIC_API_KEY is set
   { id: 'nvidia',          priority: 1, maxConcurrent: 3 },
   { id: 'qwen_coder',      priority: 2, maxConcurrent: 3 },
+  { id: 'hermes',          priority: 2, maxConcurrent: 2 },  // Together.ai — planning & creative
   { id: 'qwen_coder_dash', priority: 3, maxConcurrent: 3 },
   { id: 'gemini',          priority: 3, maxConcurrent: 2 },
   { id: 'qwen_max',        priority: 3, maxConcurrent: 2 },
@@ -43,9 +44,10 @@ async function selectAgent(taskComplexity, preferredBuilder) {
   });
 
   const complexityPreference = {
-    low:    ['llama_fast', 'qwen_turbo', 'qwen_coder', 'nvidia'],
-    medium: ['qwen_coder', 'nvidia', 'qwen_coder_dash', 'gemini'],
-    high:   ['claude', 'nvidia', 'qwen_max', 'qwen_coder'],
+    low:      ['llama_fast', 'qwen_turbo', 'qwen_coder', 'nvidia'],
+    medium:   ['qwen_coder', 'nvidia', 'qwen_coder_dash', 'gemini'],
+    high:     ['hermes', 'nvidia', 'qwen_max', 'qwen_coder'],  // hermes for complex planning tasks
+    creative: ['hermes', 'gemini', 'nvidia'],
   };
 
   const preferred = complexityPreference[taskComplexity] || complexityPreference.medium;

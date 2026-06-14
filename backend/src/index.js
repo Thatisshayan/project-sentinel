@@ -17,6 +17,22 @@ const { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAg
 let checkAndOnboardNewRepos;
 try { ({ checkAndOnboardNewRepos } = require('./repoOnboarder')); } catch {}
 
+async function probeTools() {
+  const { execSync } = require('child_process');
+  try {
+    const v = execSync('aider --version 2>&1', { timeout: 8000 }).toString().trim();
+    logger.info({ version: v }, 'Aider is available');
+  } catch {
+    logger.warn('Aider not found in PATH — builder tasks will fail');
+    const { sendTelegramMessage } = require('./telegramClient');
+    await sendTelegramMessage(
+      'Project Sentinel WARNING: `aider` not found in PATH on this instance.\n' +
+      'Builder tasks will fail until fixed. Check Railway deploy logs.',
+      null, null
+    ).catch(() => {});
+  }
+}
+
 const REQUIRED = [
   // Phase 1 (required)
   'GITHUB_WEBHOOK_SECRET',
@@ -136,6 +152,7 @@ app.listen(PORT, () => {
     await initSecuritySchema();
     logger.info('Security schema ready');
     await initConversationSchema();
+    await probeTools();
     if (checkAndOnboardNewRepos) {
       await checkAndOnboardNewRepos().catch(err =>
         logger.warn({ err: err.message }, 'Repo onboarding check failed — non-blocking')

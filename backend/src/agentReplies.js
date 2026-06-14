@@ -4,11 +4,12 @@ const { handleMessage } = require('./telegramAI');
 
 // Telegram bot username (lowercase, no @) → agent ID
 const BOT_USERNAME_TO_AGENT = {
-  nemotronsintel:        'nvidia',        // @nemotronsintelbot
-  qwencodersintenel:     'qwen_coder',    // @qwencodersintenelbot (note: typo in username)
-  qwendashsentinel:      'qwen_coder_dash',// @qwendashsentinelbot
-  geminisentinel:        'gemini',        // @geminisentinelbot
-  deepseeksentinel:      'deepseek',      // @deepseeksentinelBot
+  nemotronsintel:        'nvidia',          // @nemotronsintelbot
+  qwencodersintenel:     'qwen_coder',      // @qwencodersintenelbot (typo in username)
+  qwendashsentinel:      'qwen_coder_dash', // @qwendashsentinelbot
+  geminisentinel:        'gemini',          // @geminisentinelbot
+  deepseeksentinel:      'deepseek',        // @deepseeksentinelBot
+  hermessentinel:        'hermes',          // @hermessentinelbot  (create via BotFather)
   // qwen_max, qwen_turbo, llama_fast — bots not yet created, fall back to Sentinel bot
 };
 

@@ -10,6 +10,18 @@ jest.mock('../src/notionClient', () => ({
   appendChangelog:    jest.fn(),
 }));
 
+jest.mock('../src/dbClient', () => ({
+  query: jest.fn().mockResolvedValue({ rows: [] }),
+}));
+
+jest.mock('../src/auditTaskWriter', () => ({
+  updateNotionTaskStatus: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../src/queueClient', () => ({
+  enqueueBuildCheck: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../src/telegramClient', () => ({
   sendTelegramMessage: jest.fn().mockResolvedValue(true),
 }));
@@ -75,6 +87,7 @@ beforeEach(() => {
 });
 
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
+const waitLong = () => wait(600);
 
 describe('POST /webhook/github', () => {
   test('returns 200 immediately for valid signed payload', async () => {
@@ -161,5 +174,71 @@ describe('POST /webhook/github', () => {
     const msg = sendTelegramMessage.mock.calls[0][0];
     expect(msg).toContain('❌');
     expect(msg).toContain('Notion update failed');
+  });
+});
+
+describe('PR event handling (pull_request webhook)', () => {
+  const { query } = require('../src/dbClient');
+
+  const prPayload = {
+    action: 'closed',
+    pull_request: {
+      number: 42,
+      merged: true,
+      html_url: 'https://github.com/Thatisshayan/tapcash/pull/42',
+      head: { ref: 'sentinel/batch-1-tasks-1-5' },
+      base: { ref: 'main' },
+    },
+    repository: { name: 'tapcash', full_name: 'Thatisshayan/tapcash' },
+  };
+
+  test('ignores pull_request events for non-sentinel branches', async () => {
+    const humanPR = {
+      ...prPayload,
+      pull_request: { ...prPayload.pull_request, head: { ref: 'feature/dark-mode' } },
+    };
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(humanPR))
+      .set('x-github-event', 'pull_request')
+      .send(humanPR);
+    await wait(200);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  test('marks tasks done when sentinel PR is merged', async () => {
+    query.mockResolvedValue({ rows: [{ id: 1, notion_page_id: 'page-abc' }] });
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(prPayload))
+      .set('x-github-event', 'pull_request')
+      .send(prPayload);
+    await waitLong();
+    expect(query).toHaveBeenCalled();
+    const sql = query.mock.calls[0][0];
+    expect(sql).toContain("status = 'done'");
+    const calls = sendTelegramMessage.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[calls.length - 1][0]).toContain('PR Merged');
+  });
+
+  test('requeues tasks when sentinel PR is closed without merging', async () => {
+    const rejected = {
+      ...prPayload,
+      pull_request: { ...prPayload.pull_request, merged: false },
+    };
+    query.mockResolvedValue({ rows: [{ id: 1 }] });
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(rejected))
+      .set('x-github-event', 'pull_request')
+      .send(rejected);
+    await waitLong();
+    expect(query).toHaveBeenCalled();
+    const sql = query.mock.calls[0][0];
+    expect(sql).toContain("status = 'queued'");
+    const calls = sendTelegramMessage.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[calls.length - 1][0]).toContain('PR Rejected');
   });
 });
