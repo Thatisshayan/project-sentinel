@@ -432,6 +432,35 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
       return true;
     }
 
+    // ── Phase 10 — Telegram Menus ─────────────────────────────────────────────
+    case 'menu': {
+      const { showMainMenu } = require('./telegramMenus');
+      await showMainMenu(chatId, topicId);
+      return true;
+    }
+
+    case 'repo': {
+      if (!parts[2]) { await sendTelegramMessage('Usage: /sentinel repo <name>', null, topicId); return true; }
+      const { showRepoMenu } = require('./telegramMenus');
+      await showRepoMenu(chatId, topicId, parts[2]);
+      return true;
+    }
+
+    case 'approve': {
+      const { showApprovalsMenu } = require('./telegramMenus');
+      let sprintPending = false;
+      try {
+        const { isPendingAutoApprove } = require('./autoApprover');
+        sprintPending = await isPendingAutoApprove().catch(() => false);
+      } catch {}
+      await showApprovalsMenu(chatId, topicId, {
+        sprint:    sprintPending,
+        selfAudit: false,
+        security:  null,
+      });
+      return true;
+    }
+
     default:
       return false;
   }
@@ -639,9 +668,129 @@ async function handleSkipBatch(repoArg, batchNumArg, topicId) {
 // Improvement 4 — conflict resolution via inline keyboard button presses.
 // Wire in index.js: const cb = req.body.callback_query; if (cb) { await handleCallbackQuery(cb); return res.status(200).json({ok:true}); }
 async function handleCallbackQuery(callbackQuery) {
-  const data    = callbackQuery.data || '';
-  const queryId = callbackQuery.id;
-  const topicId = callbackQuery.message?.message_thread_id;
+  const data     = callbackQuery.data || '';
+  const queryId  = callbackQuery.id;
+  const topicId  = callbackQuery.message?.message_thread_id;
+  const chatId   = callbackQuery.message?.chat?.id;
+  const threadId = topicId;
+
+  // ── Phase 10 — Menu callbacks ─────────────────────────────────────────────
+
+  if (data.startsWith('menu:')) {
+    await answerCallback(queryId).catch(() => {});
+    const action = data.replace('menu:', '');
+    try {
+      if (action === 'report') {
+        const { sendDailyReport } = require('./dailyReport');
+        await sendDailyReport();
+      } else if (action === 'costs') {
+        const { getCostReport } = require('./costTracker');
+        const r = await getCostReport();
+        await sendTelegramMessage(r.formatted, null, threadId);
+      } else if (action === 'agents') {
+        const { getAgentRoomSummary } = require('./agentRoom');
+        const s = await getAgentRoomSummary();
+        await sendTelegramMessage(s, null, threadId);
+      } else if (action === 'sprint') {
+        const { getSprintStatus } = require('./sprintOrchestrator');
+        await getSprintStatus(threadId);
+      } else if (action === 'selfaudit') {
+        const { runSelfAudit } = require('./selfAuditor');
+        await sendTelegramMessage('Triggering self-audit...', null, threadId);
+        runSelfAudit().catch(() => {});
+      } else if (action === 'security') {
+        const { getPortfolioSecuritySummary } = require('./securityDb');
+        const p = await getPortfolioSecuritySummary().catch(() => []);
+        const lines = p.sort((a,b) => parseFloat(a.score)-parseFloat(b.score))
+          .map(r => `${r.repo_name}: ${r.score}/10 (${r.critical_count||0} critical)`);
+        await sendTelegramMessage(`🔒 Security\n\n${lines.join('\n')||'No data yet.'}`, null, threadId);
+      } else if (action === 'approvals') {
+        const { showApprovalsMenu } = require('./telegramMenus');
+        let sprintPending = false;
+        try { const { isPendingAutoApprove } = require('./autoApprover'); sprintPending = await isPendingAutoApprove().catch(() => false); } catch {}
+        await showApprovalsMenu(chatId, threadId, { sprint: sprintPending, selfAudit: false, security: null });
+      } else if (action === 'last') {
+        const { getRecentMessages } = require('./agentDb');
+        const msgs = await getRecentMessages(5).catch(() => []);
+        const lines = msgs.map(m => `· ${m.agent_id}: ${(m.message||'').slice(0, 60)}`).join('\n');
+        await sendTelegramMessage(lines || 'No recent agent messages.', null, threadId);
+      } else if (action === 'help') {
+        await sendTelegramMessage([
+          '/sentinel menu — this menu',
+          '/sentinel repo <name> — repo control panel',
+          '/sentinel health — all repos health scores',
+          '/sentinel what — active agent tasks right now',
+          '/sentinel pause — emergency stop all automation',
+        ].join('\n'), null, threadId);
+      }
+    } catch (err) {
+      logger.warn({ err: err.message, action }, 'Menu callback failed');
+    }
+    return true;
+  }
+
+  if (data.startsWith('repo:')) {
+    await answerCallback(queryId).catch(() => {});
+    const parts2      = data.split(':');
+    const repoAction  = parts2[1];
+    const repoName    = parts2[2];
+    const repoFullName = `Thatisshayan/${repoName}`;
+    try {
+      if (repoAction === 'audit') {
+        triggerAudit({ repoFullName, repoName, commitSha: `manual-${Date.now()}`,
+          commitMessage: '[manual]', branchName: 'main', authorName: 'Human', authorEmail: '', topicId: threadId })
+          .catch(() => {});
+        await sendTelegramMessage(`Audit triggered for ${repoName}.`, null, threadId);
+      } else if (repoAction === 'execute') {
+        executeApprovedTasks(repoFullName, repoName, threadId).catch(() => {});
+        await sendTelegramMessage(`Executing tasks for ${repoName}...`, null, threadId);
+      } else if (repoAction === 'stop') {
+        await stopAllTasksForRepo(repoFullName);
+        await sendTelegramMessage(`Stopped all tasks for ${repoName}.`, null, threadId);
+      } else if (repoAction === 'lock') {
+        const { lockRepo } = require('./repoLock');
+        await lockRepo(repoName, 'inline-menu');
+        await sendTelegramMessage(`🔐 ${repoName} locked.`, null, threadId);
+      } else if (repoAction === 'security') {
+        const { runSecurityScan } = require('./securityScanner');
+        runSecurityScan({ repoFullName, repoName, commitSha: 'HEAD', topicId: threadId }).catch(() => {});
+        await sendTelegramMessage(`Security scan started for ${repoName}.`, null, threadId);
+      } else if (repoAction === 'status') {
+        await sendTelegramMessage(`Use /sentinel status ${repoName} for details.`, null, threadId);
+      }
+    } catch (err) {
+      logger.warn({ err: err.message, repoAction, repoName }, 'Repo callback failed');
+    }
+    return true;
+  }
+
+  if (data.startsWith('approve:')) {
+    await answerCallback(queryId).catch(() => {});
+    const approveAction = data.replace('approve:', '');
+    try {
+      if (approveAction === 'sprint') {
+        const { approveSprint } = require('./sprintOrchestrator');
+        approveSprint(threadId).catch(() => {});
+      } else if (approveAction === 'skip-sprint') {
+        try { const { cancelAutoApprove } = require('./autoApprover'); await cancelAutoApprove(); } catch {}
+        await sendTelegramMessage('Sprint skipped.', null, threadId);
+      } else if (approveAction === 'self') {
+        executeApprovedTasks('Thatisshayan/project-sentinel', 'project-sentinel', threadId).catch(() => {});
+      }
+    } catch (err) {
+      logger.warn({ err: err.message }, 'Approve callback failed');
+    }
+    return true;
+  }
+
+  if (data.startsWith('dym:')) {
+    await answerCallback(queryId).catch(() => {});
+    const dymAction = data.replace('dym:', '');
+    if (dymAction === 'cancel') {
+      await sendTelegramMessage('OK — nothing done.', null, threadId).catch(() => {});
+    }
+    return true;
+  }
 
   if (!data.startsWith('conflict:')) return false;
 

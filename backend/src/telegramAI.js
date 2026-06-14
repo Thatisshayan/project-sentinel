@@ -176,7 +176,17 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
       mentionSection = `\nMENTIONED AGENTS:\n${lines}\n`;
     }
 
-    const prompt = `${context}${agentSection}${directAddressSection}${mentionSection}\nMessage from ${fromName}: ${messageText}`;
+    // Phase 10 — prepend agent personality to system prompt when directly addressed
+    let personalityPrefix = '';
+    if (targetAgentId) {
+      try {
+        const { getPersonalityPrompt } = require('./agentPersonality');
+        const personality = getPersonalityPrompt(targetAgentId);
+        if (personality) personalityPrefix = `${personality}\n\n`;
+      } catch {}
+    }
+
+    const prompt = `${personalityPrefix}${context}${agentSection}${directAddressSection}${mentionSection}\nMessage from ${fromName}: ${messageText}`;
 
     const raw = await callChatAPI(prompt) ||
       '{"action":"answer","message":"Sorry, I had trouble understanding that."}';

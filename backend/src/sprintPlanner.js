@@ -241,10 +241,20 @@ Respond with ONLY valid JSON:
     `Estimated cost: $${(proposal.estimatedCost || 0).toFixed(2)}`,
     `Budget remaining: $${capacity.remaining.toFixed(2)} (${100 - capacity.usagePercent}% left)`,
     ``,
-    `/sentinel approve-sprint  — start executing Monday`,
+    process.env.SPRINT_AUTO_APPROVE === 'true'
+      ? `⏳ Auto-approves in 2h — send /sentinel skip-sprint to cancel`
+      : `/sentinel approve-sprint  — start executing Monday`,
     `/sentinel skip-sprint     — skip this week`,
     `/sentinel sprint-status   — view task list`,
   ].join('\n'), null, null);
+
+  // Phase 10 — schedule auto-approval after 2h unless cancelled
+  try {
+    const { scheduleAutoApprove } = require('./autoApprover');
+    await scheduleAutoApprove(sprint.id, null);
+  } catch (err) {
+    logger.warn({ err: err.message }, 'Auto-approve scheduling failed — non-blocking');
+  }
 
   return { sprint, proposal };
 }

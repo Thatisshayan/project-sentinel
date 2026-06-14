@@ -13,6 +13,9 @@ const { initBusinessSchema }   = require('./businessDb');
 const { initSecuritySchema }   = require('./securityDb');
 const { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAgentCleanupWorker } = require('./workers');
 
+let checkAndOnboardNewRepos;
+try { ({ checkAndOnboardNewRepos } = require('./repoOnboarder')); } catch {}
+
 const REQUIRED = [
   // Phase 1 (required)
   'GITHUB_WEBHOOK_SECRET',
@@ -131,6 +134,11 @@ app.listen(PORT, () => {
     logger.info('Business intelligence schema ready');
     await initSecuritySchema();
     logger.info('Security schema ready');
+    if (checkAndOnboardNewRepos) {
+      await checkAndOnboardNewRepos().catch(err =>
+        logger.warn({ err: err.message }, 'Repo onboarding check failed — non-blocking')
+      );
+    }
     await initAgentPool();
     logger.info('Agent pool ready');
     startBuildPollWorker();
