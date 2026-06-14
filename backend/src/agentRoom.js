@@ -22,6 +22,18 @@ const AGENT_EMOJI = {
   sentinel:        '🛡️',
 };
 
+// Bot username suffixes — used by agentBots.js for @mention routing
+const AGENT_LABELS = {
+  nvidia:          'Nemotron',
+  qwen_coder:      'QwenCoder',
+  qwen_coder_dash: 'QwenDash',
+  gemini:          'Gemini',
+  qwen_max:        'QwenMax',
+  qwen_turbo:      'QwenTurbo',
+  llama_fast:      'Llama',
+  deepseek:        'DeepSeek',
+};
+
 // Task 2 — each agent has a distinct communication style
 const AGENT_PERSONALITY = {
   nvidia:          'analytical and precise',
@@ -124,20 +136,16 @@ async function generatePersonalityMessage(agentId, baseMessage) {
 // ── Core announce ─────────────────────────────────────────────────────────────
 
 async function announce(agentId, agentLabel, message, type = 'info', repoName = null) {
-  const emoji   = getEmoji(agentId);
   const typeTag = type === 'warning' ? '⚠️ ' : type === 'error'   ? '❌ ' :
                   type === 'success' ? '✅ ' : type === 'handoff'  ? '🤝 ' : '';
 
-  const fullMessage = `${emoji} ${agentLabel}: ${typeTag}${message}`;
+  const fullMessage = `${typeTag}${message}`;
 
-  if (AGENT_ROOM_TOPIC_ID()) {
-    await sendTelegramMessage(fullMessage, null, AGENT_ROOM_TOPIC_ID())
-      .catch(() => {});
-  }
+  // Phase 8.5 — send via the agent's own bot; falls back to Sentinel bot if token missing
+  const { sendAsAgent } = require('./agentBots');
+  await sendAsAgent(agentId, fullMessage).catch(() => {});
 
-  await logAgentMessage(agentId, agentLabel, message, type, repoName)
-    .catch(() => {});
-
+  await logAgentMessage(agentId, agentLabel, message, type, repoName).catch(() => {});
   logger.info({ agentId, type, repoName }, message);
 }
 
@@ -418,6 +426,8 @@ async function getAgentRoomSummary() {
 }
 
 module.exports = {
+  AGENT_EMOJI,
+  AGENT_LABELS,
   announce,
   announceStart,
   announceComplete,

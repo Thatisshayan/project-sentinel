@@ -33,6 +33,8 @@ const { generateWeeklyReport }   = require('./weeklyBusinessReport');
 const { getRepoBusinessSummary } = require('./businessMetrics');
 const { getCorrelationSummary }  = require('./correlationEngine');
 const { scoreAllQueuedTasks }    = require('./roiScorer');
+const { detectAgentReply,
+        handleAgentReply }       = require('./agentReplies');
 const {
   getPendingConflict,
   resolvePendingConflict,
@@ -41,7 +43,16 @@ const {
 
 const KNOWN_AGENT_IDS = ['nvidia','qwen_coder','qwen_coder_dash','llama_fast','gemini','qwen_max','qwen_turbo','deepseek','qwen_plus','opencode'];
 
-async function handleCommand(text, chatId, topicId, fromName) {
+async function handleCommand(text, chatId, topicId, fromName, message = null) {
+  // Phase 8.5 — if this is a reply to a specific agent bot, route directly to that agent
+  if (message) {
+    const targetAgent = detectAgentReply(message);
+    if (targetAgent) {
+      await handleAgentReply(message, targetAgent, topicId);
+      return true;
+    }
+  }
+
   // Route non-slash messages to AI agent
   if (!text.trim().startsWith('/')) {
     const isAgentRoom = topicId != null && String(topicId) === String(process.env.AGENT_ROOM_TOPIC_ID);
@@ -239,6 +250,31 @@ async function handleCommand(text, chatId, topicId, fromName) {
     }
     case 'weekly': {
       await generateWeeklyReport();
+      return true;
+    }
+    case 'bots': {
+      const { getConfiguredBots } = require('./agentBots');
+      const { configured, missing } = getConfiguredBots();
+      await sendTelegramMessage([
+        `Agent Bot Status:`,
+        ``,
+        `✅ Configured (${configured.length}): ${configured.join(', ') || 'none'}`,
+        `❌ Missing tokens (${missing.length}): ${missing.join(', ') || 'none'}`,
+        ``,
+        `Add missing tokens to Railway as BOT_TOKEN_<AGENTNAME>`,
+      ].join('\n'), null, topicId);
+      return true;
+    }
+    case 'setup-bots': {
+      const { getConfiguredBots, configureBotProfile } = require('./agentBots');
+      const { configured } = getConfiguredBots();
+      for (const agentId of configured) {
+        await configureBotProfile(agentId, `Project Sentinel Agent — ${agentId}`);
+      }
+      await sendTelegramMessage(
+        `Bot profiles updated for: ${configured.join(', ') || 'none configured'}`,
+        null, topicId
+      );
       return true;
     }
     default:

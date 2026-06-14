@@ -82,7 +82,7 @@ app.post('/webhook/telegram', async (req, res) => {
   const fromName = message.from?.first_name || message.from?.username || 'User';
 
   try {
-    await handleCommand(message.text, chatId, topicId, fromName);
+    await handleCommand(message.text, chatId, topicId, fromName, message);
   } catch (err) {
     logger.error({ err: err.message }, 'Telegram command handler error');
   }

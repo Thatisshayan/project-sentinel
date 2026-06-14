@@ -138,19 +138,26 @@ async function callChatAPI(prompt) {
   throw new Error('No AI provider configured (ANTHROPIC_API_KEY or NVIDIA_API_KEY required)');
 }
 
-async function handleMessage(messageText, fromName, topicId, roomContext) {
+async function handleMessage(messageText, fromName, topicId, roomContext,
+                              targetAgentId = null, agentContext = null, replyToMessageId = null) {
   if (!process.env.ANTHROPIC_API_KEY && !process.env.NVIDIA_API_KEY) {
     logger.warn('No AI API key configured — AI responses disabled');
     return;
   }
 
-  logger.info({ from: fromName, text: messageText.substring(0, 80) },
+  logger.info({ from: fromName, text: messageText.substring(0, 80), targetAgentId },
     'AI handling Telegram message');
 
   try {
     const context = await buildContext();
+
     const agentSection = roomContext
       ? `\nAGENT ROOM CONTEXT:\n${roomContext}\n`
+      : '';
+
+    // Phase 8.5 — extra context when a specific agent is being directly addressed
+    const directAddressSection = agentContext
+      ? `\nADDITIONAL CONTEXT — You are being directly addressed:\n${agentContext}\n`
       : '';
 
     // Improvement 3 — @mention detection: add live status for any mentioned agent
@@ -169,7 +176,7 @@ async function handleMessage(messageText, fromName, topicId, roomContext) {
       mentionSection = `\nMENTIONED AGENTS:\n${lines}\n`;
     }
 
-    const prompt  = `${context}${agentSection}${mentionSection}\nMessage from ${fromName}: ${messageText}`;
+    const prompt = `${context}${agentSection}${directAddressSection}${mentionSection}\nMessage from ${fromName}: ${messageText}`;
 
     const raw = await callChatAPI(prompt) ||
       '{"action":"answer","message":"Sorry, I had trouble understanding that."}';
@@ -183,7 +190,13 @@ async function handleMessage(messageText, fromName, topicId, roomContext) {
       parsed = { action: 'answer', message: raw };
     }
 
-    await executeAction(parsed, topicId);
+    // Phase 8.5 — when replying to a specific agent, send via that agent's own bot
+    if (targetAgentId && parsed.action === 'answer' && parsed.message) {
+      const { sendAsAgent } = require('./agentBots');
+      await sendAsAgent(targetAgentId, parsed.message, replyToMessageId).catch(() => {});
+    } else {
+      await executeAction(parsed, topicId);
+    }
 
   } catch (err) {
     logger.error({ err: err.message }, 'AI response failed');
