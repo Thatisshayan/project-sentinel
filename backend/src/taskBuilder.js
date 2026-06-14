@@ -49,10 +49,11 @@ async function executeBatch(tasks, context, builderAssignment) {
 
       if (builderConfig.type === 'claude_code') {
         taskResult = await runClaudeCodeForTask(tmpDir.name, task, context);
-      } else if (builderConfig.type === 'aider') {
+      } else if (builderConfig.type === 'aider' || builderConfig.type === 'openai_compatible') {
+        // openai_compatible uses aider with OPENAI_API_BASE set in getAiderEnv
         taskResult = await runAiderForTask(tmpDir.name, task, context, builderConfig);
       } else {
-        taskResult = { success: false, reason: `Unknown builder: ${builderConfig.type}` };
+        taskResult = { success: false, reason: `Unknown builder type: ${builderConfig.type}` };
       }
 
       if (!taskResult.success) {

@@ -797,6 +797,24 @@ async function handleCallbackQuery(callbackQuery) {
 
   // ── Phase 10 — Menu callbacks ─────────────────────────────────────────────
 
+  // Inline approval buttons from audit completion message
+  if (data.startsWith('execute:')) {
+    await answerCallback(queryId).catch(() => {});
+    const repoName = data.replace('execute:', '');
+    await sendTelegramMessage(`Starting execution for ${repoName}...`, null, threadId).catch(() => {});
+    executeApprovedTasks(`Thatisshayan/${repoName}`, repoName, threadId).catch(() => {});
+    return true;
+  }
+
+  if (data.startsWith('skip:')) {
+    await answerCallback(queryId).catch(() => {});
+    const repoName = data.replace('skip:', '');
+    const { stopAllTasksForRepo: stopRepo } = require('./auditDb');
+    await stopRepo(`Thatisshayan/${repoName}`);
+    await sendTelegramMessage(`Audit skipped for ${repoName}.`, null, threadId).catch(() => {});
+    return true;
+  }
+
   if (data.startsWith('help:')) {
     await answerCallback(queryId).catch(() => {});
     const section = data.replace('help:', '');

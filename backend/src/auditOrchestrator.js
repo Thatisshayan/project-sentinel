@@ -194,7 +194,7 @@ async function triggerAudit(payload) {
   const skipNote = writeResult.skipped.length > 0
     ? `\n⚠️ ${writeResult.skipped.length} duplicate(s) skipped` : '';
 
-  await sendTelegramMessage([
+  const auditText = [
     `Project Sentinel — Audit Complete 🔍`,
     ``,
     `Project: ${projectName || repoName}`,
@@ -211,14 +211,22 @@ async function triggerAudit(payload) {
     `🔓 Safe to auto-execute: ${safeCount} (${batchCount} batch${batchCount!==1?'es':''} of ${BATCH_SIZE()})`,
     `🔒 Needs manual review: ${totalCount - safeCount}`,
     failNote, skipNote,
-    ``,
-    notionProject ? `Notion: ${notionProject.url}` : '',
-    ``,
-    `Reply with:`,
-    `/sentinel execute ${repoName}  — run all safe tasks`,
-    `/sentinel review ${repoName}   — review manually first`,
-    `/sentinel skip ${repoName}     — skip this audit`,
-  ].filter(l => l !== null).join('\n'), null, topicId).catch(() => {});
+    notionProject ? `\nNotion: ${notionProject.url}` : '',
+  ].filter(l => l !== null).join('\n');
+
+  // Send with inline approval buttons
+  try {
+    const { sendMenu } = require('./telegramMenus');
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    await sendMenu(chatId, topicId, auditText, [
+      [
+        { text: `✅ Execute ${safeCount} safe tasks`, callback_data: `execute:${repoName}` },
+        { text: `⏭ Skip`,                            callback_data: `skip:${repoName}`    },
+      ],
+    ]);
+  } catch {
+    await sendTelegramMessage(auditText, null, topicId).catch(() => {});
+  }
 
   scheduleApprovalTimeout(cycle.id, repoFullName, repoName, topicId);
   logger.info({ repoFullName, cycleId: cycle.id, tasks: totalCount, safe: safeCount,
@@ -231,20 +239,46 @@ async function executeApprovedTasks(repoFullName, repoName, topicId) {
   if (!BUILDER_ENABLED()) {
     await sendTelegramMessage(
       `Builder disabled (BUILDER_AGENT_ENABLED=false). Enable in Railway.`,
-      null,
-      topicId
+      null, topicId
     ).catch(() => {});
     return;
   }
 
-  const active = await getActiveCycleForRepo(repoFullName);
+  let active = await getActiveCycleForRepo(repoFullName);
+
   if (!active) {
-    await sendTelegramMessage(
-      `No active audit for ${repoName}. Run /sentinel audit ${repoName} first.`,
-      null,
-      topicId
-    ).catch(() => {});
-    return;
+    // No active cycle — check if there are any queued tasks we can still run
+    const { query } = require('./dbClient');
+    const queued = await query(`
+      SELECT COUNT(*) as count FROM audit_tasks
+      WHERE repo_full_name = $1 AND status = 'queued'
+    `, [repoFullName]).catch(() => null);
+
+    const queuedCount = parseInt(queued?.rows?.[0]?.count || '0');
+
+    if (queuedCount === 0) {
+      await sendTelegramMessage([
+        `No queued tasks for ${repoName}.`,
+        `Run /sentinel audit ${repoName} to generate tasks first.`,
+      ].join('\n'), null, topicId).catch(() => {});
+      return;
+    }
+
+    // Tasks exist but no active cycle — create a synthetic one so execution can proceed
+    const { createAuditCycle } = require('./auditDb');
+    active = await createAuditCycle({
+      repoFullName,
+      commitSha:   `manual-execute-${Date.now()}`,
+      projectName: repoName,
+    }).catch(() => null);
+
+    if (!active) {
+      await sendTelegramMessage(
+        `Could not start execution cycle for ${repoName}. Try /sentinel audit ${repoName} first.`,
+        null, topicId
+      ).catch(() => {});
+      return;
+    }
   }
 
   await updateAuditCycle(active.id, {
