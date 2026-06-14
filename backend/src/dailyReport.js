@@ -5,6 +5,7 @@ const { getOpenPatterns,
         getDailyCost,
         getMonthlyCost }      = require('./portfolioDb');
 const { query }               = require('./dbClient');
+const { getPortfolioSecuritySummary } = require('./securityDb');
 const logger                  = require('./logger');
 
 const PRIORITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -84,9 +85,19 @@ async function sendDailyReport() {
       getOpenPatterns(),
     ]);
 
-    const message     = await buildReportMessage(summary, patterns);
+    let message     = await buildReportMessage(summary, patterns);
     const dailyCost   = await getDailyCost();
     const monthlyCost = await getMonthlyCost();
+
+    // Phase 9 — append critical security alerts if any
+    const secPortfolio  = await getPortfolioSecuritySummary().catch(() => []);
+    const criticalRepos = secPortfolio.filter(r => r.critical_count > 0);
+    if (criticalRepos.length > 0) {
+      message += '\n\n🔒 Security Alerts:\n' +
+        criticalRepos.map(r =>
+          `  · ${r.repo_name}: ${r.critical_count} critical open`
+        ).join('\n');
+    }
 
     // Send to main group — no topic, this is portfolio-wide
     await sendTelegramMessage(message, null, null);

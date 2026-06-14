@@ -4,6 +4,7 @@ const { getPortfolioSummary }              = require('./portfolioAnalytics');
 const { getDailyCost, getMonthlyCost,
         getOpenPatterns }                  = require('./portfolioDb');
 const { getLatestMetrics }                 = require('./businessDb');
+const { getLatestSecurityScore }           = require('./securityDb');
 
 const notion  = () => new Client({ auth: process.env.NOTION_API_KEY });
 const PAGE_ID = () => process.env.NOTION_DASHBOARD_PAGE_ID;
@@ -41,6 +42,15 @@ async function updateDashboard() {
       return (order[a.priority] || 2) - (order[b.priority] || 2);
     });
 
+    // Phase 9 — pre-fetch security scores for all repos
+    const secScoreMap = {};
+    await Promise.allSettled(
+      sorted.map(async m => {
+        const s = await getLatestSecurityScore(m.repo_name).catch(() => null);
+        if (s) secScoreMap[m.repo_name] = s.score;
+      })
+    );
+
     const blocks = [
       heading2(`🛡️ Sentinel Command Center — Updated ${now}`),
       divider(),
@@ -53,13 +63,15 @@ async function updateDashboard() {
       divider(),
       heading3('🗂️ Repo Status'),
       ...sorted.map(m => {
-        const status = STATUS_EMOJI[m.build_status] || '⚪';
+        const status  = STATUS_EMOJI[m.build_status] || '⚪';
         const pri    = PRIORITY_LABEL[m.priority]   || '⚪ Unknown';
         const tasks  = m.tasks_queued > 0 ? ` · ${m.tasks_queued} queued` : '';
         const fails  = m.builds_failed > 0
           ? ` · ⚠️ ${m.builds_failed} build fail(s) today` : '';
-        const score  = `Health: ${m.health_score}/10`;
-        return bulletText(`${status} ${m.repo_name} — ${pri}  ${score}${fails}${tasks}`);
+        const health   = `Health: ${m.health_score}/10`;
+        const secScore = secScoreMap[m.repo_name] != null
+          ? `  🔒 Security: ${secScoreMap[m.repo_name]}/10` : '';
+        return bulletText(`${status} ${m.repo_name} — ${pri}  ${health}${secScore}${fails}${tasks}`);
       }),
       divider(),
       heading3('🔍 Cross-Repo Patterns'),

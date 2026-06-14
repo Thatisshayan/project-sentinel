@@ -6,7 +6,9 @@ const { runSelfAudit }          = require('./selfAuditor');
 const { checkAndHeal }          = require('./selfHealer');
 const { pullAllMetrics }        = require('./businessMetrics');
 const { scoreAllQueuedTasks }   = require('./roiScorer');
-const { generateWeeklyReport }  = require('./weeklyBusinessReport');
+const { generateWeeklyReport }          = require('./weeklyBusinessReport');
+const { runSecurityScan }               = require('./securityScanner');
+const { generateMonthlySecurityReport } = require('./monthlySecurityReport');
 const { checkAllProviders }   = require('./buildPoller');
 const { orchestrateDebug }    = require('./debugOrchestrator');
 const { sendTelegramMessage } = require('./telegramClient');
@@ -151,6 +153,15 @@ function startBuildPollWorker() {
         );
       }
 
+      // Phase 9 — security scan on every passing build (non-blocking)
+      runSecurityScan({
+        repoFullName,
+        repoName:   data.repoName,
+        commitSha,
+        branchName: data.branchName,
+        topicId:    data.topicId,
+      }).catch(err => logger.error({ err: err.message }, 'Security scan failed'));
+
       // Phase 4 — update dashboard on every build result
       updateDashboard().catch(() => {});
       return;
@@ -247,6 +258,12 @@ function startDailyReportWorker() {
     jobId:  'weekly-report-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule weekly report cron'));
 
+  // First day of month 8am Toronto — monthly security posture report (Phase 9)
+  queue.add('monthly-security', {}, {
+    repeat: { pattern: '0 8 1 * *', tz: 'America/Toronto' },
+    jobId:  'monthly-security-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule monthly security cron'));
+
   const worker = new Worker('daily-report', async (job) => {
     if (job.name === 'morning-briefing') {
       await sendMorningBriefing();
@@ -259,6 +276,10 @@ function startDailyReportWorker() {
     }
     if (job.name === 'weekly-report') {
       await generateWeeklyReport();
+      return;
+    }
+    if (job.name === 'monthly-security') {
+      await generateMonthlySecurityReport();
       return;
     }
     await refreshAllMetrics();

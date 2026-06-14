@@ -265,6 +265,81 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
       ].join('\n'), null, topicId);
       return true;
     }
+    case 'security': {
+      const { getOpenIssues, getLatestSecurityScore,
+              getPortfolioSecuritySummary } = require('./securityDb');
+      if (parts[2]) {
+        const [score, issues] = await Promise.all([
+          getLatestSecurityScore(parts[2]),
+          getOpenIssues(`Thatisshayan/${parts[2]}`),
+        ]);
+        const counts = {
+          critical: issues.filter(i => i.severity === 'critical').length,
+          high:     issues.filter(i => i.severity === 'high').length,
+          medium:   issues.filter(i => i.severity === 'medium').length,
+          low:      issues.filter(i => i.severity === 'low').length,
+        };
+        await sendTelegramMessage([
+          `🔒 Security — ${parts[2]}`,
+          `Score: ${score?.score || 'N/A'}/10`,
+          ``,
+          `🔴 Critical: ${counts.critical}`,
+          `🟠 High: ${counts.high}`,
+          `🟡 Medium: ${counts.medium}`,
+          `🟢 Low: ${counts.low}`,
+          ``,
+          issues.slice(0, 5).map(i => `  · [${i.severity}] ${i.title}`).join('\n'),
+          ``,
+          `/sentinel security-scan ${parts[2]} — fresh scan`,
+          `/sentinel security-patch ${parts[2]} — auto-fix safe issues`,
+        ].join('\n'), null, topicId);
+      } else {
+        const portfolio = await getPortfolioSecuritySummary();
+        const lines = portfolio
+          .sort((a, b) => parseFloat(a.score) - parseFloat(b.score))
+          .map(r => `${r.repo_name}: ${r.score}/10 (${r.critical_count || 0} critical)`);
+        await sendTelegramMessage(
+          `🔒 Portfolio Security\n\n${lines.join('\n') || 'No security data yet.'}`,
+          null, topicId
+        );
+      }
+      return true;
+    }
+
+    case 'security-scan': {
+      if (!parts[2]) {
+        await sendTelegramMessage('Usage: /sentinel security-scan <repo>', null, topicId);
+        return true;
+      }
+      const { runSecurityScan } = require('./securityScanner');
+      await sendTelegramMessage(`Running security scan on ${parts[2]}...`, null, topicId);
+      runSecurityScan({
+        repoFullName: `Thatisshayan/${parts[2]}`,
+        repoName: parts[2], commitSha: 'HEAD', topicId,
+      }).catch(() => {});
+      return true;
+    }
+
+    case 'security-patch': {
+      if (!parts[2]) {
+        await sendTelegramMessage('Usage: /sentinel security-patch <repo>', null, topicId);
+        return true;
+      }
+      const { getOpenIssues: getIssues }     = require('./securityDb');
+      const { applySecurityPatches } = require('./securityPatcher');
+      const patchIssues = await getIssues(`Thatisshayan/${parts[2]}`);
+      applySecurityPatches(`Thatisshayan/${parts[2]}`, parts[2], patchIssues, topicId).catch(() => {});
+      return true;
+    }
+
+    case 'security-approve': {
+      await sendTelegramMessage(
+        `Security approval for ${parts[2] || 'repo'} noted.\nReview and merge the open PR on GitHub.`,
+        null, topicId
+      );
+      return true;
+    }
+
     case 'setup-bots': {
       const { getConfiguredBots, configureBotProfile } = require('./agentBots');
       const { configured } = getConfiguredBots();
