@@ -1,0 +1,43 @@
+{
+  "name": "sentinel-backend",
+  "version": "1.0.0",
+  "description": "Project Sentinel — Phase 1 core loop",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest --runInBand --forceExit",
+    "test:coverage": "jest --runInBand --forceExit --coverage"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.1",
+    "@notionhq/client": "3.0.0",
+    "axios": "^1.6.7",
+    "bullmq": "^5.4.2",
+    "dotenv": "16.4.5",
+    "express": "4.19.2",
+    "express-rate-limit": "7.1.5",
+    "ioredis": "^5.3.2",
+    "pg": "^8.11.3",
+    "pino": "8.17.2",
+    "simple-git": "^3.22.0",
+    "tmp": "^0.2.7"
+  },
+  "devDependencies": {
+    "jest": "29.7.0",
+    "nodemon": "3.0.3",
+    "supertest": "6.3.4"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/test/**/*.test.js"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.js"
+    ]
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
