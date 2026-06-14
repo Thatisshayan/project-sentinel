@@ -22,8 +22,21 @@ const { setAgentIdle,
         getAllAgents }          = require('./agentDb');
 const { findNotionProject,
         updateBuilderAgent }   = require('./notionClient');
+const { saveMessage,
+        getHistory,
+        formatHistoryForPrompt } = require('./conversationMemory');
 
 const CHAT_MODEL = process.env.CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct';
+
+// Pick which agent should "speak" for a given message in the agent room
+function pickSpeakingAgent(messageText) {
+  const t = messageText.toLowerCase();
+  if (/\b(code|fix|build|pr|implement|function|bug|error)\b/.test(t)) return 'qwen_coder';
+  if (/\b(audit|analy|review|secur|score|report)\b/.test(t))           return 'nvidia';
+  if (/\b(debug|fail|broke|crash|log)\b/.test(t))                      return 'gemini';
+  if (/\b(fast|quick|simple|check|status)\b/.test(t))                  return 'deepseek';
+  return 'nvidia'; // Nemotron is the default speaker
+}
 
 const SYSTEM_PROMPT = `You are Project Sentinel, an autonomous DevOps AI managing a portfolio of 12 GitHub repositories for a solo founder named Shayan based in Toronto.
 
@@ -96,22 +109,9 @@ API COSTS: $${dailyCost.toFixed(2)} today, $${monthlyCost.toFixed(2)} this month
   }
 }
 
-// Calls whichever AI provider is available.
-// Primary: Anthropic SDK (when ANTHROPIC_API_KEY is set).
-// Fallback: NVIDIA NIM via OpenAI-compatible endpoint (when NVIDIA_API_KEY is set).
+// Calls the best available AI provider in priority order.
+// Never uses Anthropic unless explicitly set — free providers first.
 async function callChatAPI(prompt) {
-  if (process.env.ANTHROPIC_API_KEY) {
-    const model = CHAT_MODEL.startsWith('claude') ? CHAT_MODEL : 'claude-sonnet-4-6';
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    const response = await client.messages.create({
-      model,
-      max_tokens: 500,
-      system:     SYSTEM_PROMPT,
-      messages:   [{ role: 'user', content: prompt }],
-    });
-    return response.content[0]?.text || '';
-  }
-
   if (process.env.NVIDIA_API_KEY) {
     const response = await axios.post(
       'https://integrate.api.nvidia.com/v1/chat/completions',
@@ -121,52 +121,119 @@ async function callChatAPI(prompt) {
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user',   content: prompt },
         ],
-        max_tokens:  500,
+        max_tokens:  1000,
         temperature: 0.3,
       },
       {
-        headers: {
-          Authorization:  `Bearer ${process.env.NVIDIA_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { Authorization: `Bearer ${process.env.NVIDIA_API_KEY}`, 'Content-Type': 'application/json' },
         timeout: 30000,
       }
     );
     return response.data.choices[0]?.message?.content || '';
   }
 
-  throw new Error('No AI provider configured (ANTHROPIC_API_KEY or NVIDIA_API_KEY required)');
+  if (process.env.GEMINI_API_KEY) {
+    const response = await axios.post(
+      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+      {
+        model:      'gemini-2.0-flash',
+        messages:   [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],
+        max_tokens: 1000,
+      },
+      {
+        headers: { Authorization: `Bearer ${process.env.GEMINI_API_KEY}`, 'Content-Type': 'application/json' },
+        timeout: 30000,
+      }
+    );
+    return response.data.choices[0]?.message?.content || '';
+  }
+
+  if (process.env.DASHSCOPE_API_KEY) {
+    const response = await axios.post(
+      'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+      {
+        model:      'qwen-max',
+        messages:   [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],
+        max_tokens: 1000,
+      },
+      {
+        headers: { Authorization: `Bearer ${process.env.DASHSCOPE_API_KEY}`, 'Content-Type': 'application/json' },
+        timeout: 30000,
+      }
+    );
+    return response.data.choices[0]?.message?.content || '';
+  }
+
+  if (process.env.DEEPSEEK_API_KEY) {
+    const response = await axios.post(
+      'https://api.deepseek.com/chat/completions',
+      {
+        model:      'deepseek-chat',
+        messages:   [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],
+        max_tokens: 1000,
+      },
+      {
+        headers: { Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
+        timeout: 30000,
+      }
+    );
+    return response.data.choices[0]?.message?.content || '';
+  }
+
+  if (process.env.ANTHROPIC_API_KEY) {
+    const model  = CHAT_MODEL.startsWith('claude') ? CHAT_MODEL : 'claude-sonnet-4-6';
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const res    = await client.messages.create({
+      model, max_tokens: 1000, system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    return res.content[0]?.text || '';
+  }
+
+  throw new Error('No AI provider configured — set NVIDIA_API_KEY, GEMINI_API_KEY, DASHSCOPE_API_KEY, or DEEPSEEK_API_KEY');
 }
 
 async function handleMessage(messageText, fromName, topicId, roomContext,
                               targetAgentId = null, agentContext = null, replyToMessageId = null) {
-  if (!process.env.ANTHROPIC_API_KEY && !process.env.NVIDIA_API_KEY) {
+  const hasKey = process.env.NVIDIA_API_KEY || process.env.GEMINI_API_KEY ||
+                 process.env.DASHSCOPE_API_KEY || process.env.DEEPSEEK_API_KEY ||
+                 process.env.ANTHROPIC_API_KEY;
+  if (!hasKey) {
     logger.warn('No AI API key configured — AI responses disabled');
     return;
   }
 
-  logger.info({ from: fromName, text: messageText.substring(0, 80), targetAgentId },
+  // In the agent room without a direct target, pick the best agent to respond
+  const isAgentRoom = topicId != null &&
+    String(topicId) === String(process.env.AGENT_ROOM_TOPIC_ID);
+  const speakingAgent = targetAgentId ||
+    (isAgentRoom ? pickSpeakingAgent(messageText) : null);
+
+  logger.info({ from: fromName, text: messageText.substring(0, 80), speakingAgent },
     'AI handling Telegram message');
 
   try {
-    const context = await buildContext();
+    const [context, history] = await Promise.all([
+      buildContext(),
+      getHistory(topicId, 15).catch(() => []),
+    ]);
+
+    const historySection = formatHistoryForPrompt(history);
 
     const agentSection = roomContext
       ? `\nAGENT ROOM CONTEXT:\n${roomContext}\n`
       : '';
 
-    // Phase 8.5 — extra context when a specific agent is being directly addressed
     const directAddressSection = agentContext
       ? `\nADDITIONAL CONTEXT — You are being directly addressed:\n${agentContext}\n`
       : '';
 
-    // Improvement 3 — @mention detection: add live status for any mentioned agent
-    const AGENT_IDS     = ['nvidia','qwen_coder','qwen_coder_dash','llama_fast','gemini','qwen_max','qwen_turbo','deepseek','qwen_plus','opencode'];
-    const mentionedIds  = AGENT_IDS.filter(id => messageText.toLowerCase().includes(`@${id}`));
-    let mentionSection  = '';
+    const AGENT_IDS    = ['nvidia','qwen_coder','qwen_coder_dash','llama_fast','gemini','qwen_max','qwen_turbo','deepseek','qwen_plus','opencode'];
+    const mentionedIds = AGENT_IDS.filter(id => messageText.toLowerCase().includes(`@${id}`));
+    let mentionSection = '';
     if (mentionedIds.length > 0) {
-      const agents      = await getAllAgents().catch(() => []);
-      const lines       = mentionedIds.map(id => {
+      const agents = await getAllAgents().catch(() => []);
+      const lines  = mentionedIds.map(id => {
         const a = agents.find(x => x.agent_id === id);
         if (!a) return `@${id}: not registered`;
         return a.status === 'working'
@@ -176,17 +243,16 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
       mentionSection = `\nMENTIONED AGENTS:\n${lines}\n`;
     }
 
-    // Phase 10 — prepend agent personality to system prompt when directly addressed
     let personalityPrefix = '';
-    if (targetAgentId) {
+    if (speakingAgent) {
       try {
         const { getPersonalityPrompt } = require('./agentPersonality');
-        const personality = getPersonalityPrompt(targetAgentId);
+        const personality = getPersonalityPrompt(speakingAgent);
         if (personality) personalityPrefix = `${personality}\n\n`;
       } catch {}
     }
 
-    const prompt = `${personalityPrefix}${context}${agentSection}${directAddressSection}${mentionSection}\nMessage from ${fromName}: ${messageText}`;
+    const prompt = `${personalityPrefix}${context}${historySection}${agentSection}${directAddressSection}${mentionSection}\nMessage from ${fromName}: ${messageText}`;
 
     const raw = await callChatAPI(prompt) ||
       '{"action":"answer","message":"Sorry, I had trouble understanding that."}';
@@ -196,14 +262,21 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
     let parsed;
     try {
       parsed = JSON.parse(raw.replace(/```json?|```/g, '').trim());
-    } catch (e) {
+    } catch {
       parsed = { action: 'answer', message: raw };
     }
 
-    // Phase 8.5 — when replying to a specific agent, send via that agent's own bot
-    if (targetAgentId && parsed.action === 'answer' && parsed.message) {
+    const responseText = parsed.action === 'answer' ? parsed.message : null;
+
+    // Save to memory (non-blocking)
+    saveMessage(topicId, fromName, messageText, responseText, speakingAgent).catch(() => {});
+
+    // Route response through the speaking agent's bot when possible
+    if (speakingAgent && parsed.action === 'answer' && parsed.message) {
       const { sendAsAgent } = require('./agentBots');
-      await sendAsAgent(targetAgentId, parsed.message, replyToMessageId).catch(() => {});
+      await sendAsAgent(speakingAgent, parsed.message, replyToMessageId).catch(async () => {
+        await executeAction(parsed, topicId);
+      });
     } else {
       await executeAction(parsed, topicId);
     }

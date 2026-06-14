@@ -98,7 +98,7 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
     case 'retry':
       return handleRetry(parts[2], topicId);
     case 'help':
-      return handleHelp(topicId);
+      return handleHelp(topicId, chatId);
     case 'execute':
       return handleExecute(parts[2], topicId);
     case 'skip':
@@ -353,6 +353,120 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
       return true;
     }
 
+    case 'test-bots': {
+      const { getConfiguredBots, sendAsAgent } = require('./agentBots');
+      const { configured, missing } = getConfiguredBots();
+      await sendTelegramMessage(
+        `Testing ${configured.length} agent bots...`, null, topicId
+      );
+      for (const agentId of configured) {
+        const result = await sendAsAgent(agentId, `🟢 ${agentId} is online and ready.`);
+        if (!result) {
+          await sendTelegramMessage(`❌ ${agentId} failed — check bot token and group membership`, null, topicId);
+        }
+        await new Promise(r => setTimeout(r, 800));
+      }
+      if (missing.length > 0) {
+        await sendTelegramMessage(
+          `⚠️ Missing tokens for: ${missing.join(', ')}\nAdd BOT_TOKEN_<NAME> to Railway.`,
+          null, topicId
+        );
+      }
+      return true;
+    }
+
+    case 'standup': {
+      const { runAgentStandup } = require('./agentStandup');
+      await sendTelegramMessage('Running agent standup...', null, topicId);
+      runAgentStandup().catch(err => logger.error({ err: err.message }, 'Manual standup failed'));
+      return true;
+    }
+
+    case 'leaderboard': {
+      const { postAgentLeaderboard } = require('./agentLeaderboard');
+      postAgentLeaderboard().catch(err => logger.error({ err: err.message }, 'Manual leaderboard failed'));
+      return true;
+    }
+
+    case 'ceo': {
+      const { generateCEOReport } = require('./ceoReport');
+      await sendTelegramMessage('Generating CEO report...', null, topicId);
+      generateCEOReport(topicId).catch(err => logger.error({ err: err.message }, 'Manual CEO report failed'));
+      return true;
+    }
+
+    case 'run-sprint': {
+      const { getCurrentSprint } = require('./sprintDb');
+      const sprint = await getCurrentSprint().catch(() => null);
+      if (!sprint) {
+        await sendTelegramMessage('No active sprint. Propose one: /sentinel propose-sprint', null, topicId);
+        return true;
+      }
+      if (sprint.status === 'proposed') {
+        await sendTelegramMessage(
+          `Sprint is pending approval. Use /sentinel approve-sprint to start, or /sentinel run-sprint to force.`,
+          null, topicId
+        );
+        return true;
+      }
+      if (sprint.status === 'executing') {
+        const { executeNextSprintTask } = require('./sprintOrchestrator');
+        await sendTelegramMessage(`Resuming sprint execution (${sprint.total_tasks} tasks)...`, null, topicId);
+        executeNextSprintTask(sprint.id, topicId).catch(() => {});
+        return true;
+      }
+      await sendTelegramMessage(`Sprint status: ${sprint.status}. Nothing to run.`, null, topicId);
+      return true;
+    }
+
+    case 'propose-sprint': {
+      const { generateSprintProposal } = require('./sprintPlanner');
+      await sendTelegramMessage('Generating sprint proposal...', null, topicId);
+      generateSprintProposal().catch(err =>
+        logger.error({ err: err.message }, 'Manual sprint proposal failed')
+      );
+      return true;
+    }
+
+    case 'force-execute': {
+      if (!parts[2]) {
+        await sendTelegramMessage('Usage: /sentinel force-execute <repo>', null, topicId);
+        return true;
+      }
+      const { query: dbQuery } = require('./dbClient');
+      // Mark all queued tasks as safe to auto-execute
+      const updated = await dbQuery(`
+        UPDATE audit_tasks SET safe_to_auto_execute = true
+        WHERE repo_full_name = $1 AND status = 'queued'
+        RETURNING id
+      `, [`Thatisshayan/${parts[2]}`]).catch(() => null);
+      const count = updated?.rows?.length || 0;
+      await sendTelegramMessage(
+        `Unlocked ${count} tasks for ${parts[2]}. Starting execution...`, null, topicId
+      );
+      if (count > 0) {
+        executeApprovedTasks(`Thatisshayan/${parts[2]}`, parts[2], topicId)
+          .catch(err => logger.error({ err: err.message }, 'Force-execute failed'));
+      }
+      return true;
+    }
+
+    case 'memory': {
+      const { getHistory } = require('./conversationMemory');
+      const history = await getHistory(topicId, 10).catch(() => []);
+      if (history.length === 0) {
+        await sendTelegramMessage('No conversation history for this topic yet.', null, topicId);
+        return true;
+      }
+      const lines = history.map(h =>
+        `${h.from_name}: ${h.message.slice(0, 80)}\n→ ${(h.response || '').slice(0, 80)}`
+      );
+      await sendTelegramMessage(
+        `Last ${history.length} exchanges:\n\n${lines.join('\n\n')}`, null, topicId
+      );
+      return true;
+    }
+
     // ── Phase 10 — Repo Lock ──────────────────────────────────────────────────
     case 'lock': {
       if (!parts[2]) { await sendTelegramMessage('Usage: /sentinel lock <repo>', null, topicId); return true; }
@@ -549,20 +663,27 @@ async function handleRetry(projectArg, topicId) {
   return true;
 }
 
-async function handleHelp(topicId) {
-  await sendTelegramMessage(
+async function handleHelp(topicId, chatId) {
+  const { sendMenu } = require('./telegramMenus');
+
+  // Send interactive category buttons
+  await sendMenu(chatId, topicId, '🛡️ Project Sentinel — Command Reference', [
     [
-      `Project Sentinel — Commands`,
-      ``,
-      `/sentinel stop <repo>    — stop auto-debug for a repo`,
-      `/sentinel status <repo>  — show project status from Notion`,
-      `/sentinel builds <repo>  — check latest build status`,
-      `/sentinel retry <repo>   — manual retry note`,
-      `/sentinel help           — show this message`,
-    ].join('\n'),
-    null,
-    topicId
-  );
+      { text: '📊 Reports & Data',    callback_data: 'help:reports'   },
+      { text: '🤖 Agents & Bots',     callback_data: 'help:agents'    },
+    ],
+    [
+      { text: '🔨 Repos & Execution', callback_data: 'help:repos'     },
+      { text: '🏃 Sprint & Planning', callback_data: 'help:sprint'    },
+    ],
+    [
+      { text: '🔒 Security',          callback_data: 'help:security'  },
+      { text: '⚙️ System & Control',  callback_data: 'help:system'    },
+    ],
+    [
+      { text: '📖 Full Command List', callback_data: 'help:full'      },
+    ],
+  ]);
   return true;
 }
 
@@ -675,6 +796,105 @@ async function handleCallbackQuery(callbackQuery) {
   const threadId = topicId;
 
   // ── Phase 10 — Menu callbacks ─────────────────────────────────────────────
+
+  if (data.startsWith('help:')) {
+    await answerCallback(queryId).catch(() => {});
+    const section = data.replace('help:', '');
+    const HELP_SECTIONS = {
+      reports: [
+        '📊 Reports & Data',
+        '',
+        '/sentinel report           — daily portfolio report',
+        '/sentinel weekly           — weekly business report',
+        '/sentinel ceo              — CEO founder summary',
+        '/sentinel costs            — AI spend breakdown',
+        '/sentinel health           — all repo health scores',
+        '/sentinel velocity         — sprint velocity trend',
+        '/sentinel patterns         — cross-repo patterns',
+        '/sentinel business <repo>  — repo business metrics',
+        '/sentinel impact <repo>    — PR impact analysis',
+        '/sentinel roi              — recalculate ROI scores',
+      ].join('\n'),
+      agents: [
+        '🤖 Agents & Bots',
+        '',
+        '/sentinel agents           — all agent statuses',
+        '/sentinel what             — who is working right now',
+        '/sentinel standup          — trigger agent standup now',
+        '/sentinel leaderboard      — post weekly rankings',
+        '/sentinel bots             — show bot token status',
+        '/sentinel test-bots        — send test message from each bot',
+        '/sentinel setup-bots       — update bot profiles',
+        '/sentinel memory           — show recent conversation history',
+      ].join('\n'),
+      repos: [
+        '🔨 Repos & Execution',
+        '',
+        '/sentinel audit <repo>     — trigger fresh code audit',
+        '/sentinel tasks <repo>     — list queued tasks',
+        '/sentinel execute <repo>   — run safe queued tasks',
+        '/sentinel force-execute <repo> — run ALL queued tasks now',
+        '/sentinel stop <repo>      — stop all tasks for repo',
+        '/sentinel skip <repo>      — skip current audit',
+        '/sentinel skip-batch <repo> <n> — skip a task batch',
+        '/sentinel lock <repo>      — prevent agents touching repo',
+        '/sentinel unlock <repo>    — remove lock',
+        '/sentinel locked           — show all locked repos',
+        '/sentinel repo <name>      — open repo control panel',
+        '/sentinel dashboard        — refresh Notion dashboard',
+      ].join('\n'),
+      sprint: [
+        '🏃 Sprint & Planning',
+        '',
+        '/sentinel propose-sprint   — generate sprint proposal now',
+        '/sentinel approve-sprint   — approve and start executing',
+        '/sentinel run-sprint       — resume sprint execution',
+        '/sentinel sprint-status    — current sprint progress',
+        '/sentinel skip-sprint      — skip this week\'s sprint',
+        '/sentinel pause-sprint     — pause sprint mid-execution',
+        '/sentinel resume-sprint    — resume paused sprint',
+        '/sentinel approve           — show all pending approvals',
+      ].join('\n'),
+      security: [
+        '🔒 Security',
+        '',
+        '/sentinel security         — portfolio security summary',
+        '/sentinel security <repo>  — repo security score + issues',
+        '/sentinel security-scan <repo>   — run full security scan',
+        '/sentinel security-patch <repo>  — auto-fix safe issues',
+        '/sentinel security-approve <repo> — approve manual patches',
+      ].join('\n'),
+      system: [
+        '⚙️ System & Control',
+        '',
+        '/sentinel pause            — emergency stop all automation',
+        '/sentinel resume           — restart automation',
+        '/sentinel self-audit       — run Sentinel self-check',
+        '/sentinel self-approve     — execute Sentinel improvements',
+        '/sentinel status <repo>    — show Notion project info',
+        '/sentinel builds <repo>    — check build status',
+        '/sentinel performance      — AI model performance stats',
+        '/sentinel prompts          — prompt optimisation report',
+        '/sentinel menu             — quick action keyboard',
+        '/sentinel help             — this menu',
+      ].join('\n'),
+      full: [
+        '📖 All Commands',
+        '',
+        'REPORTS:  report, weekly, ceo, costs, health, velocity, patterns, business, impact, roi',
+        'AGENTS:   agents, what, standup, leaderboard, bots, test-bots, setup-bots, memory',
+        'REPOS:    audit, tasks, execute, force-execute, stop, skip, lock, unlock, locked, repo, dashboard',
+        'SPRINT:   propose-sprint, approve-sprint, run-sprint, sprint-status, skip-sprint, pause-sprint, resume-sprint, approve',
+        'SECURITY: security, security-scan, security-patch, security-approve',
+        'SYSTEM:   pause, resume, self-audit, self-approve, status, builds, performance, prompts, menu, help',
+        '',
+        'All commands: /sentinel <command> [args]',
+      ].join('\n'),
+    };
+    const text = HELP_SECTIONS[section] || 'Unknown section.';
+    await sendTelegramMessage(text, null, threadId).catch(() => {});
+    return true;
+  }
 
   if (data.startsWith('menu:')) {
     await answerCallback(queryId).catch(() => {});

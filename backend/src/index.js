@@ -10,7 +10,8 @@ const { initAgentPool }        = require('./agentRegistry');
 const { initSelfAuditSchema }  = require('./selfAuditDb');
 const { initDefaultPrompts }   = require('./promptOptimizer');
 const { initBusinessSchema }   = require('./businessDb');
-const { initSecuritySchema }   = require('./securityDb');
+const { initSecuritySchema }        = require('./securityDb');
+const { initConversationSchema }    = require('./conversationMemory');
 const { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAgentCleanupWorker } = require('./workers');
 
 let checkAndOnboardNewRepos;
@@ -134,6 +135,7 @@ app.listen(PORT, () => {
     logger.info('Business intelligence schema ready');
     await initSecuritySchema();
     logger.info('Security schema ready');
+    await initConversationSchema();
     if (checkAndOnboardNewRepos) {
       await checkAndOnboardNewRepos().catch(err =>
         logger.warn({ err: err.message }, 'Repo onboarding check failed — non-blocking')
