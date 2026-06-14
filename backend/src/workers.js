@@ -26,6 +26,12 @@ const { updateDashboard }        = require('./notionDashboard');
 const { generateSprintProposal } = require('./sprintPlanner');
 const { recordWeeklyVelocity }   = require('./velocityTracker');
 
+let runPriorityEngine, generateCEOReport, runAgentStandup, postAgentLeaderboard;
+try { ({ runPriorityEngine }    = require('./priorityEngine'));    } catch {}
+try { ({ generateCEOReport }    = require('./ceoReport'));         } catch {}
+try { ({ runAgentStandup }      = require('./agentStandup'));      } catch {}
+try { ({ postAgentLeaderboard } = require('./agentLeaderboard')); } catch {}
+
 const POLL_INTERVAL_MS    = 30  * 1000; // 30 seconds between polls
 const MAX_POLL_ATTEMPTS   = 20;         // 20 × 30s = 10 minutes max
 
@@ -264,6 +270,30 @@ function startDailyReportWorker() {
     jobId:  'monthly-security-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule monthly security cron'));
 
+  // Daily 6:30am Toronto — priority engine (after business metrics pull at 6am)
+  queue.add('priority-engine', {}, {
+    repeat: { pattern: '30 6 * * *', tz: 'America/Toronto' },
+    jobId:  'priority-engine-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule priority engine cron'));
+
+  // Daily 9am Toronto — agent standup (fires in agent-room before daily report)
+  queue.add('agent-standup', {}, {
+    repeat: { pattern: '0 9 * * *', tz: 'America/Toronto' },
+    jobId:  'agent-standup-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule agent standup cron'));
+
+  // Sunday 10pm Toronto — CEO report (after sprint executes)
+  queue.add('ceo-report', {}, {
+    repeat: { pattern: '0 22 * * 0', tz: 'America/Toronto' },
+    jobId:  'ceo-report-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule CEO report cron'));
+
+  // Sunday 10:30pm Toronto — agent leaderboard (after CEO report)
+  queue.add('agent-leaderboard', {}, {
+    repeat: { pattern: '30 22 * * 0', tz: 'America/Toronto' },
+    jobId:  'agent-leaderboard-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule agent leaderboard cron'));
+
   const worker = new Worker('daily-report', async (job) => {
     if (job.name === 'morning-briefing') {
       await sendMorningBriefing();
@@ -280,6 +310,22 @@ function startDailyReportWorker() {
     }
     if (job.name === 'monthly-security') {
       await generateMonthlySecurityReport();
+      return;
+    }
+    if (job.name === 'priority-engine') {
+      if (runPriorityEngine) await runPriorityEngine();
+      return;
+    }
+    if (job.name === 'agent-standup') {
+      if (runAgentStandup) await runAgentStandup();
+      return;
+    }
+    if (job.name === 'ceo-report') {
+      if (generateCEOReport) await generateCEOReport(null);
+      return;
+    }
+    if (job.name === 'agent-leaderboard') {
+      if (postAgentLeaderboard) await postAgentLeaderboard();
       return;
     }
     await refreshAllMetrics();
