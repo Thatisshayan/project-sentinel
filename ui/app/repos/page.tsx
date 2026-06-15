@@ -1,29 +1,71 @@
-import { REPOS, AGENTS, healthColor } from "@/lib/data";
+import { getPortfolio } from "@/lib/api";
+import { AGENTS, healthColor } from "@/lib/data";
 import { RepoRow } from "@/components/sentinel/repo-row";
+import { RepoActions } from "@/components/sentinel/repo-actions";
+import type { Repo } from "@/lib/types";
 
-export default function ReposPage() {
+export const revalidate = 30;
+
+function mapBuild(s: string | null): Repo["build"] {
+  if (s === "passed" || s === "pass") return "pass";
+  if (s === "failed" || s === "fail") return "fail";
+  return "pending";
+}
+function mapPriority(s: string | null): Repo["priority"] {
+  if (s === "critical") return "P0";
+  if (s === "high")     return "P1";
+  return "P2";
+}
+function relTime(iso: string | null) {
+  if (!iso) return "—";
+  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1)  return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+export default async function ReposPage() {
+  let repos: Repo[] = [];
+
+  try {
+    const portfolio = await getPortfolio();
+    repos = portfolio.repos.map(r => ({
+      name:     r.repo_name,
+      health:   Math.min(100, Math.round(parseFloat(String(r.health_score ?? 0)) * 10)),
+      security: 0,
+      agent:    portfolio.agents.find(a =>
+        a.repo_full_name?.endsWith(`/${r.repo_name}`) && a.status === "working"
+      )?.agent_label ?? null,
+      commit:   relTime(r.last_commit_at),
+      build:    mapBuild(r.build_status),
+      priority: mapPriority(r.priority),
+      tasks:    r.tasks_queued ?? 0,
+    }));
+  } catch {
+    const { REPOS } = await import("@/lib/data");
+    repos = REPOS;
+  }
+
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-3 border-b border-s-border">
-        <span className="text-xs text-s-muted">{REPOS.length} repositories</span>
-        <div className="flex gap-2">
-          {["Audit All","Run Security Scan"].map(label => (
-            <button key={label} className="px-3 py-1.5 text-[11px] rounded border border-s-border text-s-muted hover:text-s-text hover:border-s-border-2 transition-all">
-              {label}
-            </button>
-          ))}
-        </div>
+      <div className="flex items-center justify-between px-5 py-3 border-b border-s-border flex-shrink-0">
+        <span className="text-xs text-s-muted">{repos.length} repositories</span>
+        <RepoActions />
       </div>
 
-      <div className="flex items-center gap-2.5 px-3.5 py-2 border-b border-s-border bg-white/[0.01]"
-        style={{ display:"grid", gridTemplateColumns:"16px 1fr 90px 70px 80px 26px", gap:"10px" }}>
+      <div
+        className="border-b border-s-border bg-white/[0.01] flex-shrink-0"
+        style={{ display:"grid", gridTemplateColumns:"16px 1fr 90px 70px 80px 26px", gap:"10px", padding:"7px 14px" }}
+      >
         {["","Repository","Health","Security","Commit",""].map((h,i) => (
           <span key={i} className="text-[9px] font-bold uppercase tracking-widest text-s-dim">{h}</span>
         ))}
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {REPOS.map((repo, i) => (
+        {repos.map((repo, i) => (
           <RepoRow
             key={repo.name}
             repo={repo}

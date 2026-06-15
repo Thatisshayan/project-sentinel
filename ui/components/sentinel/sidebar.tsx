@@ -2,13 +2,53 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, ElementType } from "react";
 import { SentinelMark } from "./logo-mark";
 import {
   LayoutGrid, FolderOpen, Cpu, Shield, ListTodo,
   Terminal, Plug, Settings, PauseCircle, ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { callAction } from "@/lib/actions";
+
+function SidebarAction({
+  label, icon: Icon, color, action, expanded,
+}: {
+  label: string; icon: ElementType; color: string; action: string; expanded: boolean;
+}) {
+  const [loading, setLoading] = useState(false);
+  const run = async () => {
+    setLoading(true);
+    try { await callAction(action); } catch {}
+    setLoading(false);
+  };
+  return (
+    <button
+      onClick={run}
+      disabled={loading}
+      aria-label={label}
+      className={cn(
+        "flex items-center gap-2.5 w-full px-2 py-[6px] rounded text-[11px] font-medium transition-colors duration-100 hover:bg-white/5 disabled:opacity-50",
+        color
+      )}
+    >
+      <Icon size={13} className="flex-shrink-0 opacity-50" />
+      <AnimatePresence>
+        {expanded && (
+          <motion.span
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.1 }}
+            className="whitespace-nowrap"
+          >
+            {loading ? "Working…" : label}
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </button>
+  );
+}
 
 const NAV = [
   { href: "/",           label: "Overview",   icon: LayoutGrid, badge: null,   badgeVariant: ""        },
@@ -144,32 +184,11 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="flex-shrink-0 p-1.5 border-t border-[#222222] space-y-1 overflow-hidden">
-        {[
-          { label: "Pause All Agents", icon: PauseCircle, color: "text-[#888888]" },
-          { label: "Self-Audit",        icon: ShieldCheck,  color: "text-[#C8961C]" },
-        ].map(({ label, icon: Icon, color }) => (
-          <button
-            key={label}
-            className={cn(
-              "flex items-center gap-2.5 w-full px-2 py-[6px] rounded text-[11px] font-medium transition-colors duration-100 hover:bg-white/5",
-              color
-            )}
-          >
-            <Icon size={13} className="flex-shrink-0 opacity-50 flex-shrink-0" />
-            <AnimatePresence>
-              {expanded && (
-                <motion.span
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.1 }}
-                  className="whitespace-nowrap"
-                >
-                  {label}
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </button>
+        {([
+          { label: "Pause All Agents", icon: PauseCircle, color: "text-[#888888]", action: "/api/system/pause" },
+          { label: "Self-Audit",        icon: ShieldCheck,  color: "text-[#C8961C]", action: "/api/self-audit/trigger" },
+        ] as const).map(({ label, icon: Icon, color, action }) => (
+          <SidebarAction key={label} label={label} icon={Icon} color={color} action={action} expanded={expanded} />
         ))}
       </div>
     </motion.nav>

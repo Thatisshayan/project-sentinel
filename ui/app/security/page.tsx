@@ -1,96 +1,72 @@
-import { REPOS, healthColor } from "@/lib/data";
+import { getSecurityPortfolio, getPortfolio } from "@/lib/api";
+import { SecurityView } from "@/components/sentinel/security-view";
 
-const ISSUES = [
-  { repo:"ml-pipeline",    title:"Prototype Pollution via lodash.merge",     cve:"CVE-2020-8203", cvss:7.4, status:"open"    },
-  { repo:"ml-pipeline",    title:"ReDoS in path-to-regexp",                   cve:"CVE-2024-45296",cvss:5.3, status:"open"    },
-  { repo:"data-ingestion", title:"Severity vuln in express-fileupload",       cve:"CVE-2020-7699", cvss:9.8, status:"open"    },
-  { repo:"data-ingestion", title:"Deprecated: node-uuid → uuid",              cve:null,            cvss:null, status:"open"    },
-  { repo:"auth-service",   title:"jwt secret exposed in git history",          cve:null,            cvss:null, status:"patched" },
-  { repo:"worker-queue",   title:"SQL injection risk in raw query",            cve:null,            cvss:8.1,  status:"open"    },
-  { repo:"api-gateway",    title:"Missing rate limiting on /auth/login",       cve:null,            cvss:null, status:"review"  },
-];
+export const revalidate = 60;
 
-function CvssBadge({ cvss }: { cvss: number | null }) {
-  if (!cvss) return <span className="text-s-dim text-[10px] font-mono">—</span>;
-  const color = cvss >= 9 ? "#EF4444" : cvss >= 7 ? "#F59E0B" : "#22C55E";
+export default async function SecurityPage() {
+  let scores: { repo: string; score: number; critical: number; high: number; medium: number; low: number }[] = [];
+  let issues: { id: number; repo: string; title: string; cve: string | null; cvss: number | null; severity: string; status: string }[] = [];
+
+  try {
+    const [sec, portfolio] = await Promise.all([getSecurityPortfolio(), getPortfolio()]);
+
+    // Build score map — fall back to health*0.8 if no security scan yet
+    const scoreMap = new Map(sec.scores.map(s => [s.repo_name, s]));
+
+    scores = portfolio.repos.map(r => {
+      const s = scoreMap.get(r.repo_name);
+      return {
+        repo:     r.repo_name,
+        score:    s ? s.score : Math.round(parseFloat(String(r.health_score ?? 5)) * 8),
+        critical: s?.critical_count ?? 0,
+        high:     s?.high_count ?? 0,
+        medium:   s?.medium_count ?? 0,
+        low:      s?.low_count ?? 0,
+      };
+    }).sort((a, b) => a.score - b.score); // worst first
+
+    issues = sec.issues.map(i => ({
+      id:       i.id,
+      repo:     i.repo_full_name?.split("/").pop() ?? "unknown",
+      title:    i.title,
+      cve:      (i as any).cve_id ?? null,
+      cvss:     (i as any).cvss_score ?? null,
+      severity: i.severity,
+      status:   i.status,
+    }));
+  } catch {
+    // Fallback mock
+    scores = [
+      { repo:"data-ingestion", score:44, critical:1, high:2, medium:3, low:1 },
+      { repo:"ml-pipeline",    score:44, critical:0, high:2, medium:2, low:3 },
+      { repo:"worker-queue",   score:57, critical:0, high:1, medium:2, low:2 },
+      { repo:"api-gateway",    score:72, critical:0, high:0, medium:1, low:2 },
+      { repo:"dashboard-ui",   score:79, critical:0, high:0, medium:1, low:1 },
+      { repo:"billing-service",score:85, critical:0, high:0, medium:0, low:1 },
+      { repo:"auth-service",   score:91, critical:0, high:0, medium:0, low:0 },
+      { repo:"sentinel-core",  score:88, critical:0, high:0, medium:1, low:0 },
+    ];
+    issues = [
+      { id:1, repo:"ml-pipeline",    title:"Prototype Pollution via lodash.merge",   cve:"CVE-2020-8203", cvss:7.4, severity:"high",     status:"open" },
+      { id:2, repo:"ml-pipeline",    title:"ReDoS in path-to-regexp",                cve:"CVE-2024-45296",cvss:5.3, severity:"medium",    status:"open" },
+      { id:3, repo:"data-ingestion", title:"Severity vuln in express-fileupload",    cve:"CVE-2020-7699", cvss:9.8, severity:"critical",  status:"open" },
+      { id:4, repo:"data-ingestion", title:"Deprecated: node-uuid → uuid",           cve:null,            cvss:null,severity:"low",       status:"open" },
+      { id:5, repo:"auth-service",   title:"JWT secret exposed in git history",      cve:null,            cvss:null,severity:"high",      status:"patched" },
+      { id:6, repo:"worker-queue",   title:"SQL injection risk in raw query",        cve:null,            cvss:8.1, severity:"high",      status:"open" },
+      { id:7, repo:"api-gateway",    title:"Missing rate limiting on /auth/login",   cve:null,            cvss:null,severity:"medium",    status:"review" },
+    ];
+  }
+
+  const openCount    = issues.filter(i => i.status === "open").length;
+  const criticalCount= issues.filter(i => i.severity === "critical").length;
+  const patchedCount = issues.filter(i => i.status === "patched").length;
+  const avgScore     = scores.length ? Math.round(scores.reduce((s,r) => s + r.score, 0) / scores.length) : 0;
+
   return (
-    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded" style={{ color, background: color + "15" }}>
-      {cvss}
-    </span>
-  );
-}
-
-export default function SecurityPage() {
-  const open = ISSUES.filter(i => i.status === "open").length;
-  const critical = ISSUES.filter(i => (i.cvss ?? 0) >= 9).length;
-
-  return (
-    <div className="p-5">
-      {/* Summary bar */}
-      <div className="grid grid-cols-4 gap-3 mb-5">
-        {[
-          { label:"Avg Security", value:"72", color:"#F59E0B" },
-          { label:"Open Issues",  value:String(open), color:"#EF4444" },
-          { label:"Critical",     value:String(critical), color:"#EF4444" },
-          { label:"Patched",      value:"1",  color:"#22C55E" },
-        ].map(s => (
-          <div key={s.label} className="border border-s-border rounded-lg px-3.5 py-3 relative overflow-hidden">
-            <div className="absolute top-0 left-0 right-0 h-[2px]" style={{ background: s.color }} />
-            <div className="text-[9px] uppercase tracking-widest text-s-dim mb-1">{s.label}</div>
-            <div className="text-2xl font-extrabold font-mono" style={{ color: s.color }}>{s.value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Repo grid */}
-      <div className="grid grid-cols-4 gap-2 mb-5">
-        {[...REPOS].sort((a,b) => a.security - b.security).map(repo => {
-          const color = healthColor(repo.security);
-          return (
-            <div key={repo.name} className="border border-s-border rounded p-2.5 hover:bg-white/[0.02] transition-colors">
-              <div className="font-mono text-[11px] font-medium truncate mb-1.5">{repo.name}</div>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-1 bg-s-border rounded-full overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${repo.security}%`, background: color }} />
-                </div>
-                <span className="text-[10px] font-mono" style={{ color }}>{repo.security}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Issues table */}
-      <div className="border border-s-border rounded-lg overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-s-border bg-white/[0.01]">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-s-dim">Security Issues</span>
-          <div className="flex gap-2">
-            <button className="px-2.5 py-1 text-[10px] rounded border border-s-border text-s-muted hover:text-s-text transition-colors">Run All Scans</button>
-            <button className="px-2.5 py-1 text-[10px] rounded border border-s-green/30 text-s-green hover:bg-s-green/10 transition-colors">Patch All Safe</button>
-          </div>
-        </div>
-        <div className="grid text-[9px] font-bold uppercase tracking-widest text-s-dim px-4 py-2 border-b border-s-border bg-white/[0.005]"
-          style={{ gridTemplateColumns:"140px 1fr 120px 60px 70px 80px" }}>
-          {["Repo","Title","CVE","CVSS","Status",""].map(h => <span key={h}>{h}</span>)}
-        </div>
-        {ISSUES.map((issue, i) => (
-          <div key={i}
-            className="grid items-center gap-3 px-4 py-2.5 border-b border-s-border last:border-b-0 hover:bg-white/[0.02] transition-colors"
-            style={{ gridTemplateColumns:"140px 1fr 120px 60px 70px 80px" }}>
-            <span className="font-mono text-[11px] text-s-muted truncate">{issue.repo}</span>
-            <span className="text-xs text-s-text truncate">{issue.title}</span>
-            <span className="font-mono text-[10px] text-s-ind truncate">{issue.cve ?? "—"}</span>
-            <CvssBadge cvss={issue.cvss} />
-            <span className={`text-[10px] font-semibold ${
-              issue.status==="open" ? "text-s-red" :
-              issue.status==="patched" ? "text-s-green" : "text-s-amber"
-            }`}>{issue.status}</span>
-            <button className="text-[10px] px-2 py-1 rounded border border-s-border text-s-muted hover:text-s-text hover:border-s-ind/40 transition-all">
-              {issue.status === "open" ? "Patch" : "View"}
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
+    <SecurityView
+      scores={scores}
+      issues={issues}
+      summary={{ avgScore, openCount, criticalCount, patchedCount }}
+    />
   );
 }

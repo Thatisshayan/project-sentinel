@@ -1,8 +1,11 @@
 "use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import type { Repo, Agent } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, XCircle, Clock, MoreHorizontal } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, MoreHorizontal, Loader2 } from "lucide-react";
+import { callAction } from "@/lib/actions";
 
 const PRIORITY: Record<string, string> = {
   P0: "text-[#EF4444] bg-[#EF4444]/10 border-[#EF4444]/20",
@@ -19,7 +22,17 @@ function BuildIcon({ status }: { status: Repo["build"] }) {
 interface Props { repo: Repo; agent: Agent | null; index: number; healthColor: string; secColor: string; }
 
 export function RepoRow({ repo, agent, index, healthColor, secColor }: Props) {
+  const router = useRouter();
+  const [auditing, setAuditing] = useState(false);
   const isWorking = !!agent && agent.status === "working";
+
+  const audit = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setAuditing(true);
+    try { await callAction(`/api/repo/${repo.name}/audit`); } catch {}
+    setAuditing(false);
+    router.refresh();
+  };
 
   return (
     <motion.div
@@ -104,8 +117,14 @@ export function RepoRow({ repo, agent, index, healthColor, secColor }: Props) {
 
       {/* Actions */}
       <div className="flex justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-        <button className="p-1 rounded hover:bg-white/10 text-[#666666] hover:text-[#F5F5F5] transition-colors">
-          <MoreHorizontal size={12} />
+        <button
+          onClick={audit}
+          disabled={auditing}
+          aria-label="Audit repo"
+          title="Audit this repo"
+          className="p-1 rounded hover:bg-white/10 text-[#666666] hover:text-[#F5F5F5] transition-colors disabled:opacity-40"
+        >
+          {auditing ? <Loader2 size={12} className="animate-spin" /> : <MoreHorizontal size={12} />}
         </button>
       </div>
     </motion.div>
