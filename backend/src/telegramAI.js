@@ -221,7 +221,7 @@ async function callChatAPI(prompt) {
 
   if (process.env.DASHSCOPE_API_KEY) {
     const response = await axios.post(
-      'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+      `${process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}/chat/completions`,
       {
         model:      'qwen-max',
         messages:   [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],

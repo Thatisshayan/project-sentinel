@@ -1,5 +1,7 @@
 const logger = require('./logger');
 
+const DASHSCOPE_BASE = process.env.DASHSCOPE_BASE_URL || DASHSCOPE_BASE;
+
 const BUILDERS = {
   // claude: {
   //   id:          'claude',
@@ -48,7 +50,7 @@ const BUILDERS = {
     label:       'Qwen Max (DashScope)',
     type:        'openai_compatible',
     aiderModel:  'qwen-max',
-    apiBase:     'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiBase:     DASHSCOPE_BASE,
     envKey:      'DASHSCOPE_API_KEY',
     description: 'Alibaba best — strongest reasoning',
   },
@@ -57,7 +59,7 @@ const BUILDERS = {
     label:       'Qwen Plus (DashScope)',
     type:        'openai_compatible',
     aiderModel:  'qwen-plus',
-    apiBase:     'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiBase:     DASHSCOPE_BASE,
     envKey:      'DASHSCOPE_API_KEY',
     description: 'Alibaba balanced — good quality, fast',
   },
@@ -66,7 +68,7 @@ const BUILDERS = {
     label:       'Qwen 2.5 Coder (DashScope)',
     type:        'openai_compatible',
     aiderModel:  'qwen2.5-coder-32b-instruct',
-    apiBase:     'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiBase:     DASHSCOPE_BASE,
     envKey:      'DASHSCOPE_API_KEY',
     description: 'Alibaba code specialist for building tasks',
   },
@@ -75,7 +77,7 @@ const BUILDERS = {
     label:       'Qwen Turbo (DashScope)',
     type:        'openai_compatible',
     aiderModel:  'qwen-turbo',
-    apiBase:     'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiBase:     DASHSCOPE_BASE,
     envKey:      'DASHSCOPE_API_KEY',
     description: 'Alibaba fastest — bulk low complexity tasks',
   },
@@ -159,7 +161,7 @@ function getAiderEnv(config) {
     case 'qwen_coder_dash':
     case 'qwen_turbo':
       env.OPENAI_API_KEY  = process.env.DASHSCOPE_API_KEY || '';
-      env.OPENAI_API_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+      env.OPENAI_API_BASE = DASHSCOPE_BASE;
       break;
     case 'deepseek':
       env.DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';

@@ -41,7 +41,7 @@ async function callFreeAI(prompt) {
     const model = SPRINT_MODEL || 'qwen-max';
     logger.info({ model }, 'Sprint planner using DashScope Qwen');
     const res = await axios.post(
-      'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+      `${process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}/chat/completions`,
       { model, messages: [{ role: 'user', content: prompt }], max_tokens: 2000 },
       { headers: { Authorization: `Bearer ${process.env.DASHSCOPE_API_KEY}`, 'Content-Type': 'application/json' }, timeout: 90000 }
     );
