@@ -36,6 +36,9 @@ try { ({ generateCEOReport }    = require('./ceoReport'));         } catch (e) {
 try { ({ runAgentStandup }      = require('./agentStandup'));      } catch (e) { logger.warn({ err: e.message }, 'agentStandup failed to load'); }
 try { ({ postAgentLeaderboard } = require('./agentLeaderboard')); } catch (e) { logger.warn({ err: e.message }, 'agentLeaderboard failed to load'); }
 
+let runStrategicBrain, recordBrainOutcome;
+try { ({ runStrategicBrain, recordBrainOutcome } = require('./sentinelBrain')); } catch (e) { logger.warn({ err: e.message }, 'sentinelBrain failed to load'); }
+
 const SENTINEL_TZ         = process.env.SENTINEL_TIMEZONE || 'America/Toronto';
 const POLL_INTERVAL_MS    = 30  * 1000; // 30 seconds between polls
 const MAX_POLL_ATTEMPTS   = 20;         // 20 × 30s = 10 minutes max
@@ -339,6 +342,18 @@ function startDailyReportWorker() {
     jobId:  'stale-tasks-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule stale tasks cron'));
 
+  // Daily 6:55am Toronto — record yesterday's brain outcome before today's decision
+  queue.add('brain-outcome', {}, {
+    repeat: { pattern: '55 6 * * *', tz: SENTINEL_TZ },
+    jobId:  'brain-outcome-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule brain outcome cron'));
+
+  // Daily 7am Toronto — strategic brain: gather intel, make decision, auto-execute
+  queue.add('brain-strategy', {}, {
+    repeat: { pattern: '0 7 * * *', tz: SENTINEL_TZ },
+    jobId:  'brain-strategy-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule brain strategy cron'));
+
   const worker = new Worker('daily-report', async (job) => {
     if (job.name === 'morning-briefing') {
       await sendMorningBriefing();
@@ -430,6 +445,16 @@ function startDailyReportWorker() {
         `Run: /sentinel force-execute <repo> to execute, or /sentinel skip <repo> to clear.`,
         null, null
       ).catch(() => {});
+      return;
+    }
+    if (job.name === 'brain-outcome') {
+      if (recordBrainOutcome) await recordBrainOutcome();
+      else logger.warn('brain-outcome job fired but sentinelBrain module did not load');
+      return;
+    }
+    if (job.name === 'brain-strategy') {
+      if (runStrategicBrain) await runStrategicBrain(null);
+      else logger.warn('brain-strategy job fired but sentinelBrain module did not load');
       return;
     }
     await refreshAllMetrics();
