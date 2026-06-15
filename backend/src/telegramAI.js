@@ -56,6 +56,21 @@ async function getRedisContext(topicId) {
   }
 }
 
+// Normalize AI-generated repo names (e.g. "projectSentinel") to canonical kebab names
+function resolveRepoName(input) {
+  if (!input) return null;
+  const { REPO_LIST } = require('./portfolioAnalytics');
+  const ALL_REPOS = [
+    ...REPO_LIST,
+    { repoName: 'project-sentinel', repoFullName: 'Thatisshayan/project-sentinel' },
+  ];
+  const normalize = s => s.toLowerCase().replace(/[-_\s]/g, '');
+  const inputNorm = normalize(input);
+  const exact = ALL_REPOS.find(r => r.repoName === input);
+  if (exact) return exact;
+  return ALL_REPOS.find(r => normalize(r.repoName) === inputNorm) || null;
+}
+
 // Pick which agent should "speak" for a given message in the agent room
 function pickSpeakingAgent(messageText) {
   const t = messageText.toLowerCase();
@@ -99,6 +114,9 @@ NATURAL LANGUAGE TRIGGERS:
 - "start working on <repo>"          → action: execute_tasks
 - "run the tasks for <repo>"         → action: execute_tasks
 - "audit <repo>"                     → action: trigger_audit
+
+REPO NAMES (always use exact spelling in the "repo" field — never invent camelCase):
+acc, tapcash, AlphonsoEcosystem, session-guard, costpilot, shiporex, aegis, mint, agents-ops-board, founder-social-club, obsidian-studio, obsidian-media, project-sentinel
 
 AGENT IDs: nvidia, qwen_coder, qwen_coder_dash, llama_fast, gemini, qwen_max, qwen_plus, qwen_turbo, deepseek, opencode
 
@@ -347,26 +365,28 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
 }
 
 async function executeAction(action, topicId) {
-  const repoFullName = action.repo ? `Thatisshayan/${action.repo}` : null;
+  const resolved     = action.repo ? resolveRepoName(action.repo) : null;
+  const repoName     = resolved?.repoName     || action.repo || null;
+  const repoFullName = resolved?.repoFullName || (action.repo ? `Thatisshayan/${action.repo}` : null);
 
   switch (action.action) {
     case 'execute_tasks':
       if (!repoFullName) break;
       await sendTelegramMessage(
-        `Starting task execution for ${action.repo}...`, null, topicId
+        `Starting task execution for ${repoName}...`, null, topicId
       ).catch(() => {});
-      executeApprovedTasks(repoFullName, action.repo, topicId)
+      executeApprovedTasks(repoFullName, repoName, topicId)
         .catch(err => logger.error({ err: err.message }, 'AI execute failed'));
       break;
 
     case 'trigger_audit':
       if (!repoFullName) break;
       await sendTelegramMessage(
-        `Triggering audit for ${action.repo}...`, null, topicId
+        `Triggering audit for ${repoName}...`, null, topicId
       ).catch(() => {});
       triggerAudit({
-        repoFullName, repoName: action.repo,
-        projectName: action.repo, commitSha: `manual-${Date.now()}`,
+        repoFullName, repoName,
+        projectName: repoName, commitSha: `manual-${Date.now()}`,
         commitMessage: '[manual-audit]', branchName: 'main',
         authorName: 'Human', authorEmail: '', topicId,
       }).catch(err => logger.error({ err: err.message }, 'AI audit failed'));
@@ -376,7 +396,7 @@ async function executeAction(action, topicId) {
       if (!repoFullName) break;
       await stopAllTasksForRepo(repoFullName);
       await sendTelegramMessage(
-        `All tasks and audits stopped for ${action.repo}.`, null, topicId
+        `All tasks and audits stopped for ${repoName}.`, null, topicId
       ).catch(() => {});
       break;
 
@@ -431,16 +451,16 @@ async function executeAction(action, topicId) {
 
     case 'assign_repo': {
       if (!repoFullName || !action.agent) break;
-      const project = await findNotionProject(action.repo).catch(() => null);
+      const project = await findNotionProject(repoName).catch(() => null);
       if (!project) {
         await sendTelegramMessage(
-          `No Notion project found for ${action.repo}.`, null, topicId
+          `No Notion project found for ${repoName}.`, null, topicId
         ).catch(() => {});
         break;
       }
       await updateBuilderAgent(project.pageId, action.agent);
       await sendTelegramMessage(
-        `${action.repo} assigned to ${action.agent} in Notion.`, null, topicId
+        `${repoName} assigned to ${action.agent} in Notion.`, null, topicId
       ).catch(() => {});
       break;
     }
@@ -461,24 +481,25 @@ async function executeAction(action, topicId) {
 
     case 'create_task': {
       if (!action.repo || !action.title) break;
-      const repoFull = `Thatisshayan/${action.repo}`;
+      const taskResolved = resolveRepoName(action.repo);
+      const taskRepoName = taskResolved?.repoName || action.repo;
+      const taskRepoFull = taskResolved?.repoFullName || `Thatisshayan/${action.repo}`;
       try {
-        const { createAuditTask } = require('./auditDb');
-        const { createAuditCycle, getActiveCycleForRepo } = require('./auditDb');
+        const { createAuditTask, createAuditCycle, getActiveCycleForRepo } = require('./auditDb');
 
-        let cycle = await getActiveCycleForRepo(repoFull).catch(() => null);
+        let cycle = await getActiveCycleForRepo(taskRepoFull).catch(() => null);
         if (!cycle) {
           cycle = await createAuditCycle({
-            repoFullName: repoFull,
+            repoFullName: taskRepoFull,
             commitSha:    `nl-task-${Date.now()}`,
-            projectName:  action.repo,
+            projectName:  taskRepoName,
           }).catch(() => null);
         }
 
         if (cycle) {
           await createAuditTask({
             auditCycleId:      cycle.id,
-            repoFullName:      repoFull,
+            repoFullName:      taskRepoFull,
             taskNumber:        1,
             title:             action.title,
             description:       action.description || action.title,
@@ -491,13 +512,13 @@ async function executeAction(action, topicId) {
           });
 
           await sendTelegramMessage([
-            `✅ Task created for ${action.repo}`,
+            `✅ Task created for ${taskRepoName}`,
             ``,
             `Title: ${action.title}`,
             `Priority: ${action.priority || 'medium'}`,
             `Status: queued (needs approval)`,
             ``,
-            `Use /sentinel force-execute ${action.repo} to run it now.`,
+            `Use /sentinel force-execute ${taskRepoName} to run it now.`,
           ].join('\n'), null, topicId).catch(() => {});
         }
       } catch (err) {
