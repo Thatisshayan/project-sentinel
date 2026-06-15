@@ -181,6 +181,8 @@ function startBuildPollWorker() {
     if (result.overall === 'failed') {
       logger.info({ repoFullName }, 'Build failed — notifying and triggering debug');
 
+      const isSentinelBranchFailed = (data.branchName || '').startsWith('sentinel/');
+
       await sendTelegramMessage(
         [
           `Project Sentinel — Build Failed ❌`,
@@ -192,30 +194,56 @@ function startBuildPollWorker() {
           result.buildUrl ? `Build: ${result.buildUrl}` : '',
           `Reason: ${result.failureReason || 'See build logs'}`,
           ``,
-          `Assessing whether automatic repair is safe...`,
+          isSentinelBranchFailed
+            ? `This was a Sentinel PR — tasks have been re-queued for retry.`
+            : `Assessing whether automatic repair is safe...`,
         ].filter(Boolean).join('\n'),
         null,
         topicId
       ).catch(() => {});
 
-      // Trigger debug orchestrator
-      await orchestrateDebug({
-        projectName,
-        repoName,
-        repoFullName,
-        branchName:    data.branchName,
-        commitSha,
-        commitUrl:     data.commitUrl,
-        commitMessage: data.commitMessage,
-        authorName:    data.authorName,
-        changedFiles:  data.changedFiles || [],
-        buildProvider: result.buildProvider,
-        buildUrl:      result.buildUrl,
-        logsUrl:       result.logsUrl,
-        failureReason: result.failureReason,
-        failureLogs:   '',
-        topicId,
-      });
+      if (isSentinelBranchFailed) {
+        // A Sentinel-created PR was merged but the post-merge build failed.
+        // Re-queue tasks that were marked done in the last hour so they can be retried.
+        const { query: dbq } = require('./dbClient');
+        const requeued = await dbq(`
+          UPDATE audit_tasks
+          SET status = 'queued', safe_to_auto_execute = false,
+              branch_name = NULL, commit_sha = NULL,
+              pr_url = NULL, pr_number = NULL, updated_at = NOW()
+          WHERE repo_full_name = $1
+            AND status = 'done'
+            AND updated_at > NOW() - INTERVAL '1 hour'
+          RETURNING id
+        `, [repoFullName]).catch(() => null);
+        const count = requeued?.rows?.length || 0;
+        if (count > 0) {
+          logger.info({ count, repoFullName }, 'Tasks re-queued after post-merge build failure');
+          await sendTelegramMessage(
+            `🔁 ${count} task(s) re-queued for ${repoName} — use /sentinel tasks ${repoName} to review, then /sentinel force-execute ${repoName} to retry.`,
+            null, topicId
+          ).catch(() => {});
+        }
+      } else {
+        // Human commit failure — trigger debug orchestrator
+        await orchestrateDebug({
+          projectName,
+          repoName,
+          repoFullName,
+          branchName:    data.branchName,
+          commitSha,
+          commitUrl:     data.commitUrl,
+          commitMessage: data.commitMessage,
+          authorName:    data.authorName,
+          changedFiles:  data.changedFiles || [],
+          buildProvider: result.buildProvider,
+          buildUrl:      result.buildUrl,
+          logsUrl:       result.logsUrl,
+          failureReason: result.failureReason,
+          failureLogs:   '',
+          topicId,
+        });
+      }
 
       // Phase 4 — update dashboard on build failure too
       updateDashboard().catch(() => {});
