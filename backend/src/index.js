@@ -126,6 +126,7 @@ app.set('trust proxy', 1);
 
 app.use('/webhook', require('./webhook'));
 app.get('/health',  require('./health'));
+app.use('/api',     require('./api'));
 
 // Telegram webhook for /sentinel commands
 app.post('/webhook/telegram', async (req, res) => {
