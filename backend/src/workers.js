@@ -25,7 +25,7 @@ const {
 } = require('./auditOrchestrator');
 const { sendDailyReport }        = require('./dailyReport');
 const { detectPatterns }         = require('./patternDetector');
-const { refreshAllMetrics }      = require('./portfolioAnalytics');
+const { refreshAllMetrics, refreshRepoMetrics } = require('./portfolioAnalytics');
 const { updateDashboard }        = require('./notionDashboard');
 const { generateSprintProposal } = require('./sprintPlanner');
 const { recordWeeklyVelocity }   = require('./velocityTracker');
@@ -176,6 +176,9 @@ function startBuildPollWorker() {
         topicId:    data.topicId,
       }).catch(err => logger.error({ err: err.message }, 'Security scan failed'));
 
+      refreshRepoMetrics(repoFullName, repoName)
+        .catch(err => logger.warn({ err: err.message }, 'Post-build metrics refresh failed'));
+
       // Phase 4 — update dashboard on every build result
       updateDashboard().catch(() => {});
       return;
@@ -247,6 +250,9 @@ function startBuildPollWorker() {
           topicId,
         });
       }
+
+      refreshRepoMetrics(repoFullName, repoName)
+        .catch(err => logger.warn({ err: err.message }, 'Post-build metrics refresh failed'));
 
       // Phase 4 — update dashboard on build failure too
       updateDashboard().catch(() => {});

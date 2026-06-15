@@ -113,6 +113,13 @@ async function getRepoStats(repoFullName, repoName) {
   };
 }
 
+async function refreshRepoMetrics(repoFullName, repoName) {
+  const priority = DEFAULT_PRIORITIES[repoName] || 'medium';
+  const stats    = await getRepoStats(repoFullName, repoName);
+  await upsertRepoMetrics({ repoFullName, repoName, ...stats, priority });
+  return stats;
+}
+
 async function refreshAllMetrics() {
   const results = [];
 
@@ -156,4 +163,4 @@ async function getPortfolioSummary() {
   };
 }
 
-module.exports = { refreshAllMetrics, getPortfolioSummary, getRepoStats, REPO_LIST };
+module.exports = { refreshAllMetrics, refreshRepoMetrics, getPortfolioSummary, getRepoStats, REPO_LIST };
