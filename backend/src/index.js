@@ -74,9 +74,12 @@ async function probeTools() {
       logger.info({ provider: p.name }, 'AI provider reachable');
     } catch (err) {
       const status = err.response?.status;
-      // 401/403 means key is wrong but endpoint is reachable; 200+ means OK
       if (status === 401 || status === 403) {
         results.push(`  ✗ ${p.name}: key invalid (${status})`);
+      } else if (status === 400) {
+        // 400 = bad request format, not an auth failure — key is likely valid
+        results.push(`  ~ ${p.name}: endpoint format mismatch (key likely OK)`);
+        logger.info({ provider: p.name }, 'AI provider 400 — key likely valid, /models unsupported');
       } else {
         results.push(`  ? ${p.name}: ${status || err.code || err.message}`);
       }
@@ -85,6 +88,19 @@ async function probeTools() {
   }
 
   logger.info({ results }, 'AI provider health check complete');
+
+  // Alert on startup if any keys are definitely invalid (401/403)
+  const invalidProviders = results.filter(r => r.includes('✗'));
+  if (invalidProviders.length > 0) {
+    const { sendTelegramMessage } = require('./telegramClient');
+    await sendTelegramMessage(
+      `🔴 Sentinel Startup — AI Provider Alert\n\n` +
+      `${invalidProviders.length} provider(s) have invalid API keys:\n` +
+      `${invalidProviders.join('\n')}\n\n` +
+      `Go to Railway → Variables and update the key(s) to restore those agents.`,
+      null, null
+    ).catch(() => {});
+  }
 }
 
 const REQUIRED = [

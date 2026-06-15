@@ -113,7 +113,17 @@ NATURAL LANGUAGE TRIGGERS:
 - "build <feature>"                  → action: create_task
 - "start working on <repo>"          → action: execute_tasks
 - "run the tasks for <repo>"         → action: execute_tasks
+- "execute <repo>"                   → action: execute_tasks
+- "go on <repo>"                     → action: execute_tasks
 - "audit <repo>"                     → action: trigger_audit
+- "good morning" / "morning"         → action: send_report
+- "what needs attention?"            → action: send_report
+- "what's urgent?" / "what's broken" → action: send_report
+- "daily update" / "status update"   → action: send_report
+- "what are we working on?"          → action: show_agents
+- "who is working?"                  → action: show_agents
+- "how much have we spent?"          → action: show_costs
+- "cost update"                      → action: show_costs
 
 REPO NAMES (always use exact spelling in the "repo" field — never invent camelCase):
 acc, tapcash, AlphonsoEcosystem, session-guard, costpilot, shiporex, aegis, mint, agents-ops-board, founder-social-club, obsidian-studio, obsidian-media, project-sentinel

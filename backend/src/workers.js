@@ -299,6 +299,18 @@ function startDailyReportWorker() {
     jobId:  'agent-leaderboard-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule agent leaderboard cron'));
 
+  // Sunday 11pm Toronto — weekly audit sweep: trigger audits on all repos
+  queue.add('weekly-audit', {}, {
+    repeat: { pattern: '0 23 * * 0', tz: SENTINEL_TZ },
+    jobId:  'weekly-audit-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule weekly audit cron'));
+
+  // Friday 5pm Toronto — stale task report: surface queued tasks older than 7 days
+  queue.add('stale-tasks', {}, {
+    repeat: { pattern: '0 17 * * 5', tz: SENTINEL_TZ },
+    jobId:  'stale-tasks-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule stale tasks cron'));
+
   const worker = new Worker('daily-report', async (job) => {
     if (job.name === 'morning-briefing') {
       await sendMorningBriefing();
@@ -339,7 +351,73 @@ function startDailyReportWorker() {
       else logger.warn('agent-leaderboard job fired but agentLeaderboard module did not load');
       return;
     }
+    if (job.name === 'weekly-audit') {
+      const { REPO_LIST } = require('./portfolioAnalytics');
+      let audited = 0;
+      for (const repo of REPO_LIST) {
+        try {
+          await triggerAudit({
+            repoFullName:  repo.repoFullName,
+            repoName:      repo.repoName,
+            projectName:   repo.repoName,
+            commitSha:     `weekly-audit-${Date.now()}`,
+            commitMessage: '[weekly-audit]',
+            branchName:    'main',
+            authorName:    'Sentinel',
+            authorEmail:   '',
+            topicId:       null,
+          });
+          audited++;
+          await new Promise(r => setTimeout(r, 3000)); // pace audits, 3s apart
+        } catch (e) {
+          logger.warn({ err: e.message, repo: repo.repoName }, 'Weekly audit failed for repo');
+        }
+      }
+      await sendTelegramMessage(
+        `🔍 Weekly audit sweep — ${audited}/${REPO_LIST.length} repos queued for audit.`,
+        null, null
+      ).catch(() => {});
+      return;
+    }
+    if (job.name === 'stale-tasks') {
+      const { query: dbq } = require('./dbClient');
+      const result = await dbq(`
+        SELECT repo_full_name, COUNT(*) AS count
+        FROM audit_tasks
+        WHERE status = 'queued'
+          AND created_at < NOW() - INTERVAL '7 days'
+        GROUP BY repo_full_name
+        ORDER BY count DESC
+      `).catch(() => null);
+      const rows = result?.rows || [];
+      if (rows.length === 0) {
+        logger.info('Stale task check — no stale tasks found');
+        return;
+      }
+      const lines = rows.map(r =>
+        `  · ${r.repo_full_name.split('/')[1]}: ${r.count} task(s)`
+      ).join('\n');
+      await sendTelegramMessage(
+        `🕰️ Stale Task Report — tasks queued >7 days:\n\n${lines}\n\n` +
+        `Run: /sentinel force-execute <repo> to execute, or /sentinel skip <repo> to clear.`,
+        null, null
+      ).catch(() => {});
+      return;
+    }
     await refreshAllMetrics();
+    // Cost threshold alert — fires alongside daily report
+    try {
+      const { getDailyCost } = require('./portfolioDb');
+      const dailyCost      = await getDailyCost();
+      const alertThreshold = parseFloat(process.env.DAILY_COST_ALERT_USD || '5');
+      if (dailyCost > alertThreshold) {
+        await sendTelegramMessage(
+          `💸 Cost Alert — $${dailyCost.toFixed(2)} spent today (limit: $${alertThreshold})\n` +
+          `Use /sentinel costs for a full breakdown.`,
+          null, null
+        ).catch(() => {});
+      }
+    } catch (e) { logger.warn({ err: e.message }, 'Cost alert check failed'); }
     await sendDailyReport();
     await detectPatterns();
     await updateDashboard();
