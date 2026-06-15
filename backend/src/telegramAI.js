@@ -28,6 +28,34 @@ const { saveMessage,
 
 const CHAT_MODEL = process.env.CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct';
 
+async function storeRedisContext(topicId, sender, message) {
+  try {
+    const { getRedisConnection } = require('./queueClient');
+    const redis = getRedisConnection();
+    if (!redis) return;
+    const key = `sentinel:context:${topicId || 'general'}`;
+    await redis.lpush(key, `[${sender}] ${message.substring(0, 200)}`);
+    await redis.ltrim(key, 0, 9);
+    await redis.expire(key, 3600);
+  } catch (e) {
+    logger.warn({ err: e.message }, 'Redis context store failed');
+  }
+}
+
+async function getRedisContext(topicId) {
+  try {
+    const { getRedisConnection } = require('./queueClient');
+    const redis = getRedisConnection();
+    if (!redis) return [];
+    const key = `sentinel:context:${topicId || 'general'}`;
+    const messages = await redis.lrange(key, 0, 9);
+    return messages.reverse(); // oldest first
+  } catch (e) {
+    logger.warn({ err: e.message }, 'Redis context fetch failed');
+    return [];
+  }
+}
+
 // Pick which agent should "speak" for a given message in the agent room
 function pickSpeakingAgent(messageText) {
   const t = messageText.toLowerCase();
@@ -227,13 +255,21 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
   logger.info({ from: fromName, text: messageText.substring(0, 80), speakingAgent },
     'AI handling Telegram message');
 
+  // Store this incoming message in Redis context window (non-blocking)
+  storeRedisContext(topicId, fromName, messageText).catch(() => {});
+
   try {
-    const [context, history] = await Promise.all([
+    const [context, history, recentActivity] = await Promise.all([
       buildContext(),
       getHistory(topicId, 15).catch(() => []),
+      getRedisContext(topicId),
     ]);
 
     const historySection = formatHistoryForPrompt(history);
+
+    const recentSection = recentActivity.length > 0
+      ? `\nRecent activity in this chat:\n${recentActivity.join('\n')}\n`
+      : '';
 
     const agentSection = roomContext
       ? `\nAGENT ROOM CONTEXT:\n${roomContext}\n`
@@ -267,7 +303,7 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
       } catch {}
     }
 
-    const prompt = `${personalityPrefix}${context}${historySection}${agentSection}${directAddressSection}${mentionSection}\nMessage from ${fromName}: ${messageText}`;
+    const prompt = `${personalityPrefix}${context}${historySection}${recentSection}${agentSection}${directAddressSection}${mentionSection}\nUser question: ${messageText}`;
 
     const raw = await callChatAPI(prompt) ||
       '{"action":"answer","message":"Sorry, I had trouble understanding that."}';
@@ -285,6 +321,11 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
 
     // Save to memory (non-blocking)
     saveMessage(topicId, fromName, messageText, responseText, speakingAgent).catch(() => {});
+
+    // Store Sentinel's response in the Redis context window too
+    if (responseText) {
+      storeRedisContext(topicId, `Sentinel${speakingAgent ? `/${speakingAgent}` : ''}`, responseText).catch(() => {});
+    }
 
     // Route response through the speaking agent's bot when possible
     if (speakingAgent && parsed.action === 'answer' && parsed.message) {
