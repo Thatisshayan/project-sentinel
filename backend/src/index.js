@@ -100,6 +100,21 @@ async function probeTools() {
       `Go to Railway → Variables and update the key(s) to restore those agents.`,
       null, null
     ).catch(() => {});
+
+    // Mark affected agents as error so the UI shows truth instead of idle
+    const { markAgentError } = require('./agentDb');
+    const PROVIDER_AGENT_MAP = {
+      'NVIDIA NIM':       ['nvidia', 'qwen_coder', 'llama_fast'],
+      'Gemini':           ['gemini'],
+      'DashScope (Qwen)': ['qwen_coder_dash', 'qwen_max', 'qwen_turbo'],
+      'DeepSeek':         ['deepseek'],
+    };
+    for (const line of invalidProviders) {
+      const provider = line.match(/✗ (.+?):/)?.[1];
+      for (const agentId of (PROVIDER_AGENT_MAP[provider] || [])) {
+        await markAgentError(agentId, 'invalid_api_key').catch(() => {});
+      }
+    }
   }
 }
 

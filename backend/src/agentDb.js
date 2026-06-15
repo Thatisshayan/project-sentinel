@@ -104,6 +104,14 @@ async function setAgentIdle(agentId, success = true) {
   `, [agentId]);
 }
 
+async function markAgentError(agentId, reason) {
+  await query(`
+    UPDATE agent_registry
+    SET status = 'error', task_title = $2, last_active_at = NOW()
+    WHERE agent_id = $1
+  `, [agentId, reason]);
+}
+
 async function getActiveAgents() {
   const r = await query(`
     SELECT * FROM agent_registry
@@ -216,6 +224,7 @@ module.exports = {
   registerAgent,
   setAgentWorking,
   setAgentIdle,
+  markAgentError,
   getActiveAgents,
   getIdleAgents,
   getAllAgents,
