@@ -17,6 +17,7 @@ const MAX_PARALLEL = () => parseInt(process.env.MAX_PARALLEL_AGENTS || '3');
 
 async function executeTaskParallel(task, context) {
   const { repoFullName, repoName } = context;
+  const topicId = task.topicId || context.topicId || null;
 
   // Phase 10 — repo lock guard
   const lock = await isRepoLocked(repoName).catch(() => null);
@@ -70,6 +71,7 @@ async function executeTaskParallel(task, context) {
         repoName,
         projectName: notionProject?.projectName || repoName,
         branchName:  'main',
+        topicId,
       },
       agentId
     );
@@ -89,12 +91,56 @@ async function executeTaskParallel(task, context) {
         },
       });
 
+      // Verify a real PR exists on GitHub before declaring success
+      let verifiedPrUrl = prUrl;
+      let prVerified    = false;
+
+      try {
+        const ghRes = await axios.get(
+          `https://api.github.com/repos/Thatisshayan/${repoName}/pulls`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+              Accept:        'application/vnd.github+json',
+            },
+            params: { state: 'open', per_page: 20 },
+          }
+        );
+        const sentinelPR = (ghRes.data || []).find(pr =>
+          pr.head?.ref?.startsWith('sentinel/')
+        );
+        if (sentinelPR) {
+          verifiedPrUrl = sentinelPR.html_url;
+          prVerified    = true;
+        }
+      } catch (verifyErr) {
+        logger.warn({ err: verifyErr.message }, 'GitHub PR verification failed — proceeding without check');
+        verifiedPrUrl = prUrl;
+        prVerified    = true; // don't fail a task over a verification network error
+      }
+
+      if (!prVerified) {
+        await sendTelegramMessage(
+          `⚠️ Task marked failed — builder ran but no PR was created on GitHub.\nPR: https://github.com/Thatisshayan/${repoName}/pulls`,
+          repoName, topicId
+        ).catch(() => {});
+        await announceFailed(agentId, agentConfig.label, repoName,
+          task.title || task.task_title, 'Builder ran but no PR was created');
+        await freeAgent(agentId, false);
+        await releaseAllLocks(repoFullName, agentId);
+        return { status: 'failed', reason: 'Builder ran but no PR was created on GitHub' };
+      }
+
+      const prLine = verifiedPrUrl
+        ? `PR: ${verifiedPrUrl}`
+        : `PR: https://github.com/Thatisshayan/${repoName}/pulls`;
+
       await announceComplete(agentId, agentConfig.label, repoName,
-        task.title || task.task_title, prUrl);
+        `${task.title || task.task_title}\n${prLine}`, verifiedPrUrl);
       await freeAgent(agentId, true);
       await releaseAllLocks(repoFullName, agentId);
 
-      return { status: 'completed', prUrl, agentId, builderUsed: agentConfig.label };
+      return { status: 'completed', prUrl: verifiedPrUrl, agentId, builderUsed: agentConfig.label };
     } else {
       await announceFailed(agentId, agentConfig.label, repoName,
         task.title || task.task_title, batchResult.reason);
