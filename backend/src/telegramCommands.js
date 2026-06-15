@@ -107,7 +107,7 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
     case 'audit':
       return handleManualAudit(parts[2], topicId);
     case 'tasks':
-      return handleListTasks(parts[2], topicId);
+      return handleListTasks(parts[2], topicId, chatId);
     case 'skip-batch':
       return handleSkipBatch(parts[2], parts[3], topicId);
     case 'report': {
@@ -807,14 +807,14 @@ async function handleManualAudit(repoArg, topicId) {
   return true;
 }
 
-async function handleListTasks(repoArg, topicId) {
+async function handleListTasks(repoArg, topicId, chatId) {
   if (!repoArg) {
     await sendTelegramMessage('Usage: /sentinel tasks <repo-name>', null, topicId);
     return true;
   }
   const { query } = require('./dbClient');
   const r = await query(`
-    SELECT task_number, title, priority, status,
+    SELECT id, task_number, title, priority, status,
            safe_to_auto_execute, batch_number
     FROM audit_tasks
     WHERE repo_full_name=$1
@@ -832,7 +832,22 @@ async function handleListTasks(repoArg, topicId) {
     `${t.task_number}. [B${t.batch_number}] ${EMOJI[t.priority]||'⚪'} ${t.title} — ${t.status}${t.safe_to_auto_execute?'':' 🔒'}`
   ).join('\n');
 
-  await sendTelegramMessage(`Tasks for ${repoArg}:\n\n${list}`, null, topicId);
+  await sendTelegramMessage(`Tasks for ${repoArg}:\n\n${list}\n\n🔒 = needs approval`, null, topicId);
+
+  // Send inline approval buttons for unsafe queued tasks
+  const unsafe = r.rows.filter(t => !t.safe_to_auto_execute && t.status === 'queued');
+  if (unsafe.length > 0 && chatId) {
+    const { sendMenu } = require('./telegramMenus');
+    const buttons = unsafe.map(t => [
+      { text: `✅ #${t.task_number}: ${t.title.substring(0, 28)}`, callback_data: `task-approve:${t.id}` },
+      { text: '⏭️ Skip', callback_data: `task-skip:${t.id}` },
+    ]);
+    buttons.push([
+      { text: '✅ Approve All & Run', callback_data: `task-approve-all:Thatisshayan/${repoArg}` },
+    ]);
+    await sendMenu(chatId, topicId, `🔒 ${unsafe.length} task(s) need your approval:`, buttons);
+  }
+
   return true;
 }
 
@@ -1105,6 +1120,61 @@ async function handleCallbackQuery(callbackQuery) {
     if (dymAction === 'cancel') {
       await sendTelegramMessage('OK — nothing done.', null, threadId).catch(() => {});
     }
+    return true;
+  }
+
+  // ── Per-task approval buttons ─────────────────────────────────────────────
+  if (data.startsWith('task-approve:')) {
+    await answerCallback(queryId).catch(() => {});
+    const taskId = data.replace('task-approve:', '');
+    const { query: dbq } = require('./dbClient');
+    const result = await dbq(
+      `UPDATE audit_tasks SET safe_to_auto_execute = true
+       WHERE id = $1 RETURNING repo_full_name, task_number, title`,
+      [taskId]
+    ).catch(() => null);
+    if (result?.rows?.[0]) {
+      const { repo_full_name, task_number, title } = result.rows[0];
+      const repoName = repo_full_name.split('/')[1];
+      await sendTelegramMessage(
+        `✅ Task #${task_number} approved: ${title}\nExecuting now...`, null, threadId
+      ).catch(() => {});
+      executeApprovedTasks(repo_full_name, repoName, threadId).catch(() => {});
+    }
+    return true;
+  }
+
+  if (data.startsWith('task-skip:')) {
+    await answerCallback(queryId).catch(() => {});
+    const taskId = data.replace('task-skip:', '');
+    const { query: dbq } = require('./dbClient');
+    const { updateAuditTask } = require('./auditDb');
+    const sel = await dbq(
+      'SELECT task_number, title FROM audit_tasks WHERE id = $1', [taskId]
+    ).catch(() => null);
+    if (sel?.rows?.[0]) {
+      await updateAuditTask(taskId, { status: 'skipped' });
+      await sendTelegramMessage(
+        `⏭️ Task #${sel.rows[0].task_number} skipped: ${sel.rows[0].title}`, null, threadId
+      ).catch(() => {});
+    }
+    return true;
+  }
+
+  if (data.startsWith('task-approve-all:')) {
+    await answerCallback(queryId).catch(() => {});
+    const repoFullName = data.replace('task-approve-all:', '');
+    const repoName = repoFullName.split('/')[1];
+    const { query: dbq } = require('./dbClient');
+    await dbq(
+      `UPDATE audit_tasks SET safe_to_auto_execute = true
+       WHERE repo_full_name = $1 AND status = 'queued'`,
+      [repoFullName]
+    ).catch(() => {});
+    await sendTelegramMessage(
+      `✅ All tasks approved for ${repoName}. Executing...`, null, threadId
+    ).catch(() => {});
+    executeApprovedTasks(repoFullName, repoName, threadId).catch(() => {});
     return true;
   }
 
