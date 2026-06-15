@@ -43,7 +43,7 @@ export default async function SprintPage() {
   return <SprintView sprint={displaySprint} tasks={displayTasks} velocity={velocity} />;
 }
 
-function mapStatus(s: string) {
+function mapStatus(s: string): 'done' | 'working' | 'blocked' | 'todo' {
   if (s === 'completed' || s === 'done') return 'done';
   if (s === 'in_progress' || s === 'working') return 'working';
   if (s === 'failed' || s === 'blocked') return 'blocked';
