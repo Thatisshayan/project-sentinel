@@ -1,4 +1,6 @@
 const logger = require('./logger');
+const axios  = require('axios');
+const { sendTelegramMessage }              = require('./telegramClient');
 const { selectAgent, assignAgent, freeAgent } = require('./agentRegistry');
 const { checkAndLockFiles,
         releaseAllLocks,
@@ -142,6 +144,21 @@ async function executePortfolioTasks(tasks) {
       await Promise.race(running);
     }
   }
+
+  const total        = tasks.length;
+  const successCount = results.filter(r => r.result.status === 'completed').length;
+  const failCount    = results.filter(r => ['failed', 'error'].includes(r.result.status)).length;
+
+  let summaryMsg;
+  if (successCount > 0 && failCount === 0) {
+    summaryMsg = `✅ Batch Complete — ${successCount}/${total} tasks done. PRs opened on GitHub.`;
+  } else if (successCount > 0 && failCount > 0) {
+    summaryMsg = `⚠️ Partial Complete — ${successCount}/${total} done, ${failCount} failed. Check logs.`;
+  } else {
+    summaryMsg = `❌ Batch Failed — 0/${total} tasks completed. Primary and fallback builder both threw errors. No code was written. No PRs opened. Check Railway logs.`;
+  }
+
+  await sendTelegramMessage(summaryMsg, null, null).catch(() => {});
 
   return results;
 }
