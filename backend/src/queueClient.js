@@ -3,6 +3,7 @@ const IORedis = require('ioredis');
 const logger  = require('./logger');
 
 let connection = null;
+let lastRedisAlertAt = 0;
 
 function getRedisConnection() {
   if (!connection && process.env.REDIS_URL) {
@@ -12,6 +13,15 @@ function getRedisConnection() {
     });
     connection.on('error', err => {
       logger.error({ err: err.message }, 'Redis connection error');
+      const now = Date.now();
+      if (now - lastRedisAlertAt > 5 * 60 * 1000) {
+        lastRedisAlertAt = now;
+        const { sendTelegramMessage } = require('./telegramClient');
+        sendTelegramMessage(
+          `Project Sentinel — Redis Error ⚠️\n\nBullMQ jobs (build-poll, debug) may not process until Redis recovers.\nError: ${err.message}`,
+          null, null
+        ).catch(() => {});
+      }
     });
   }
   return connection;

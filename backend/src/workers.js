@@ -31,11 +31,12 @@ const { generateSprintProposal } = require('./sprintPlanner');
 const { recordWeeklyVelocity }   = require('./velocityTracker');
 
 let runPriorityEngine, generateCEOReport, runAgentStandup, postAgentLeaderboard;
-try { ({ runPriorityEngine }    = require('./priorityEngine'));    } catch {}
-try { ({ generateCEOReport }    = require('./ceoReport'));         } catch {}
-try { ({ runAgentStandup }      = require('./agentStandup'));      } catch {}
-try { ({ postAgentLeaderboard } = require('./agentLeaderboard')); } catch {}
+try { ({ runPriorityEngine }    = require('./priorityEngine'));    } catch (e) { logger.warn({ err: e.message }, 'priorityEngine failed to load'); }
+try { ({ generateCEOReport }    = require('./ceoReport'));         } catch (e) { logger.warn({ err: e.message }, 'ceoReport failed to load'); }
+try { ({ runAgentStandup }      = require('./agentStandup'));      } catch (e) { logger.warn({ err: e.message }, 'agentStandup failed to load'); }
+try { ({ postAgentLeaderboard } = require('./agentLeaderboard')); } catch (e) { logger.warn({ err: e.message }, 'agentLeaderboard failed to load'); }
 
+const SENTINEL_TZ         = process.env.SENTINEL_TIMEZONE || 'America/Toronto';
 const POLL_INTERVAL_MS    = 30  * 1000; // 30 seconds between polls
 const MAX_POLL_ATTEMPTS   = 20;         // 20 × 30s = 10 minutes max
 
@@ -246,55 +247,55 @@ function startDailyReportWorker() {
 
   // Schedule the 9am Toronto cron — idempotent: same jobId won't duplicate
   queue.add('report', {}, {
-    repeat:  { pattern: '0 9 * * *', tz: 'America/Toronto' },
+    repeat:  { pattern: '0 9 * * *', tz: SENTINEL_TZ },
     jobId:   'daily-report-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule daily report cron'));
 
   // 8am Toronto — agent room morning briefing (Phase 6 Improvement 5)
   queue.add('morning-briefing', {}, {
-    repeat: { pattern: '0 8 * * *', tz: 'America/Toronto' },
+    repeat: { pattern: '0 8 * * *', tz: SENTINEL_TZ },
     jobId:  'morning-briefing-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule morning briefing cron'));
 
   // 6am Toronto — pull business metrics before daily report (Phase 8)
   queue.add('pull-metrics', {}, {
-    repeat: { pattern: '0 6 * * *', tz: 'America/Toronto' },
+    repeat: { pattern: '0 6 * * *', tz: SENTINEL_TZ },
     jobId:  'metrics-pull-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule metrics pull cron'));
 
   // Monday 8am Toronto — weekly business + technical report (Phase 8)
   queue.add('weekly-report', {}, {
-    repeat: { pattern: '0 8 * * 1', tz: 'America/Toronto' },
+    repeat: { pattern: '0 8 * * 1', tz: SENTINEL_TZ },
     jobId:  'weekly-report-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule weekly report cron'));
 
   // First day of month 8am Toronto — monthly security posture report (Phase 9)
   queue.add('monthly-security', {}, {
-    repeat: { pattern: '0 8 1 * *', tz: 'America/Toronto' },
+    repeat: { pattern: '0 8 1 * *', tz: SENTINEL_TZ },
     jobId:  'monthly-security-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule monthly security cron'));
 
   // Daily 6:30am Toronto — priority engine (after business metrics pull at 6am)
   queue.add('priority-engine', {}, {
-    repeat: { pattern: '30 6 * * *', tz: 'America/Toronto' },
+    repeat: { pattern: '30 6 * * *', tz: SENTINEL_TZ },
     jobId:  'priority-engine-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule priority engine cron'));
 
   // Daily 9am Toronto — agent standup (fires in agent-room before daily report)
   queue.add('agent-standup', {}, {
-    repeat: { pattern: '0 9 * * *', tz: 'America/Toronto' },
+    repeat: { pattern: '0 9 * * *', tz: SENTINEL_TZ },
     jobId:  'agent-standup-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule agent standup cron'));
 
   // Sunday 10pm Toronto — CEO report (after sprint executes)
   queue.add('ceo-report', {}, {
-    repeat: { pattern: '0 22 * * 0', tz: 'America/Toronto' },
+    repeat: { pattern: '0 22 * * 0', tz: SENTINEL_TZ },
     jobId:  'ceo-report-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule CEO report cron'));
 
   // Sunday 10:30pm Toronto — agent leaderboard (after CEO report)
   queue.add('agent-leaderboard', {}, {
-    repeat: { pattern: '30 22 * * 0', tz: 'America/Toronto' },
+    repeat: { pattern: '30 22 * * 0', tz: SENTINEL_TZ },
     jobId:  'agent-leaderboard-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule agent leaderboard cron'));
 
@@ -320,18 +321,22 @@ function startDailyReportWorker() {
     }
     if (job.name === 'priority-engine') {
       if (runPriorityEngine) await runPriorityEngine();
+      else logger.warn('priority-engine job fired but priorityEngine module did not load');
       return;
     }
     if (job.name === 'agent-standup') {
       if (runAgentStandup) await runAgentStandup();
+      else logger.warn('agent-standup job fired but agentStandup module did not load');
       return;
     }
     if (job.name === 'ceo-report') {
       if (generateCEOReport) await generateCEOReport(null);
+      else logger.warn('ceo-report job fired but ceoReport module did not load');
       return;
     }
     if (job.name === 'agent-leaderboard') {
       if (postAgentLeaderboard) await postAgentLeaderboard();
+      else logger.warn('agent-leaderboard job fired but agentLeaderboard module did not load');
       return;
     }
     await refreshAllMetrics();
@@ -361,19 +366,19 @@ function startSprintWorker() {
 
   // Sunday 8pm Toronto — generate weekly sprint proposal
   queue.add('propose', {}, {
-    repeat: { pattern: '0 20 * * 0', tz: 'America/Toronto' },
+    repeat: { pattern: '0 20 * * 0', tz: SENTINEL_TZ },
     jobId:  'sprint-proposal-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule sprint proposal cron'));
 
   // Wednesday 9am Toronto — mid-week progress update
   queue.add('midweek', {}, {
-    repeat: { pattern: '0 9 * * 3', tz: 'America/Toronto' },
+    repeat: { pattern: '0 9 * * 3', tz: SENTINEL_TZ },
     jobId:  'sprint-midweek-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule sprint midweek cron'));
 
   // Sunday 9pm Toronto — Sentinel self-audit (after sprint proposal at 8pm)
   queue.add('self-audit', {}, {
-    repeat: { pattern: '0 21 * * 0', tz: 'America/Toronto' },
+    repeat: { pattern: '0 21 * * 0', tz: SENTINEL_TZ },
     jobId:  'self-audit-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule self-audit cron'));
 

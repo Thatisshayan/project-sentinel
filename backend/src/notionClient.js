@@ -12,11 +12,17 @@ function getClient() {
 
 const DATABASE_ID = () => process.env.NOTION_DATABASE_ID;
 
-async function findNotionProject(repoName) {
-  const client    = getClient();
-  const repoLower = repoName.toLowerCase().replace(/[-_]/g, '');
+// Cache the full page list to avoid fetching all pages on every webhook
+const PAGE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const notionPageCache = { pages: null, cachedAt: 0 };
 
-  // Fetch ALL pages in the database (no filter — so we try all of them)
+async function getPageList() {
+  const now = Date.now();
+  if (notionPageCache.pages && (now - notionPageCache.cachedAt) < PAGE_CACHE_TTL_MS) {
+    return notionPageCache.pages;
+  }
+
+  const client = getClient();
   let cursor   = undefined;
   let allPages = [];
 
@@ -29,6 +35,16 @@ async function findNotionProject(repoName) {
     allPages = allPages.concat(response.results);
     cursor   = response.has_more ? response.next_cursor : undefined;
   } while (cursor);
+
+  notionPageCache.pages    = allPages;
+  notionPageCache.cachedAt = now;
+  logger.info({ count: allPages.length }, 'Notion page list cached');
+  return allPages;
+}
+
+async function findNotionProject(repoName) {
+  const repoLower = repoName.toLowerCase().replace(/[-_]/g, '');
+  const allPages  = await getPageList();
 
   function normalize(s) { return (s || '').toLowerCase().replace(/[-_\s]/g, ''); }
 
@@ -198,4 +214,9 @@ async function updateBuilderAgent(pageId, agentId) {
   });
 }
 
-module.exports = { findNotionProject, updateNotionProject, appendChangelog, updateBuilderAgent };
+function bustNotionCache() {
+  notionPageCache.pages    = null;
+  notionPageCache.cachedAt = 0;
+}
+
+module.exports = { findNotionProject, updateNotionProject, appendChangelog, updateBuilderAgent, bustNotionCache };

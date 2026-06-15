@@ -30,21 +30,35 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
     `_Merging will re-trigger the build check._`,
   ].join('\n');
 
+  const headers = {
+    Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+    Accept:        'application/vnd.github+json',
+  };
+  const base = baseBranch || 'main';
+
   try {
-    const res = await axios.post(
+    // Check for an existing open PR from this branch to avoid duplicates on retry
+    const existingRes = await axios.get(
       `https://api.github.com/repos/${repoFullName}/pulls`,
       {
-        title,
-        body,
-        head: fixBranch,
-        base: baseBranch || 'main',
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-          Accept:        'application/vnd.github+json',
+        headers,
+        params: {
+          head:  `${repoFullName.split('/')[0]}:${fixBranch}`,
+          base,
+          state: 'open',
         },
       }
+    );
+    if (existingRes.data.length > 0) {
+      const existing = existingRes.data[0];
+      logger.info({ prUrl: existing.html_url, prNumber: existing.number }, 'PR already exists — skipping creation');
+      return { prUrl: existing.html_url, prNumber: existing.number };
+    }
+
+    const res = await axios.post(
+      `https://api.github.com/repos/${repoFullName}/pulls`,
+      { title, body, head: fixBranch, base },
+      { headers }
     );
 
     logger.info(

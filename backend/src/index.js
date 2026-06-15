@@ -94,21 +94,20 @@ const REQUIRED = [
   'NOTION_DATABASE_ID',
   'TELEGRAM_BOT_TOKEN',
   'TELEGRAM_CHAT_ID',
+  'DEBUGGER_SHARED_SECRET',
 ];
 // Phase 2 vars (optional - will work without them but Phase 2 features disabled)
 const PHASE2_VARS = [
   'GITHUB_TOKEN',
   'DATABASE_URL',
   'REDIS_URL',
-  'DEBUGGER_SHARED_SECRET',
 ];
 
 const missing = REQUIRED.filter(k => !process.env[k] || process.env[k].trim() === '');
 
 if (missing.length > 0) {
-  console.error('\n❌ SENTINEL STARTUP FAILED — Missing environment variables:\n');
-  missing.forEach(k => console.error(`   • ${k}`));
-  console.error('\nSet these in Railway Variables (production) or .env (local).\n');
+  logger.fatal({ missing }, 'SENTINEL STARTUP FAILED — missing required environment variables');
+  missing.forEach(k => logger.fatal(`   • ${k}`));
   process.exit(1);
 }
 
@@ -132,14 +131,14 @@ app.use('/api',     require('./api'));
 app.post('/webhook/telegram', async (req, res) => {
   const expectedSecret = process.env.DEBUGGER_SHARED_SECRET;
   const secret = req.headers['x-telegram-bot-api-secret-token'];
-  
-  if (expectedSecret && secret !== expectedSecret) {
+
+  if (!expectedSecret) {
+    logger.error({ ip: req.ip }, 'DEBUGGER_SHARED_SECRET not set — rejecting Telegram webhook');
+    return res.status(401).json({ error: 'Webhook secret not configured on server' });
+  }
+  if (secret !== expectedSecret) {
     logger.warn({ ip: req.ip }, 'Telegram webhook secret mismatch');
     return res.status(401).json({ error: 'Invalid secret' });
-  }
-  
-  if (!expectedSecret) {
-    logger.warn('DEBUGGER_SHARED_SECRET not set — skipping secret validation');
   }
 
   const cb = req.body.callback_query;

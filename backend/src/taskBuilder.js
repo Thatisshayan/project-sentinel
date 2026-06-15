@@ -9,6 +9,8 @@ const { getBuilderConfig, getAiderEnv } = require('./builderRouter');
 const { updateAuditTask }    = require('./auditDb');
 const { updateNotionTaskStatus } = require('./auditTaskWriter');
 
+const AIDER_TIMEOUT_MS = parseInt(process.env.AIDER_TIMEOUT_MINUTES || '20', 10) * 60 * 1000;
+
 async function executeBatch(tasks, context, builderAssignment) {
   const { repoFullName, branchName, projectName, repoName, topicId } = context;
   const builderConfig = getBuilderConfig(builderAssignment);
@@ -34,6 +36,10 @@ async function executeBatch(tasks, context, builderAssignment) {
     const repoGit = simpleGit(tmpDir.name);
     await repoGit.addConfig('user.email', 'sentinel@project-sentinel.app');
     await repoGit.addConfig('user.name',  'Project Sentinel');
+
+    // Record the current tip of the base branch before we start work
+    const initialLog = await repoGit.log({ maxCount: 1 });
+    const initialBaseSha = initialLog.latest?.hash || null;
 
     const taskBranch = `sentinel/batch-${batchNum}-tasks-${batchNums}`;
     await repoGit.checkoutLocalBranch(taskBranch);
@@ -97,6 +103,23 @@ async function executeBatch(tasks, context, builderAssignment) {
         reason: 'No tasks in the batch produced a commit',
         taskBranch,
       };
+    }
+
+    // Check if base branch moved during execution — warn if so (PR may have conflicts)
+    try {
+      await repoGit.fetch('origin', branchName || 'main');
+      const latestLog = await repoGit.log([`origin/${branchName || 'main'}`, '--max-count=1']);
+      const currentBaseSha = latestLog.latest?.hash || null;
+      if (initialBaseSha && currentBaseSha && initialBaseSha !== currentBaseSha) {
+        logger.warn({ repoFullName, initialBaseSha, currentBaseSha }, 'Base branch moved during batch — PR may have merge conflicts');
+        const { sendTelegramMessage } = require('./telegramClient');
+        sendTelegramMessage(
+          `Project Sentinel — Merge Conflict Risk ⚠️\n\nRepo: ${repoName}\nBase branch moved while the batch was running.\nThe PR may have conflicts — review before merging.`,
+          null, topicId
+        ).catch(() => {});
+      }
+    } catch (e) {
+      logger.warn({ err: e.message }, 'Could not check for base branch changes');
     }
 
     await repoGit.push('origin', taskBranch);
@@ -163,9 +186,14 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
     proc.stderr.on('data', c => { stderr += c.toString(); });
 
     const timer = setTimeout(() => {
+      const { sendTelegramMessage } = require('./telegramClient');
+      sendTelegramMessage(
+        `Project Sentinel — Aider Timeout ⏱️\n\nTask ${task.task_number}: ${task.title}\nRepo: ${context.repoName}\nAider killed after ${process.env.AIDER_TIMEOUT_MINUTES || 20}m — task skipped.`,
+        null, context.topicId
+      ).catch(() => {});
       proc.kill('SIGTERM');
       resolve({ success: false, reason: 'Aider timed out' });
-    }, 20 * 60 * 1000);
+    }, AIDER_TIMEOUT_MS);
 
     proc.on('close', (code) => {
       clearTimeout(timer);
