@@ -1,56 +1,68 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { AGENTS, FEED } from "@/lib/data";
 import { Send } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AgentMessage } from "@/lib/api";
+import type { AgentMessage, AgentRow } from "@/lib/api";
 
 const CHIPS = ["/sentinel report", "/sentinel audit", "/sentinel status", "/sprint approve", "/agents list"];
 
-const AGENT_COLORS: Record<string, string> = Object.fromEntries(
-  AGENTS.map(a => [a.name.toLowerCase(), a.color])
-);
+const PROVIDER_COLORS: Record<string, string> = {
+  nvidia: "#6366F1", nemotron: "#6366F1", hermes: "#6366F1",
+  qwen: "#F59E0B", gemini: "#22C55E", llama: "#3B82F6",
+  deepseek: "#8B5CF6", aider: "#14B8A6",
+};
 function agentColor(label: string) {
-  return AGENT_COLORS[label?.toLowerCase()] ?? "#888888";
+  const l = label?.toLowerCase() ?? "";
+  for (const [key, color] of Object.entries(PROVIDER_COLORS)) {
+    if (l.includes(key)) return color;
+  }
+  return "#888888";
 }
 
 interface Msg { agent: string; color: string; text: string; ts: string; isCommand?: boolean; }
 
-function toMsg(m: AgentMessage): Msg {
-  return {
-    agent: m.agent_label,
-    color: agentColor(m.agent_label),
-    text:  m.message,
-    ts:    relTime(m.created_at),
-  };
-}
-
 function relTime(iso: string) {
   const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'now';
+  if (m < 1) return "now";
   if (m < 60) return `${m}m`;
-  return `${Math.floor(m/60)}h`;
+  return `${Math.floor(m / 60)}h`;
+}
+
+function toMsg(m: AgentMessage): Msg {
+  return { agent: m.agent_label, color: agentColor(m.agent_label), text: m.message, ts: relTime(m.created_at) };
 }
 
 export default function AgentRoomPage() {
-  const [msgs, setMsgs] = useState<Msg[]>(
-    FEED.map(e => ({ agent: e.agent, color: e.color, text: e.msg, ts: e.time }))
-  );
-
-  // Load real messages on mount
-  useEffect(() => {
-    fetch('/api/agent-room-proxy')
-      .then(r => r.ok ? r.json() : null)
-      .then((data: AgentMessage[] | null) => {
-        if (data && data.length > 0) {
-          setMsgs(data.map(toMsg));
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [agents, setAgents] = useState<AgentRow[]>([]);
+  const [stats, setStats] = useState<any>(null);
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Load real messages
+    fetch("/api/agent-room-proxy")
+      .then(r => r.ok ? r.json() : null)
+      .then((data: AgentMessage[] | null) => {
+        if (data && data.length > 0) setMsgs(data.map(toMsg));
+      })
+      .catch(() => {});
+
+    // Load real agents
+    fetch("/api/agents-proxy")
+      .then(r => r.ok ? r.json() : null)
+      .then((data: AgentRow[] | null) => {
+        if (data && data.length > 0) setAgents(data);
+      })
+      .catch(() => {});
+
+    // Load stats for /sentinel report
+    fetch("/api/stats")
+      .then(r => r.ok ? r.json() : null)
+      .then((d: any) => { if (d && !d.error) setStats(d); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -60,47 +72,56 @@ export default function AgentRoomPage() {
     if (!text.trim()) return;
     setMsgs(m => [...m, { agent: "You", color: "#C8961C", text, ts: "now", isCommand: text.startsWith("/") }]);
     setInput("");
-    // Simulate response
     setTimeout(() => {
-      setMsgs(m => [...m, {
-        agent: "Sentinel",
-        color: "#6366F1",
-        text: text.startsWith("/sentinel report")
-          ? "📊 Portfolio health avg: 74 · 4 agents working · 52 tasks queued · $12.40 spent this month"
-          : `Acknowledged: ${text}`,
-        ts: "now",
-      }]);
-    }, 800);
+      let reply = `Acknowledged: ${text}`;
+      if (text.startsWith("/sentinel report") && stats) {
+        reply = `Portfolio health avg: ${stats.avgHealth} · ${stats.workingCount} agents working · $${(stats.monthlyCost ?? 0).toFixed(2)} spent this month`;
+      } else if (text.startsWith("/agents list") && agents.length > 0) {
+        reply = agents.map(a => `${a.agent_label} [${a.status}]`).join(" · ");
+      } else if (text.startsWith("/sentinel status")) {
+        reply = stats
+          ? `${stats.repoCount} repos · ${stats.agentCount} agents · health ${stats.avgHealth}`
+          : "Fetching status…";
+      }
+      setMsgs(m => [...m, { agent: "Sentinel", color: "#6366F1", text: reply, ts: "now" }]);
+    }, 600);
   };
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Agent list sidebar */}
-      <div className="w-[180px] flex-shrink-0 border-r border-s-border flex flex-col">
-        <div className="px-3 py-2.5 border-b border-s-border text-[9px] font-bold uppercase tracking-widest text-s-dim">
-          Agents
+      <div className="w-[200px] flex-shrink-0 border-r border-s-border flex flex-col overflow-hidden">
+        <div className="px-3 py-2.5 border-b border-s-border text-[9px] font-bold uppercase tracking-widest text-s-dim flex-shrink-0">
+          Agents ({agents.length || "…"})
         </div>
-        {AGENTS.map(a => (
-          <div key={a.id} className="flex items-center gap-2 px-3 py-2 border-b border-s-border hover:bg-white/[0.02]">
-            <span
-              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-              style={{
-                background: a.color,
-                opacity: a.status === "idle" ? 0.3 : 1,
-                boxShadow: a.status === "working" ? `0 0 5px ${a.color}` : undefined,
-              }}
-            />
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium truncate">{a.name}</div>
-              <div className="text-[9px] text-s-dim truncate">{a.status}</div>
+        <div className="flex-1 overflow-y-auto">
+          {agents.length > 0 ? agents.map(a => (
+            <div key={a.agent_id} className="flex items-center gap-2 px-3 py-2 border-b border-s-border hover:bg-white/[0.02]">
+              <span
+                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style={{
+                  background: agentColor(a.agent_label),
+                  opacity: a.status === "idle" ? 0.3 : 1,
+                  boxShadow: a.status === "working" ? `0 0 5px ${agentColor(a.agent_label)}` : undefined,
+                }}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] font-medium truncate">{a.agent_label}</div>
+                <div className="text-[9px] text-s-dim truncate">{a.status}</div>
+              </div>
             </div>
-          </div>
-        ))}
+          )) : (
+            <div className="px-3 py-4 text-[10px] text-s-dim">Loading agents…</div>
+          )}
+        </div>
       </div>
 
       {/* Message feed */}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 overflow-y-auto p-4 space-y-3 font-mono">
+          {msgs.length === 0 && (
+            <div className="text-[11px] text-s-dim text-center mt-8">Loading agent messages…</div>
+          )}
           <AnimatePresence initial={false}>
             {msgs.map((m, i) => (
               <motion.div

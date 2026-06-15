@@ -1,24 +1,18 @@
-import { AGENTS, FEED, healthColor } from "@/lib/data";
+import { healthColor } from "@/lib/data";
 import { getPortfolio, getAgentRoomMessages } from "@/lib/api";
 import { StatStrip } from "@/components/sentinel/stat-strip";
 import { RepoRow } from "@/components/sentinel/repo-row";
 import { AgentFeed } from "@/components/sentinel/agent-feed";
 import { BudgetPanel } from "@/components/sentinel/budget-panel";
-import type { Repo, FeedEntry } from "@/lib/types";
+import type { Repo, FeedEntry, Agent } from "@/lib/types";
 
 const COL = "18px 1fr 96px 72px 76px 28px";
 const GAP = "10px";
 
-// Map agent_label → color from static config + real agent ID patterns
 const AGENT_COLORS: Record<string, string> = {
-  ...Object.fromEntries(AGENTS.map(a => [a.name.toLowerCase(), a.color])),
-  nvidia:       "#6366F1",
-  nemotron:     "#6366F1",
-  hermes:       "#6366F1",
-  qwen:         "#F59E0B",
-  gemini:       "#22C55E",
-  llama:        "#3B82F6",
-  deepseek:     "#8B5CF6",
+  nvidia: "#6366F1", nemotron: "#6366F1", hermes: "#6366F1",
+  qwen:   "#F59E0B", gemini:   "#22C55E", llama:  "#3B82F6",
+  deepseek: "#8B5CF6", aider: "#14B8A6",
 };
 function agentColor(label: string) {
   const l = label?.toLowerCase() ?? '';
@@ -31,8 +25,8 @@ function agentColor(label: string) {
 export default async function OverviewPage() {
   // Fetch live data — fall back to mock if API unavailable
   let repos: Repo[] = [];
-  let feed: FeedEntry[] = FEED;
-  let monthlyCost = 12.40;
+  let feed: FeedEntry[] = [];
+  let monthlyCost = 0;
   let tasksQueued = 0;
   let workingCount = 0;
 
@@ -42,16 +36,21 @@ export default async function OverviewPage() {
       getAgentRoomMessages(20),
     ]);
 
-    repos = portfolio.repos.map(r => ({
-      name:     r.repo_name,
-      health:   Math.min(100, Math.round(parseFloat(String(r.health_score ?? 0)) * 10)),
-      security: 0,
-      agent:    portfolio.agents.find(a => a.repo_full_name?.endsWith(`/${r.repo_name}`) && a.status === 'working')?.agent_label ?? null,
-      commit:   r.last_commit_at ? relativeTime(r.last_commit_at) : '—',
-      build:    mapBuild(r.build_status),
-      priority: mapPriority(r.priority),
-      tasks:    r.tasks_queued ?? 0,
-    }));
+    repos = portfolio.repos.map(r => {
+      const workingAgent = portfolio.agents.find(
+        a => a.repo_full_name?.endsWith(`/${r.repo_name}`) && a.status === 'working'
+      );
+      return {
+        name:     r.repo_name,
+        health:   Math.min(100, Math.round(parseFloat(String(r.health_score ?? 0)) * 10)),
+        security: 0,
+        agent:    workingAgent?.agent_label ?? null,
+        commit:   r.last_commit_at ? relativeTime(r.last_commit_at) : '—',
+        build:    mapBuild(r.build_status),
+        priority: mapPriority(r.priority),
+        tasks:    r.tasks_queued ?? 0,
+      };
+    });
 
     feed = messages.map(m => ({
       agent: m.agent_label,
@@ -65,12 +64,7 @@ export default async function OverviewPage() {
     tasksQueued = portfolio.tasksQueued;
     workingCount = portfolio.agents.filter(a => a.status === 'working').length;
   } catch {
-    // API not ready yet — fall back to mock data
-    const { REPOS, AGENTS: AG, FEED: FD } = await import("@/lib/data");
-    repos = REPOS;
-    feed  = FD;
-    tasksQueued  = repos.reduce((s, r) => s + r.tasks, 0);
-    workingCount = AG.filter(a => a.status === 'working').length;
+    // API unavailable — show empty state, don't show fake data
   }
 
   const avgHealth   = repos.length ? Math.round(repos.reduce((s, r) => s + r.health, 0) / repos.length) : 0;
@@ -97,16 +91,23 @@ export default async function OverviewPage() {
             ))}
           </div>
           <div style={{ flex:"1 1 0", minHeight:0, overflowY:"auto", overflowX:"hidden" }}>
-            {repos.map((repo, i) => (
-              <RepoRow
-                key={repo.name}
-                repo={repo}
-                agent={AGENTS.find(a => a.name === repo.agent) ?? null}
-                index={i}
-                healthColor={healthColor(repo.health)}
-                secColor={healthColor(repo.security)}
-              />
-            ))}
+            {repos.map((repo, i) => {
+              const agentObj = repo.agent ? {
+                id: repo.agent, name: repo.agent, model: "", provider: "",
+                color: agentColor(repo.agent), status: "working" as const,
+                task: null, repo: repo.name, elapsed: 0, done: 0, prs: 0, fails: 0,
+              } : null;
+              return (
+                <RepoRow
+                  key={repo.name}
+                  repo={repo}
+                  agent={agentObj}
+                  index={i}
+                  healthColor={healthColor(repo.health)}
+                  secColor={healthColor(repo.security)}
+                />
+              );
+            })}
           </div>
         </div>
 
