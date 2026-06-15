@@ -151,6 +151,27 @@ router.post('/agents/:id/toggle', async (req, res) => {
   }
 });
 
+// ── Dashboard command — routes text from UI chat into Sentinel brain ──────────
+
+router.post('/command', async (req, res) => {
+  const { text, fromName = 'Dashboard' } = req.body || {};
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({ error: 'text required' });
+  }
+
+  // Log the user's message into agent_messages so the UI sees it
+  const { logAgentMessage } = require('./agentDb');
+  await logAgentMessage('dashboard_user', fromName, text, 'info', null).catch(() => {});
+
+  // Fire command through the real handler (non-blocking — response arrives via agent_messages poll)
+  const { handleCommand } = require('./telegramCommands');
+  handleCommand(text, null, null, fromName, null).catch(err =>
+    logger.warn({ err: err.message }, 'Dashboard command failed')
+  );
+
+  res.json({ ok: true });
+});
+
 // ── Agent room messages ───────────────────────────────────────────────────────
 
 router.get('/agent-room/messages', async (req, res) => {

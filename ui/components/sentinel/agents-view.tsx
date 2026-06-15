@@ -18,7 +18,7 @@ const STATUS_COLOR: Record<string, string> = {
 function AgentCard({ agent, index }: { agent: Agent; index: number }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const isOn = agent.status !== "paused";
+  const isOn = agent.status === "working";
 
   const toggle = async () => {
     setLoading(true);

@@ -52,10 +52,10 @@ function SidebarAction({
 
 const NAV = [
   { href: "/",           label: "Overview",   icon: LayoutGrid, badge: null,   badgeVariant: ""        },
-  { href: "/repos",      label: "Repos",      icon: FolderOpen, badge: "12",   badgeVariant: "ind"     },
-  { href: "/agents",     label: "Agents",     icon: Cpu,        badge: "8",    badgeVariant: "ind"     },
+  { href: "/repos",      label: "Repos",      icon: FolderOpen, badge: null,   badgeVariant: ""        },
+  { href: "/agents",     label: "Agents",     icon: Cpu,        badge: null,   badgeVariant: ""        },
   null,
-  { href: "/security",   label: "Security",   icon: Shield,     badge: "27",   badgeVariant: "red"     },
+  { href: "/security",   label: "Security",   icon: Shield,     badge: null,   badgeVariant: ""        },
   { href: "/sprint",     label: "Sprints",    icon: ListTodo,   badge: null,   badgeVariant: ""        },
   { href: "/agent-room", label: "Agent Room", icon: Terminal,   badge: "LIVE", badgeVariant: "live"    },
   { href: "/connectors", label: "Connectors", icon: Plug,       badge: null,   badgeVariant: ""        },
