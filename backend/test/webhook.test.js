@@ -32,6 +32,10 @@ jest.mock('../src/telegramClient', () => ({
   sendTelegramMessage: jest.fn().mockResolvedValue(true),
 }));
 
+jest.mock('../src/portfolioDb', () => ({
+  upsertRepoMetrics: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../src/deduplication', () => ({
   isAlreadyProcessed: jest.fn().mockResolvedValue(false),
   markAsProcessed:    jest.fn().mockResolvedValue(undefined),
@@ -47,6 +51,7 @@ const { findNotionProject,
 const { sendTelegramMessage }           = require('../src/telegramClient');
 const { isAlreadyProcessed,
         markAsProcessed }               = require('../src/deduplication');
+const { upsertRepoMetrics }             = require('../src/portfolioDb');
 
 const app = express();
 app.use(express.json());
@@ -90,6 +95,7 @@ beforeEach(() => {
   isAlreadyProcessed.mockResolvedValue(false);
   markAsProcessed.mockResolvedValue(undefined);
   sendTelegramMessage.mockResolvedValue(true);
+  upsertRepoMetrics.mockResolvedValue(undefined);
 });
 
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
@@ -170,6 +176,21 @@ describe('POST /webhook/github', () => {
     await wait(200);
     expect(updateNotionProject).not.toHaveBeenCalled();
     expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+
+  test('records last_commit_at in portfolio_metrics after push', async () => {
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(payload))
+      .send(payload);
+    await wait(200);
+    expect(upsertRepoMetrics).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoFullName: 'Thatisshayan/tapcash',
+        repoName:     'tapcash',
+        lastCommitAt: expect.any(Date),
+      })
+    );
   });
 
   test('sends error Telegram when Notion update throws', async () => {

@@ -9,6 +9,7 @@ const { sendTelegramMessage }                              = require('./telegram
 const { isAlreadyProcessed, markAsProcessed }              = require('./deduplication');
 const { enqueueBuildCheck }                                = require('./queueClient');
 const { query }                                            = require('./dbClient');
+const { upsertRepoMetrics }                                = require('./portfolioDb');
 
 const router = express.Router();
 
@@ -191,6 +192,15 @@ async function processWebhook(payload) {
   } catch (err) {
     logger.error({ err: err.message, repoName }, 'Telegram send failed');
   }
+
+  upsertRepoMetrics({
+    repoFullName: data.repoFullName,
+    repoName:     data.repoName,
+    lastCommitAt: data.commitTimestamp ? new Date(data.commitTimestamp) : new Date(),
+    buildStatus:  'unknown',
+    healthScore:  6.5,
+    priority:     'medium',
+  }).catch(err => logger.warn({ err: err.message }, 'Metrics upsert failed — non-blocking'));
 
   // T11 — trigger security scan immediately on high-risk pushes (don't wait for build pass)
   if (notionProject && data.riskLevel === 'High') {
