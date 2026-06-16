@@ -61,20 +61,20 @@ const payload = {
   ref: 'refs/heads/main',
   repository: {
     name: 'tapcash',
-    full_name: 'Thatisshayan/tapcash',
-    html_url: 'https://github.com/Thatisshayan/tapcash',
+    full_name: 'your-org/tapcash',
+    html_url: 'https://github.com/your-org/tapcash',
   },
   head_commit: {
     id: 'deadbeef1234567890deadbeef1234567890dead',
     message: 'test: verify phase 1',
     url: 'https://github.com/commit/deadbeef',
-    author: { name: 'Shayan' },
+    author: { name: 'Test User' },
     timestamp: '2026-06-10T09:00:00Z',
     added: ['src/utils.js'],
     modified: [],
     removed: [],
   },
-  pusher: { name: 'Shayan' },
+  pusher: { name: 'Test User' },
 };
 
 function sign(body) {
@@ -186,7 +186,7 @@ describe('POST /webhook/github', () => {
     await wait(200);
     expect(upsertRepoMetrics).toHaveBeenCalledWith(
       expect.objectContaining({
-        repoFullName: 'Thatisshayan/tapcash',
+        repoFullName: 'your-org/tapcash',
         repoName:     'tapcash',
         lastCommitAt: expect.any(Date),
       })
@@ -214,11 +214,11 @@ describe('PR event handling (pull_request webhook)', () => {
     pull_request: {
       number: 42,
       merged: true,
-      html_url: 'https://github.com/Thatisshayan/tapcash/pull/42',
+      html_url: 'https://github.com/your-org/tapcash/pull/42',
       head: { ref: 'sentinel/batch-1-tasks-1-5' },
       base: { ref: 'main' },
     },
-    repository: { name: 'tapcash', full_name: 'Thatisshayan/tapcash' },
+    repository: { name: 'tapcash', full_name: 'your-org/tapcash' },
   };
 
   test('ignores pull_request events for non-sentinel branches', async () => {

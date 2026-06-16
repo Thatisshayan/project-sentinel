@@ -21,18 +21,18 @@ describe('refreshRepoMetrics', () => {
 
   it('calls upsertRepoMetrics for the given repo after computing stats', async () => {
     const { refreshRepoMetrics } = require('../src/portfolioAnalytics');
-    await refreshRepoMetrics('Thatisshayan/tapcash', 'tapcash');
+    await refreshRepoMetrics('your-org/tapcash', 'tapcash');
     const insertCall = query.mock.calls.find(c =>
       typeof c[0] === 'string' && c[0].includes('INSERT INTO portfolio_metrics')
     );
     expect(insertCall).toBeDefined();
-    expect(insertCall[1][0]).toBe('Thatisshayan/tapcash');
+    expect(insertCall[1][0]).toBe('your-org/tapcash');
     expect(insertCall[1][1]).toBe('tapcash');
   });
 
   it('returns stats with healthScore and buildStatus', async () => {
     const { refreshRepoMetrics } = require('../src/portfolioAnalytics');
-    const stats = await refreshRepoMetrics('Thatisshayan/tapcash', 'tapcash');
+    const stats = await refreshRepoMetrics('your-org/tapcash', 'tapcash');
     expect(stats).toHaveProperty('healthScore');
     expect(stats).toHaveProperty('buildStatus');
   });

@@ -4,20 +4,20 @@ const base = {
   ref: 'refs/heads/main',
   repository: {
     name: 'tapcash',
-    full_name: 'Thatisshayan/tapcash',
-    html_url: 'https://github.com/Thatisshayan/tapcash',
+    full_name: 'your-org/tapcash',
+    html_url: 'https://github.com/your-org/tapcash',
   },
   head_commit: {
     id: 'abc123def456abc123def456abc123def456abcd',
     message: 'feat: add user dashboard',
     url: 'https://github.com/commit/abc123',
-    author: { name: 'Shayan', email: 'shayan@test.com' },
+    author: { name: 'Test User', email: 'test@example.com' },
     timestamp: '2026-06-10T09:00:00Z',
     added: ['src/dashboard.js'],
     modified: ['src/index.js'],
     removed: [],
   },
-  pusher: { name: 'Shayan' },
+  pusher: { name: 'Test User' },
   commits: [],
 };
 
@@ -36,7 +36,7 @@ describe('extractPayload', () => {
     const r = extractPayload(base);
     expect(r.commitSha).toBe('abc123def456abc123def456abc123def456abcd');
     expect(r.commitMessage).toBe('feat: add user dashboard');
-    expect(r.authorName).toBe('Shayan');
+    expect(r.authorName).toBe('Test User');
   });
 
   test('counts changed files across added + modified + removed', () => {

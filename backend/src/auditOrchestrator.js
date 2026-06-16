@@ -449,10 +449,9 @@ async function handleBuildPassedAfterSentinelMerge(repoFullName, repoName,
                                                     branchName, topicId) {
   await markTasksDoneForBranch(repoFullName, branchName);
 
-  const remainingTasks = await getNextBatch(repoFullName, 1);
-  if (remainingTasks.length > 0) {
-    await processNextBatch(repoFullName, repoName, topicId);
-  }
+  // Always delegate to processNextBatch — it correctly marks the cycle
+  // complete and notifies the user even when zero tasks remain.
+  await processNextBatch(repoFullName, repoName, topicId);
 }
 
 // ── APPROVAL TIMEOUT ──────────────────────────────────────────────────────────

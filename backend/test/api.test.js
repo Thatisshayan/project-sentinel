@@ -22,7 +22,7 @@ describe('GET /api/portfolio', () => {
     query
       .mockResolvedValueOnce({ rows: [{
         repo_name:      'tapcash',
-        repo_full_name: 'Thatisshayan/tapcash',
+        repo_full_name: 'your-org/tapcash',
         health_score:   8.0,
         build_status:   'passing',
         priority:       'critical',
