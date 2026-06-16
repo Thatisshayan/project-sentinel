@@ -66,3 +66,8 @@
 
 ### 14. ~~Budget panel — verify real cost~~ — CONFIRMED FIXED
 - `ui/components/sentinel/budget-panel.tsx` → `/api/stats` → backend `/api/portfolio` → `monthlyCost: parseFloat(cost.rows[0]?.monthly_cost || 0)` computed via `SUM(estimated_cost) FROM api_costs WHERE recorded_at >= date_trunc('month', NOW())` (`backend/src/api.js` lines 50-55). Real DB-backed cost, not mocked.
+
+### 15. Three dashboard buttons call backend routes that don't exist — found 2026-06-16
+- "Audit All" (`repo-actions.tsx` → `POST /api/system/audit-all`), "Run All Scans" (`security-view.tsx` → `POST /api/system/security-scan`), and "Patch"/"Patch All Safe" (`security-view.tsx` → `POST /api/security/issue/:id/patch`) have no matching route in `backend/src/api.js`. Only per-repo equivalents exist as Telegram commands (`/sentinel audit <repo>`, `/sentinel security-scan <repo>`, `/sentinel security-patch <repo>`) — there's no bulk/portfolio-wide variant on either REST or Telegram.
+- Previously these failed silently (bare `catch {}`); now they surface a visible "backend route not available" error instead, so at least the UI doesn't lie about success. The underlying feature gap (bulk audit/scan/patch across the whole portfolio) is still unbuilt.
+- **Fix needed:** Design and implement portfolio-wide audit/scan/patch — needs explicit thought on cost/budget guardrails (looping AI audits across 12 repos on one click) and confirmation UX before wiring it up, not just a REST passthrough.
