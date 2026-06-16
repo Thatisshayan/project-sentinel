@@ -96,8 +96,11 @@ async function executeBatch(tasks, context, builderAssignment) {
         logger.info({ taskNumber: task.task_number, sha: lastCommitSha.slice(0, 7) },
           'Task committed');
       } else {
-        logger.warn({ taskNumber: task.task_number },
-          'No new commit found — task may have been skipped by the builder');
+        logger.warn({
+          taskNumber: task.task_number,
+          stdoutTail: (taskResult.stdout || '').slice(-1500),
+          stderrTail: (taskResult.stderr || '').slice(-1500),
+        }, 'No new commit found — task may have been skipped by the builder');
       }
     }
 
