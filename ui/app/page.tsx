@@ -29,6 +29,7 @@ export default async function OverviewPage() {
   let monthlyCost = 0;
   let tasksQueued = 0;
   let workingCount = 0;
+  let healthDelta: number | null = null;
 
   try {
     const [portfolio, messages] = await Promise.all([
@@ -62,6 +63,7 @@ export default async function OverviewPage() {
 
     monthlyCost = portfolio.monthlyCost;
     tasksQueued = portfolio.tasksQueued;
+    healthDelta = portfolio.healthDelta ?? null;
     workingCount = portfolio.agents.filter(a => a.status === 'working').length;
   } catch {
     // API unavailable — show empty state, don't show fake data
@@ -69,12 +71,15 @@ export default async function OverviewPage() {
 
   const avgHealth   = repos.length ? Math.round(repos.reduce((s, r) => s + r.health, 0) / repos.length) : 0;
   const budgetPct   = Math.round((monthlyCost / 30) * 100);
+  const healthDeltaSub = healthDelta != null
+    ? `${healthDelta >= 0 ? '+' : ''}${healthDelta.toFixed(1)} vs last week`
+    : 'no prior week data';
 
   return (
     <div style={{ display:"flex", flexDirection:"column", flex:"1 1 0", minHeight:0, overflow:"hidden" }}>
 
       <StatStrip stats={[
-        { label: "Avg Health",    value: avgHealth,    suffix: "",  color: avgHealth >= 80 ? "#22C55E" : avgHealth >= 60 ? "#F59E0B" : "#EF4444", sub: "+3 vs last week" },
+        { label: "Avg Health",    value: avgHealth,    suffix: "",  color: avgHealth >= 80 ? "#22C55E" : avgHealth >= 60 ? "#F59E0B" : "#EF4444", sub: healthDeltaSub },
         { label: "Active Agents", value: workingCount, suffix: "",  color: "#6366F1", sub: `${repos.length} repos` },
         { label: "Tasks Queued",  value: tasksQueued,  suffix: "",  color: "#00D4FF", sub: `across ${repos.length} repos` },
         { label: "Monthly Cost",  value: Math.round(monthlyCost * 100) / 100, suffix: "", color: "#F59E0B", sub: `$${(30 - monthlyCost).toFixed(2)} remaining` },

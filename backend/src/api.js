@@ -61,11 +61,21 @@ router.get('/portfolio', async (req, res) => {
       WHERE status IN ('queued','in_progress')
     `);
 
+    // Week-over-week health delta from velocity_metrics
+    const velocity = await query(`
+      SELECT health_delta FROM velocity_metrics
+      ORDER BY week_start DESC LIMIT 1
+    `).catch(() => ({ rows: [] }));
+    const healthDelta = velocity.rows[0]?.health_delta != null
+      ? parseFloat(velocity.rows[0].health_delta)
+      : null;
+
     res.json({
       repos: repos.rows,
       agents: agents.rows,
       monthlyCost: parseFloat(cost.rows[0]?.monthly_cost || 0),
       tasksQueued: parseInt(tasks.rows[0]?.queued || 0),
+      healthDelta,
     });
   } catch (err) {
     logger.error({ err: err.message }, 'GET /portfolio error');

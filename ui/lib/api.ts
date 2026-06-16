@@ -134,6 +134,7 @@ export interface PortfolioData {
   agents: AgentRow[];
   monthlyCost: number;
   tasksQueued: number;
+  healthDelta: number | null;
 }
 
 // ── Fetchers ──────────────────────────────────────────────────────────────────
