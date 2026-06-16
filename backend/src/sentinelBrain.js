@@ -66,13 +66,14 @@ async function gatherIntelligence() {
 
   const taskRows = await query(`
     SELECT
-      repo_full_name,
-      COUNT(*)  FILTER (WHERE status = 'queued')                                  AS queued,
-      COUNT(*)  FILTER (WHERE status = 'queued' AND safe_to_auto_execute = true)  AS safe,
-      AVG(roi_score) FILTER (WHERE status = 'queued')                             AS avg_roi,
-      COUNT(*)  FILTER (WHERE status = 'done' AND updated_at > NOW() - INTERVAL '7 days') AS done_week
-    FROM audit_tasks
-    GROUP BY repo_full_name
+      at.repo_full_name,
+      COUNT(*)  FILTER (WHERE at.status = 'queued')                                     AS queued,
+      COUNT(*)  FILTER (WHERE at.status = 'queued' AND at.safe_to_auto_execute = true)   AS safe,
+      AVG(trs.final_score) FILTER (WHERE at.status = 'queued')                           AS avg_roi,
+      COUNT(*)  FILTER (WHERE at.status = 'done' AND at.updated_at > NOW() - INTERVAL '7 days') AS done_week
+    FROM audit_tasks at
+    LEFT JOIN task_roi_scores trs ON trs.audit_task_id = at.id
+    GROUP BY at.repo_full_name
   `).catch(() => ({ rows: [] }));
 
   const taskMap = {};
@@ -151,21 +152,28 @@ Make your strategic decision.`;
     return res.data.choices[0]?.message?.content || '';
   };
 
-  if (process.env.NVIDIA_API_KEY) {
-    return tryProvider(
-      process.env.NVIDIA_API_KEY,
-      'https://integrate.api.nvidia.com/v1/chat/completions',
-      BRAIN_MODEL
-    );
+  const dashscopeBase = process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+  const providers = [
+    { key: process.env.NVIDIA_API_KEY,   url: 'https://integrate.api.nvidia.com/v1/chat/completions',                     model: BRAIN_MODEL,  name: 'NVIDIA NIM' },
+    { key: process.env.GEMINI_API_KEY,   url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', model: 'gemini-2.5-pro', name: 'Gemini' },
+    { key: process.env.DASHSCOPE_API_KEY, url: `${dashscopeBase}/chat/completions`,                                      model: 'qwen-max',   name: 'DashScope (Qwen)' },
+    { key: process.env.DEEPSEEK_API_KEY, url: 'https://api.deepseek.com/chat/completions',                               model: 'deepseek-chat', name: 'DeepSeek' },
+  ].filter(p => p.key);
+
+  if (providers.length === 0) {
+    throw new Error('No AI provider available for brain');
   }
-  if (process.env.DEEPSEEK_API_KEY) {
-    return tryProvider(
-      process.env.DEEPSEEK_API_KEY,
-      'https://api.deepseek.com/chat/completions',
-      'deepseek-chat'
-    );
+
+  let lastErr;
+  for (const p of providers) {
+    try {
+      return await tryProvider(p.key, p.url, p.model);
+    } catch (err) {
+      lastErr = err;
+      logger.warn({ provider: p.name, err: err.message }, 'Brain provider failed — trying next');
+    }
   }
-  throw new Error('No AI provider available for brain');
+  throw lastErr;
 }
 
 async function runStrategicBrain(topicId) {

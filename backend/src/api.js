@@ -285,7 +285,7 @@ router.get('/security/portfolio', async (req, res) => {
       ORDER BY
         CASE si.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2
           WHEN 'medium' THEN 3 ELSE 4 END,
-        si.created_at DESC
+        si.found_at DESC
       LIMIT 100
     `);
 

@@ -223,6 +223,15 @@ async function handleSkipBatch(repoArg, batchNumArg, topicId) {
 // ── Main dispatcher ───────────────────────────────────────────────────────────
 
 async function handleRepoOpsCmd(subcommand, parts, chatId, topicId) {
+  // Canonicalize the repo arg so "/sentinel audit Tapcash" and "/sentinel audit
+  // tapcash" resolve to the same repoFullName instead of fragmenting locks,
+  // audit cycles, and tasks across two differently-cased tracking identities.
+  if (parts[2]) {
+    const { canonicalizeRepoName } = require('../repoResolver');
+    const canon = canonicalizeRepoName(parts[2]);
+    if (canon) parts[2] = canon.repoName;
+  }
+
   switch (subcommand) {
     case 'stop':
       return handleStop(parts[2], topicId);

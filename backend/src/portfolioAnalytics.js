@@ -111,6 +111,10 @@ async function getRepoStats(repoFullName, repoName) {
     tasksDoneToday:    taskDone,
     tasksQueued:       taskQueued,
     lastBuildAt:       pollJobs.rows[0]?.last_build || null,
+    // build_poll_jobs is created at webhook-receipt time (one row per push),
+    // so its created_at doubles as "time of last commit/push" — there's no
+    // separate commit-timestamp table.
+    lastCommitAt:      pollJobs.rows[0]?.last_build || null,
     healthScore:       parseFloat(healthScore.toFixed(1)),
     buildStatus,
   };

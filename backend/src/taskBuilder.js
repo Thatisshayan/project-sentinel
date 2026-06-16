@@ -85,15 +85,19 @@ async function executeBatch(tasks, context, builderAssignment) {
         break;
       }
 
+      // Detect a new commit by SHA, not by matching commit message text —
+      // the AI builder doesn't reliably follow the exact "feat(sentinel): ..."
+      // template, so message-matching silently discarded real commits.
       const log = await repoGit.log({ maxCount: 1 });
-      if (log.latest && log.latest.message.includes('sentinel')) {
-        lastCommitSha = log.latest.hash;
+      const headSha = log.latest?.hash || null;
+      if (headSha && headSha !== (lastCommitSha || initialBaseSha)) {
+        lastCommitSha = headSha;
         completedTasks.push(task);
         logger.info({ taskNumber: task.task_number, sha: lastCommitSha.slice(0, 7) },
           'Task committed');
       } else {
         logger.warn({ taskNumber: task.task_number },
-          'No sentinel commit found — task may have been skipped by Claude Code');
+          'No new commit found — task may have been skipped by the builder');
       }
     }
 

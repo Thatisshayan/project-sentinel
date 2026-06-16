@@ -59,17 +59,8 @@ async function getRedisContext(topicId) {
 
 // Normalize AI-generated repo names (e.g. "projectSentinel") to canonical kebab names
 function resolveRepoName(input) {
-  if (!input) return null;
-  const { REPO_LIST } = require('./portfolioAnalytics');
-  const ALL_REPOS = [
-    ...REPO_LIST,
-    { repoName: 'project-sentinel', repoFullName: repoFullName('project-sentinel') },
-  ];
-  const normalize = s => s.toLowerCase().replace(/[-_\s]/g, '');
-  const inputNorm = normalize(input);
-  const exact = ALL_REPOS.find(r => r.repoName === input);
-  if (exact) return exact;
-  return ALL_REPOS.find(r => normalize(r.repoName) === inputNorm) || null;
+  const { canonicalizeRepoName } = require('./repoResolver');
+  return canonicalizeRepoName(input);
 }
 
 // Pick which agent should "speak" for a given message in the agent room
@@ -378,10 +369,25 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
   }
 }
 
+const REPO_REQUIRED_ACTIONS = ['execute_tasks', 'trigger_audit', 'stop_repo', 'assign_repo', 'create_task'];
+
 async function executeAction(action, topicId) {
   const resolved        = action.repo ? resolveRepoName(action.repo) : null;
-  const repoName        = resolved?.repoName     || action.repo || null;
-  const repoFullNameVal = resolved?.repoFullName || (action.repo ? repoFullName(action.repo) : null);
+  const repoName        = resolved?.repoName || null;
+  const repoFullNameVal = resolved?.repoFullName || null;
+
+  // If the AI named a repo that doesn't match anything real, refuse instead of
+  // guessing a fake full name — a guessed name 404s on git clone, silently
+  // burning a task/audit attempt instead of telling the user what went wrong.
+  if (action.repo && !resolved && REPO_REQUIRED_ACTIONS.includes(action.action)) {
+    const { REPO_LIST } = require('./portfolioAnalytics');
+    const known = [...REPO_LIST.map(r => r.repoName), 'project-sentinel'].join(', ');
+    await sendTelegramMessage(
+      `I don't recognize repo "${action.repo}". Known repos: ${known}`,
+      null, topicId
+    ).catch(() => {});
+    return;
+  }
 
   switch (action.action) {
     case 'execute_tasks':
@@ -495,9 +501,8 @@ async function executeAction(action, topicId) {
 
     case 'create_task': {
       if (!action.repo || !action.title) break;
-      const taskResolved = resolveRepoName(action.repo);
-      const taskRepoName = taskResolved?.repoName || action.repo;
-      const taskRepoFull = taskResolved?.repoFullName || repoFullName(action.repo);
+      const taskRepoName = repoName;
+      const taskRepoFull = repoFullNameVal;
       try {
         const { createAuditTask, createAuditCycle, getActiveCycleForRepo } = require('./auditDb');
 
