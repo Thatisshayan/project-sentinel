@@ -43,7 +43,7 @@ export default async function OverviewPage() {
       return {
         name:     r.repo_name,
         health:   Math.min(100, Math.round(parseFloat(String(r.health_score ?? 0)) * 10)),
-        security: 0,
+        security: Math.round(parseFloat(String(r.security_score ?? 0))),
         agent:    workingAgent?.agent_label ?? null,
         commit:   r.last_commit_at ? relativeTime(r.last_commit_at) : '—',
         build:    mapBuild(r.build_status),

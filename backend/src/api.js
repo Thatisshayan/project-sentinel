@@ -22,14 +22,20 @@ router.use((req, res, next) => {
 
 router.get('/portfolio', async (req, res) => {
   try {
-    // Latest snapshot per repo
+    // Latest snapshot per repo, with latest security score joined in
     const repos = await query(`
-      SELECT DISTINCT ON (repo_name)
-        repo_name, repo_full_name, health_score, build_status,
-        priority, builds_passed, builds_failed,
-        tasks_done, tasks_queued, last_commit_at, last_build_at, recorded_at
-      FROM portfolio_metrics
-      ORDER BY repo_name, recorded_at DESC
+      SELECT DISTINCT ON (pm.repo_name)
+        pm.repo_name, pm.repo_full_name, pm.health_score, pm.build_status,
+        pm.priority, pm.builds_passed, pm.builds_failed,
+        pm.tasks_done, pm.tasks_queued, pm.last_commit_at, pm.last_build_at, pm.recorded_at,
+        COALESCE(ss.score, 0) AS security_score
+      FROM portfolio_metrics pm
+      LEFT JOIN LATERAL (
+        SELECT score FROM security_scores
+        WHERE repo_name = pm.repo_name
+        ORDER BY recorded_date DESC LIMIT 1
+      ) ss ON true
+      ORDER BY pm.repo_name, pm.recorded_at DESC
     `);
 
     // Active agents

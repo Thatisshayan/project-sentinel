@@ -30,6 +30,7 @@ export interface RepoMetric {
   last_commit_at: string | null;
   last_build_at: string | null;
   recorded_at: string;
+  security_score: number;
 }
 
 export interface AgentRow {
