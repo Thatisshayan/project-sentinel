@@ -1,6 +1,7 @@
 const axios  = require('axios');
 const logger = require('./logger');
 const { getGithubOrg } = require('./repoResolver');
+const { validateSprintOutput } = require('./aiOutputValidator');
 const { query }                          = require('./dbClient');
 const { getAllLatestMetrics }            = require('./portfolioDb');
 const { getCapacityStatus, selectBuilder } = require('./capacityManager');
@@ -186,9 +187,7 @@ Respond with ONLY valid JSON:
     throw new Error(`Sprint proposal JSON parse failed: ${err.message}\nRaw: ${raw.slice(0, 200)}`);
   }
 
-  if (!Array.isArray(proposal.tasks) || proposal.tasks.length === 0) {
-    throw new Error('Sprint proposal returned no tasks');
-  }
+  validateSprintOutput(proposal);
 
   const avgHealth = metrics.length > 0
     ? metrics.reduce((s, m) => s + parseFloat(m.health_score || 5), 0) / metrics.length

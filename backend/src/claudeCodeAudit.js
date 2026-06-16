@@ -3,6 +3,7 @@ const axios      = require('axios');
 const simpleGit  = require('simple-git');
 const tmp        = require('tmp');
 const logger     = require('./logger');
+const { validateAuditOutput } = require('./aiOutputValidator');
 
 const AUDIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const AUDIT_MODEL = process.env.AUDIT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct';
@@ -158,9 +159,7 @@ function parseAuditOutput(stdout) {
     throw new Error(`Failed to parse audit JSON: ${err.message}`);
   }
 
-  if (!Array.isArray(parsed.tasks)) {
-    throw new Error('Audit result missing tasks array');
-  }
+  validateAuditOutput(parsed);
 
   parsed.tasks = parsed.tasks.slice(0, 10).map((t, i) => ({
     taskNumber:          t.taskNumber          || i + 1,

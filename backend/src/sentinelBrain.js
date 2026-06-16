@@ -1,6 +1,7 @@
 const axios  = require('axios');
 const logger = require('./logger');
 const { repoFullName }                   = require('./repoResolver');
+const { validateBrainOutput }            = require('./aiOutputValidator');
 const { getPortfolioSummary, REPO_LIST } = require('./portfolioAnalytics');
 const { getOpenPatterns, getDailyCost, getMonthlyCost, getAllLatestMetrics } = require('./portfolioDb');
 const { sendTelegramMessage } = require('./telegramClient');
@@ -182,9 +183,10 @@ async function runStrategicBrain(topicId) {
     let decision;
     try {
       decision = JSON.parse(raw.replace(/```json?|```/g, '').trim());
-    } catch {
-      logger.warn({ raw }, 'Brain returned non-JSON — skipping execution');
-      await sendTelegramMessage(`🧠 Brain error — AI returned invalid JSON. Check logs.`, null, topicId).catch(() => {});
+      validateBrainOutput(decision);
+    } catch (parseErr) {
+      logger.warn({ raw, err: parseErr.message }, 'Brain returned invalid output — skipping execution');
+      await sendTelegramMessage(`🧠 Brain error — ${parseErr.message}. Check logs.`, null, topicId).catch(() => {});
       return;
     }
 
