@@ -28,8 +28,15 @@ async function runSelfScaler() {
     const queuedSafe = parseInt(queueResult.rows[0]?.c || 0);
     const decisions  = [];
 
-    // Rule 1: Budget > 85% → cut batch size and daily limit
-    if (usagePct >= 85) {
+    // Rule 3 (checked first — most severe): Budget >= 95% → stop auto-execution entirely
+    if (usagePct >= 95) {
+      if (DAILY_LIMIT_OVERRIDE !== 0) {
+        DAILY_LIMIT_OVERRIDE = 0;
+        decisions.push(`Budget at ${usagePct}% (critical) → auto-execution paused until next month`);
+      }
+    }
+    // Rule 1: Budget >= 85% → cut batch size and daily limit
+    else if (usagePct >= 85) {
       const newBatch = Math.max(2, Math.floor(getEffectiveBatchSize() * 0.6));
       const newDaily = Math.max(3, Math.floor(getEffectiveDailyLimit() * 0.5));
       if (BATCH_SIZE_OVERRIDE !== newBatch || DAILY_LIMIT_OVERRIDE !== newDaily) {
@@ -46,13 +53,6 @@ async function runSelfScaler() {
         BATCH_SIZE_OVERRIDE  = newBatch;
         DAILY_LIMIT_OVERRIDE = newDaily;
         decisions.push(`Budget healthy (${usagePct}%), ${queuedSafe} tasks queued → batch size→${newBatch}, daily limit→${newDaily}`);
-      }
-    }
-    // Rule 3: Budget < 20% → stop auto-execution entirely
-    else if (usagePct >= 95) {
-      if (DAILY_LIMIT_OVERRIDE !== 0) {
-        DAILY_LIMIT_OVERRIDE = 0;
-        decisions.push(`Budget at ${usagePct}% (critical) → auto-execution paused until next month`);
       }
     }
     // Rule 4: Normal range → restore defaults

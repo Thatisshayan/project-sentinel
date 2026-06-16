@@ -19,9 +19,14 @@ function estimateCost(model, inputTokens, outputTokens) {
          (outputTokens / 1000 * rates.output);
 }
 
-// Rough estimate: 4 chars per token
-function estimateTokens(text) {
-  return Math.ceil((text || '').length / 4);
+// Rough estimate: 4 chars per token.
+// Callers pass either a raw string or a precomputed character count (number) —
+// support both so token estimates aren't silently zeroed out.
+function estimateTokens(textOrLength) {
+  const chars = typeof textOrLength === 'number'
+    ? textOrLength
+    : (textOrLength || '').length;
+  return Math.ceil((chars || 0) / 4);
 }
 
 async function trackAuditCost(repoFullName, promptLength, outputLength) {

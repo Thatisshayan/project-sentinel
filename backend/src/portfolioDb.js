@@ -148,6 +148,15 @@ async function getMonthlyCost() {
   return parseFloat(r.rows[0]?.total || '0');
 }
 
+async function getWeeklyCost() {
+  const r = await query(`
+    SELECT COALESCE(SUM(estimated_cost), 0) as total
+    FROM api_costs
+    WHERE recorded_at > NOW() - INTERVAL '7 days'
+  `);
+  return parseFloat(r.rows[0]?.total || '0');
+}
+
 async function getCostByRepo(days = 7) {
   const r = await query(`
     SELECT repo_full_name,
@@ -208,6 +217,7 @@ module.exports = {
   getAllLatestMetrics,
   logApiCost,
   getDailyCost,
+  getWeeklyCost,
   getMonthlyCost,
   getCostByRepo,
   upsertPattern,

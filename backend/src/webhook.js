@@ -29,7 +29,12 @@ function verifySignature(req, res, next) {
     return res.status(401).json({ error: 'Missing signature header' });
   }
 
-  const body     = JSON.stringify(req.body);
+  // Use the raw request bytes (captured by express.json's verify hook in
+  // index.js), not JSON.stringify(req.body) — re-serializing the parsed
+  // object does not reproduce GitHub's original byte stream (whitespace,
+  // key order, escaping can differ), which would cause valid webhooks to
+  // intermittently fail signature verification.
+  const body     = req.rawBody || Buffer.from(JSON.stringify(req.body));
   const expected = 'sha256=' + crypto
     .createHmac('sha256', process.env.GITHUB_WEBHOOK_SECRET)
     .update(body)

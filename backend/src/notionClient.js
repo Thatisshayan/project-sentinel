@@ -90,6 +90,9 @@ async function updateNotionProject(pageId, data) {
     commitMessage, commitSha, commitUrl,
     branchName, authorName, commitTimestamp,
     changedFilesText, filesChangedCount, riskLevel,
+    deploymentStatus, buildProvider, buildUrl,
+    currentProjectState, lastBuildError,
+    highRiskFlag, highRiskReason,
   } = data;
 
   const now = new Date().toISOString();
@@ -126,6 +129,31 @@ async function updateNotionProject(pageId, data) {
       select: { name: riskLevel },
     },
   };
+
+  // Optional fields — only sent when the caller actually provides them, so
+  // callers that don't track build/risk state (e.g. plain push events) don't
+  // clobber existing Notion values with blanks.
+  if (deploymentStatus !== undefined) {
+    allProperties['Deployment Status'] = { select: { name: deploymentStatus } };
+  }
+  if (buildProvider !== undefined) {
+    allProperties['Build Provider'] = { rich_text: [{ text: { content: String(buildProvider || '').substring(0, 100) } }] };
+  }
+  if (buildUrl !== undefined) {
+    allProperties['Build URL'] = { url: buildUrl || null };
+  }
+  if (currentProjectState !== undefined) {
+    allProperties['Current Project State'] = { select: { name: currentProjectState } };
+  }
+  if (lastBuildError !== undefined) {
+    allProperties['Last Build Error'] = { rich_text: [{ text: { content: String(lastBuildError || '').substring(0, 2000) } }] };
+  }
+  if (highRiskFlag !== undefined) {
+    allProperties['High Risk'] = { select: { name: highRiskFlag } };
+  }
+  if (highRiskReason !== undefined) {
+    allProperties['High Risk Reason'] = { rich_text: [{ text: { content: String(highRiskReason || '').substring(0, 2000) } }] };
+  }
 
   try {
     await getClient().pages.update({

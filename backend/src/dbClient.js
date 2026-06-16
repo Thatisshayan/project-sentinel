@@ -52,7 +52,7 @@ async function initSchema() {
       id               SERIAL PRIMARY KEY,
       repo_full_name   TEXT NOT NULL,
       commit_sha       TEXT NOT NULL,
-      attempt_number   INTEGER NOT NULL DEFAULT 1,
+      attempt_number   INTEGER NOT NULL DEFAULT 0,
       max_attempts     INTEGER NOT NULL DEFAULT 5,
       status           TEXT NOT NULL DEFAULT 'in_progress',
       debugger_used    TEXT,
@@ -108,7 +108,7 @@ async function createDebugAttempt(data) {
   const r = await query(`
     INSERT INTO debug_attempts
       (repo_full_name, commit_sha, attempt_number, build_provider, build_url, failure_reason)
-    VALUES ($1, $2, 1, $3, $4, $5)
+    VALUES ($1, $2, 0, $3, $4, $5)
     ON CONFLICT (repo_full_name, commit_sha) DO NOTHING
     RETURNING *
   `, [data.repoFullName, data.commitSha, data.buildProvider, data.buildUrl, data.failureReason]);

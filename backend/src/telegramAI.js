@@ -376,27 +376,27 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
 }
 
 async function executeAction(action, topicId) {
-  const resolved     = action.repo ? resolveRepoName(action.repo) : null;
-  const repoName     = resolved?.repoName     || action.repo || null;
-  const repoFullName = resolved?.repoFullName || (action.repo ? repoFullName(action.repo) : null);
+  const resolved        = action.repo ? resolveRepoName(action.repo) : null;
+  const repoName        = resolved?.repoName     || action.repo || null;
+  const repoFullNameVal = resolved?.repoFullName || (action.repo ? repoFullName(action.repo) : null);
 
   switch (action.action) {
     case 'execute_tasks':
-      if (!repoFullName) break;
+      if (!repoFullNameVal) break;
       await sendTelegramMessage(
         `Starting task execution for ${repoName}...`, null, topicId
       ).catch(() => {});
-      executeApprovedTasks(repoFullName, repoName, topicId)
+      executeApprovedTasks(repoFullNameVal, repoName, topicId)
         .catch(err => logger.error({ err: err.message }, 'AI execute failed'));
       break;
 
     case 'trigger_audit':
-      if (!repoFullName) break;
+      if (!repoFullNameVal) break;
       await sendTelegramMessage(
         `Triggering audit for ${repoName}...`, null, topicId
       ).catch(() => {});
       triggerAudit({
-        repoFullName, repoName,
+        repoFullName: repoFullNameVal, repoName,
         projectName: repoName, commitSha: `manual-${Date.now()}`,
         commitMessage: '[manual-audit]', branchName: 'main',
         authorName: 'Human', authorEmail: '', topicId,
@@ -404,8 +404,8 @@ async function executeAction(action, topicId) {
       break;
 
     case 'stop_repo':
-      if (!repoFullName) break;
-      await stopAllTasksForRepo(repoFullName);
+      if (!repoFullNameVal) break;
+      await stopAllTasksForRepo(repoFullNameVal);
       await sendTelegramMessage(
         `All tasks and audits stopped for ${repoName}.`, null, topicId
       ).catch(() => {});
@@ -461,7 +461,7 @@ async function executeAction(action, topicId) {
     }
 
     case 'assign_repo': {
-      if (!repoFullName || !action.agent) break;
+      if (!repoFullNameVal || !action.agent) break;
       const project = await findNotionProject(repoName).catch(() => null);
       if (!project) {
         await sendTelegramMessage(

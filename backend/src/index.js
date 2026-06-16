@@ -157,7 +157,15 @@ const express = require('express');
 const app     = express();
 const { handleCommand, handleCallbackQuery } = require('./telegramCommands');
 
-app.use(express.json({ limit: '5mb' }));
+// Capture the raw request body bytes alongside the parsed JSON so webhook
+// signature verification (e.g. GitHub's x-hub-signature-256) can HMAC the
+// exact bytes that were sent instead of a re-serialized JS object, which
+// would not reliably reproduce GitHub's signature (different whitespace/key
+// order/escaping) and would cause valid webhooks to fail verification.
+app.use(express.json({
+  limit: '5mb',
+  verify: (req, res, buf) => { req.rawBody = buf; },
+}));
 app.set('trust proxy', 1);
 
 app.use('/webhook', require('./webhook'));
