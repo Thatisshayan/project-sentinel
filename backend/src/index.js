@@ -148,6 +148,11 @@ if (missingPhase2.length > 0) {
   logger.warn({ missing: missingPhase2 }, 'Phase 2 environment variables not set — Phase 2 features disabled');
 }
 
+if (process.env.NODE_ENV === 'production' && !process.env.SENTINEL_UI_KEY?.trim()) {
+  logger.fatal('SENTINEL STARTUP FAILED — SENTINEL_UI_KEY must be set in production to protect the UI API');
+  process.exit(1);
+}
+
 const express = require('express');
 const app     = express();
 const { handleCommand, handleCallbackQuery } = require('./telegramCommands');

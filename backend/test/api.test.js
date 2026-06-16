@@ -68,3 +68,50 @@ describe('GET /api/portfolio', () => {
     expect(res.body.healthDelta).toBeNull();
   });
 });
+
+describe('API auth middleware', () => {
+  const protectedApp = express();
+  protectedApp.use(express.json());
+  protectedApp.use('/api', apiRouter);
+
+  afterEach(() => {
+    delete process.env.SENTINEL_UI_KEY;
+  });
+
+  it('returns 401 when SENTINEL_UI_KEY is set and header is missing', async () => {
+    process.env.SENTINEL_UI_KEY = 'secret-key';
+    const res = await request(protectedApp).get('/api/portfolio');
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('error', 'Unauthorized');
+  });
+
+  it('returns 401 when SENTINEL_UI_KEY is set and header is wrong', async () => {
+    process.env.SENTINEL_UI_KEY = 'secret-key';
+    const res = await request(protectedApp).get('/api/portfolio').set('x-sentinel-key', 'wrong');
+    expect(res.status).toBe(401);
+  });
+
+  it('passes through when correct x-sentinel-key is provided', async () => {
+    process.env.SENTINEL_UI_KEY = 'secret-key';
+    query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ monthly_cost: '0' }] })
+      .mockResolvedValueOnce({ rows: [{ queued: '0' }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const res = await request(protectedApp).get('/api/portfolio').set('x-sentinel-key', 'secret-key');
+    expect(res.status).toBe(200);
+  });
+
+  it('passes through when SENTINEL_UI_KEY is not set (open mode)', async () => {
+    process.env.SENTINEL_UI_KEY = '';
+    query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ monthly_cost: '0' }] })
+      .mockResolvedValueOnce({ rows: [{ queued: '0' }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const res = await request(protectedApp).get('/api/portfolio');
+    expect(res.status).toBe(200);
+  });
+});
