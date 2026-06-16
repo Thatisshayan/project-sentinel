@@ -50,17 +50,26 @@ function SidebarAction({
   );
 }
 
-const NAV = [
-  { href: "/",           label: "Overview",   icon: LayoutGrid, badge: null,   badgeVariant: ""        },
-  { href: "/repos",      label: "Repos",      icon: FolderOpen, badge: null,   badgeVariant: ""        },
-  { href: "/agents",     label: "Agents",     icon: Cpu,        badge: null,   badgeVariant: ""        },
-  null,
-  { href: "/security",   label: "Security",   icon: Shield,     badge: null,   badgeVariant: ""        },
-  { href: "/sprint",     label: "Sprints",    icon: ListTodo,   badge: null,   badgeVariant: ""        },
-  { href: "/agent-room", label: "Agent Room", icon: Terminal,   badge: "LIVE", badgeVariant: "live"    },
-  { href: "/connectors", label: "Connectors", icon: Plug,       badge: null,   badgeVariant: ""        },
-  { href: "/settings",   label: "Settings",   icon: Settings,   badge: null,   badgeVariant: ""        },
-];
+interface SidebarStats {
+  repoCount: number;
+  workingCount: number;
+  agentCount: number;
+  securityIssueCount: number;
+}
+
+function buildNav(stats: SidebarStats | null) {
+  return [
+    { href: "/",           label: "Overview",   icon: LayoutGrid, badge: null,                                            badgeVariant: ""    },
+    { href: "/repos",      label: "Repos",      icon: FolderOpen, badge: stats ? String(stats.repoCount) : null,          badgeVariant: "ind" },
+    { href: "/agents",     label: "Agents",     icon: Cpu,        badge: stats ? `${stats.workingCount}/${stats.agentCount}` : null, badgeVariant: "ind" },
+    null,
+    { href: "/security",   label: "Security",   icon: Shield,     badge: stats && stats.securityIssueCount > 0 ? String(stats.securityIssueCount) : null, badgeVariant: "red" },
+    { href: "/sprint",     label: "Sprints",    icon: ListTodo,   badge: null,   badgeVariant: ""        },
+    { href: "/agent-room", label: "Agent Room", icon: Terminal,   badge: "LIVE", badgeVariant: "live"    },
+    { href: "/connectors", label: "Connectors", icon: Plug,       badge: null,   badgeVariant: ""        },
+    { href: "/settings",   label: "Settings",   icon: Settings,   badge: null,   badgeVariant: ""        },
+  ];
+}
 
 const BADGE_STYLES: Record<string, string> = {
   ind:  "text-[#6366F1] bg-[#6366F1]/10",
@@ -71,6 +80,7 @@ const BADGE_STYLES: Record<string, string> = {
 export function Sidebar() {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(true);
+  const [stats, setStats] = useState<SidebarStats | null>(null);
 
   // Persist sidebar state
   useEffect(() => {
@@ -83,6 +93,21 @@ export function Sidebar() {
       return !v;
     });
   };
+
+  // Live badge counts — repo count, active/total agents, open security issues
+  useEffect(() => {
+    const load = () => {
+      fetch("/api/stats")
+        .then(r => r.ok ? r.json() : null)
+        .then((d: (SidebarStats & { error?: string }) | null) => { if (d && !d.error) setStats(d); })
+        .catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  const NAV = buildNav(stats);
 
   return (
     <motion.nav

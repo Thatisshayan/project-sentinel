@@ -116,6 +116,9 @@ NATURAL LANGUAGE TRIGGERS:
 - "run the tasks for <repo>"         → action: execute_tasks
 - "execute <repo>"                   → action: execute_tasks
 - "go on <repo>"                     → action: execute_tasks
+- "<agent> work on <repo>"           → action: execute_tasks
+- "start the task for <repo>"        → action: execute_tasks
+- "<agent> start <repo>"             → action: execute_tasks
 - "audit <repo>"                     → action: trigger_audit
 - "good morning" / "morning"         → action: send_report
 - "what needs attention?"            → action: send_report

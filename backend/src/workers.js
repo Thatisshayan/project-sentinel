@@ -348,6 +348,13 @@ function startDailyReportWorker() {
     jobId:  'stale-tasks-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule stale tasks cron'));
 
+  // Daily 5am Toronto — re-probe AI provider API keys (Item 1: catch keys that
+  // go bad mid-day, not just at deploy/startup) and mark agents 'error' if so.
+  queue.add('provider-health', {}, {
+    repeat: { pattern: '0 5 * * *', tz: SENTINEL_TZ },
+    jobId:  'provider-health-cron',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule provider health cron'));
+
   // Daily 6:55am Toronto — record yesterday's brain outcome before today's decision
   queue.add('brain-outcome', {}, {
     repeat: { pattern: '55 6 * * *', tz: SENTINEL_TZ },
@@ -451,6 +458,11 @@ function startDailyReportWorker() {
         `Run: /sentinel force-execute <repo> to execute, or /sentinel skip <repo> to clear.`,
         null, null
       ).catch(() => {});
+      return;
+    }
+    if (job.name === 'provider-health') {
+      const { probeAIProviders } = require('./providerHealthCheck');
+      await probeAIProviders().catch(e => logger.warn({ err: e.message }, 'Daily provider health probe failed'));
       return;
     }
     if (job.name === 'brain-outcome') {

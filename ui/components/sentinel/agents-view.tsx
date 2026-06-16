@@ -13,6 +13,7 @@ interface Agent {
 const STATUS_COLOR: Record<string, string> = {
   working: "text-s-green", idle: "text-s-muted",
   failed: "text-s-red",    paused: "text-s-amber",
+  error:  "text-s-red",    unconfigured: "text-s-amber",
 };
 
 function AgentCard({ agent, index }: { agent: Agent; index: number }) {
@@ -38,7 +39,9 @@ function AgentCard({ agent, index }: { agent: Agent; index: number }) {
     >
       {/* Status glow line */}
       <div className="absolute top-0 left-0 right-0 h-[2px]" style={{
-        background: agent.status === "working" ? agent.color : "transparent",
+        background: agent.status === "working" ? agent.color
+          : agent.status === "error" ? "#EF4444"
+          : "transparent",
         opacity: 0.7,
       }} />
 
