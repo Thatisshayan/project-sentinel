@@ -3,32 +3,50 @@ const logger = require('./logger');
 
 async function createPullRequest({ repoFullName, fixBranch, baseBranch, context }) {
   const { projectName, repoName, commitSha, attemptNumber,
-          buildProvider, failureReason } = context;
+          buildProvider, failureReason, kind } = context;
 
   const shortSha = (commitSha || '').substring(0, 7);
+  const isTask   = kind === 'task';
 
-  const title = `fix(sentinel): repair ${buildProvider} build failure — attempt ${attemptNumber}`;
+  const title = isTask
+    ? `feat(sentinel): ${failureReason || 'automated improvement batch'}`
+    : `fix(sentinel): repair ${buildProvider} build failure — attempt ${attemptNumber}`;
 
-  const body = [
-    `## Project Sentinel — Automated Fix`,
-    ``,
-    `**Project:** ${projectName || repoName}`,
-    `**Repo:** ${repoName}`,
-    `**Attempt:** ${attemptNumber}/5`,
-    `**Original failing commit:** ${shortSha}`,
-    `**Build provider:** ${buildProvider}`,
-    ``,
-    `### Failure summary`,
-    failureReason || 'See build logs',
-    ``,
-    `### What Aider changed`,
-    `_See commit diff above_`,
-    ``,
-    `---`,
-    `_Opened automatically by Project Sentinel._`,
-    `_Review the diff carefully before merging._`,
-    `_Merging will re-trigger the build check._`,
-  ].join('\n');
+  const body = isTask
+    ? [
+        `## Project Sentinel — Automated Improvement`,
+        ``,
+        `**Project:** ${projectName || repoName}`,
+        `**Repo:** ${repoName}`,
+        `**Commit:** ${shortSha}`,
+        ``,
+        `### What this batch does`,
+        failureReason || 'See commit diff',
+        ``,
+        `---`,
+        `_Opened automatically by Project Sentinel._`,
+        `_Review the diff carefully before merging._`,
+      ].join('\n')
+    : [
+        `## Project Sentinel — Automated Fix`,
+        ``,
+        `**Project:** ${projectName || repoName}`,
+        `**Repo:** ${repoName}`,
+        `**Attempt:** ${attemptNumber}/5`,
+        `**Original failing commit:** ${shortSha}`,
+        `**Build provider:** ${buildProvider}`,
+        ``,
+        `### Failure summary`,
+        failureReason || 'See build logs',
+        ``,
+        `### What Aider changed`,
+        `_See commit diff above_`,
+        ``,
+        `---`,
+        `_Opened automatically by Project Sentinel._`,
+        `_Review the diff carefully before merging._`,
+        `_Merging will re-trigger the build check._`,
+      ].join('\n');
 
   const headers = {
     Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,

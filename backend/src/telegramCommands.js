@@ -292,7 +292,10 @@ async function handleCallbackQuery(callbackQuery) {
         approveSprint(threadId).catch(() => {});
       } else if (approveAction === 'skip-sprint') {
         try { const { cancelAutoApprove } = require('./autoApprover'); await cancelAutoApprove(); } catch {}
-        await sendTelegramMessage('Sprint skipped.', null, threadId);
+        const { getCurrentSprint, updateSprint } = require('./sprintDb');
+        const sprint = await getCurrentSprint().catch(() => null);
+        if (sprint) await updateSprint(sprint.id, { status: 'skipped' });
+        await sendTelegramMessage('Sprint skipped. Next proposal Sunday 8pm.', null, threadId);
       } else if (approveAction === 'self') {
         executeApprovedTasks(repoFullName('project-sentinel'), 'project-sentinel', threadId).catch(() => {});
       }

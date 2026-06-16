@@ -113,6 +113,7 @@ async function executeNextSprintTask(sprintId, topicId) {
         attemptNumber: task.execution_order,
         buildProvider: 'sprint',
         failureReason: task.task_title,
+        kind: 'task',
       },
     });
 

@@ -384,6 +384,7 @@ async function processNextBatch(repoFullName, repoName, topicId) {
         attemptNumber: batchNum,
         buildProvider: 'sentinel-tasks',
         failureReason: `Sentinel improvement batch ${batchNum} — tasks ${completedNums}`,
+        kind: 'task',
       },
     });
 

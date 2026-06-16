@@ -2,28 +2,95 @@ const { spawn }  = require('child_process');
 const axios      = require('axios');
 const simpleGit  = require('simple-git');
 const tmp        = require('tmp');
+const fs         = require('fs');
+const path       = require('path');
 const logger     = require('./logger');
 const { validateAuditOutput } = require('./aiOutputValidator');
 
 const AUDIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const AUDIT_MODEL = process.env.AUDIT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct';
 
-function buildAuditPrompt(payload) {
+const CONTEXT_FILE_BUDGET  = 30;
+const CONTEXT_CHAR_BUDGET  = 20000;
+const SOURCE_DIRS          = ['src', 'lib', 'routes', 'services', 'models', 'controllers', 'app'];
+const SKIP_DIRS            = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next']);
+
+// Builds a lightweight text snapshot of the repo (package.json, README, key
+// source files) for AI providers that have no file-read tool of their own —
+// e.g. the NVIDIA NIM chat-completions path, which only sees this prompt.
+function buildRepoContext(repoPath) {
+  const sections = [];
+  let charsUsed  = 0;
+
+  function addSection(label, content) {
+    if (!content || charsUsed >= CONTEXT_CHAR_BUDGET) return;
+    const trimmed = content.slice(0, 2000);
+    sections.push(`--- ${label} ---\n${trimmed}`);
+    charsUsed += trimmed.length;
+  }
+
+  function readSafe(relPath) {
+    try { return fs.readFileSync(path.join(repoPath, relPath), 'utf8'); }
+    catch { return null; }
+  }
+
+  addSection('package.json', readSafe('package.json'));
+  addSection('README.md',    readSafe('README.md') || readSafe('readme.md'));
+
+  const entryFile = ['index.js', 'app.js', 'server.js']
+    .find(f => fs.existsSync(path.join(repoPath, f)));
+  if (entryFile) addSection(entryFile, readSafe(entryFile));
+
+  const files = [];
+  function walk(dir) {
+    if (files.length >= CONTEXT_FILE_BUDGET) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch { return; }
+    for (const entry of entries) {
+      if (files.length >= CONTEXT_FILE_BUDGET) return;
+      if (SKIP_DIRS.has(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (/\.(js|ts|jsx|tsx)$/.test(entry.name)) {
+        files.push(full);
+      }
+    }
+  }
+  for (const dir of SOURCE_DIRS) walk(path.join(repoPath, dir));
+
+  for (const file of files) {
+    if (charsUsed >= CONTEXT_CHAR_BUDGET) break;
+    addSection(path.relative(repoPath, file), readSafe(path.relative(repoPath, file)));
+  }
+
+  return sections.join('\n\n');
+}
+
+function buildAuditPrompt(payload, repoContext) {
   const { repoFullName, repoName, projectName, commitSha } = payload;
+
+  const taskInstructions = repoContext
+    ? `YOUR TASK:
+1. Below is a snapshot of this repository's package.json, README, and key
+   source files. Use it to understand what the project does and its health.
+2. Generate exactly 10 improvement tasks ranked by priority.`
+    : `YOUR TASK:
+1. Use your Read tool to explore this repository. Start with package.json,
+   README.md, and the main entry file (index.js, app.js, or server.js).
+2. Read the most important source files — routes, services, models,
+   auth, middleware, database, config files.
+3. Understand what this project does and its current health.
+4. Generate exactly 10 improvement tasks ranked by priority.`;
 
   return `You are a senior software engineer conducting a full codebase audit for Project Sentinel.
 
 REPO: ${repoFullName}
 PROJECT: ${projectName || repoName}
 COMMIT: ${commitSha}
-
-YOUR TASK:
-1. Use your Read tool to explore this repository. Start with package.json,
-   README.md, and the main entry file (index.js, app.js, or server.js).
-2. Read the most important source files — routes, services, models,
-   auth, middleware, database, config files.
-3. Understand what this project does and its current health.
-4. Generate exactly 10 improvement tasks ranked by priority.
+${repoContext ? `\nREPOSITORY SNAPSHOT:\n${repoContext}\n` : ''}
+${taskInstructions}
 
 CRITICAL OUTPUT RULE:
 Your ENTIRE response must be valid JSON only.
@@ -116,8 +183,10 @@ async function runClaudeCodeAudit(repoPath, payload) {
 
 // NVIDIA NIM fallback — used when ANTHROPIC_API_KEY is absent but NVIDIA_API_KEY is set.
 // Sends the same audit prompt directly to the NVIDIA NIM chat completions endpoint.
-async function runNvidiaAudit(payload) {
-  const prompt = buildAuditPrompt(payload);
+// Unlike the Claude Code CLI path, this model has no Read tool, so repoContext
+// (built from a real clone of the repo) is embedded directly in the prompt.
+async function runNvidiaAudit(payload, repoContext) {
+  const prompt = buildAuditPrompt(payload, repoContext);
 
   logger.info({ repo: payload.repoFullName, model: AUDIT_MODEL }, 'NVIDIA NIM audit starting');
 
@@ -180,11 +249,6 @@ function parseAuditOutput(stdout) {
 async function runAudit(payload) {
   const { repoFullName } = payload;
 
-  // NVIDIA NIM is the primary audit path — no ANTHROPIC_API_KEY required.
-  if (process.env.NVIDIA_API_KEY) {
-    return runNvidiaAudit(payload);
-  }
-
   const tmpDir = tmp.dirSync({ unsafeCleanup: true, prefix: 'sentinel-audit-' });
 
   try {
@@ -195,6 +259,19 @@ async function runAudit(payload) {
       '--depth', '1',
       '--branch', payload.branchName || 'main',
     ]);
+
+    // NVIDIA NIM is the primary audit path — no ANTHROPIC_API_KEY required.
+    // It has no Read tool, so it gets a text snapshot of the cloned repo instead.
+    if (process.env.NVIDIA_API_KEY) {
+      const auditResult = await runNvidiaAudit(payload, buildRepoContext(tmpDir.name));
+      logger.info({
+        repoFullName,
+        tasks: auditResult.tasks.length,
+        score: auditResult.overallHealthScore,
+        safe:  auditResult.tasks.filter(t => t.safeToAutoExecute).length,
+      }, 'Audit complete');
+      return auditResult;
+    }
 
     const result = await runClaudeCodeAudit(tmpDir.name, payload);
 

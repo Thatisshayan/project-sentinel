@@ -89,6 +89,7 @@ async function executeTaskParallel(task, context) {
           attemptNumber: 1,
           buildProvider: 'parallel',
           failureReason: task.title || task.task_title,
+          kind: 'task',
         },
       });
 
