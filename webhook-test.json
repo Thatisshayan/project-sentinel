@@ -2,16 +2,16 @@
   "ref": "refs/heads/main",
   "repository": {
     "name": "tapcash",
-    "full_name": "Thatisshayan/tapcash",
-    "html_url": "https://github.com/Thatisshayan/tapcash"
+    "full_name": "your-org/tapcash",
+    "html_url": "https://github.com/your-org/tapcash"
   },
   "head_commit": {
     "id": "deadbeef1234567890deadbeef1234567890dead",
     "message": "test: verify phase 1",
-    "url": "https://github.com/Thatisshayan/tapcash/commit/deadbeef1234567890deadbeef1234567890dead",
+    "url": "https://github.com/your-org/tapcash/commit/deadbeef1234567890deadbeef1234567890dead",
     "author": {
-      "name": "Shayan",
-      "email": "shayan@test.com"
+      "name": "Test User",
+      "email": "test@example.com"
     },
     "timestamp": "2026-06-10T09:00:00Z",
     "added": ["src/utils.js"],
@@ -19,7 +19,7 @@
     "removed": []
   },
   "pusher": {
-    "name": "Shayan"
+    "name": "Test User"
   },
   "commits": []
 }

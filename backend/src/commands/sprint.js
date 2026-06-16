@@ -52,7 +52,7 @@ async function handleSprintCmd(subcommand, parts, chatId, topicId) {
       }
       if (sprint.status === 'proposed') {
         await sendTelegramMessage(
-          `Sprint is pending approval. Use /sentinel approve-sprint to start, or /sentinel run-sprint to force.`,
+          `Sprint is pending approval. Use /sentinel approve-sprint to approve and start it.`,
           null, topicId
         );
         return true;

@@ -238,7 +238,8 @@ async function handleRepoOpsCmd(subcommand, parts, chatId, topicId) {
       return handleExecute(parts[2], topicId);
     case 'skip':
       if (parts[2]) return handleSkipAudit(parts[2], topicId);
-      return false;
+      await sendTelegramMessage('Usage: /sentinel skip <repo-name>', null, topicId);
+      return true;
     case 'audit':
       return handleManualAudit(parts[2], topicId);
     case 'tasks':

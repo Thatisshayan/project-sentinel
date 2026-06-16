@@ -18,7 +18,7 @@ Add these:
 
 ## Step 2: Connect GitHub Repo
 In the **sentinel-backend** service → **Settings** → **Connect repo**.
-Select: `Thatisshayan/project-sentinel`
+Select: `<your-github-username>/project-sentinel`
 Root directory: `backend/`
 
 ## Step 3: Deploy
