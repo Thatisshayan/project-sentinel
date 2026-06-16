@@ -34,7 +34,7 @@ export default async function ReposPage() {
     repos = portfolio.repos.map(r => ({
       name:     r.repo_name,
       health:   Math.min(100, Math.round(parseFloat(String(r.health_score ?? 0)) * 10)),
-      security: 0,
+      security: Math.round(parseFloat(String(r.security_score ?? 0))),
       agent:    portfolio.agents.find(a =>
         a.repo_full_name?.endsWith(`/${r.repo_name}`) && a.status === "working"
       )?.agent_label ?? null,

@@ -12,14 +12,16 @@ import { cn } from "@/lib/utils";
 import { callAction } from "@/lib/actions";
 
 function SidebarAction({
-  label, icon: Icon, color, action, expanded,
+  label, icon: Icon, color, action, body, expanded,
 }: {
-  label: string; icon: ElementType; color: string; action: string; expanded: boolean;
+  label: string; icon: ElementType; color: string; action: string; body?: object; expanded: boolean;
 }) {
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
   const run = async () => {
     setLoading(true);
-    try { await callAction(action); } catch {}
+    setFailed(false);
+    try { await callAction(action, body); } catch { setFailed(true); }
     setLoading(false);
   };
   return (
@@ -27,9 +29,10 @@ function SidebarAction({
       onClick={run}
       disabled={loading}
       aria-label={label}
+      title={failed ? `${label} failed — backend route not available` : label}
       className={cn(
         "flex items-center gap-2.5 w-full px-2 py-[6px] rounded text-[11px] font-medium transition-colors duration-100 hover:bg-white/5 disabled:opacity-50",
-        color
+        failed ? "text-s-red" : color
       )}
     >
       <Icon size={13} className="flex-shrink-0 opacity-50" />
@@ -42,7 +45,7 @@ function SidebarAction({
             transition={{ duration: 0.1 }}
             className="whitespace-nowrap"
           >
-            {loading ? "Working…" : label}
+            {loading ? "Working…" : failed ? "Failed — retry" : label}
           </motion.span>
         )}
       </AnimatePresence>
@@ -210,10 +213,13 @@ export function Sidebar() {
       {/* Footer */}
       <div className="flex-shrink-0 p-1.5 border-t border-[#222222] space-y-1 overflow-hidden">
         {([
-          { label: "Pause All Agents", icon: PauseCircle, color: "text-[#888888]", action: "/api/system/pause" },
-          { label: "Self-Audit",        icon: ShieldCheck,  color: "text-[#C8961C]", action: "/api/self-audit/trigger" },
-        ] as const).map(({ label, icon: Icon, color, action }) => (
-          <SidebarAction key={label} label={label} icon={Icon} color={color} action={action} expanded={expanded} />
+          { label: "Pause All Agents", icon: PauseCircle, color: "text-[#888888]", action: "/api/system/pause", body: undefined },
+          // No dedicated REST route for self-audit — route through the same
+          // /api/command bridge the dashboard chat uses, which dispatches to
+          // the real /sentinel self-audit handler in commands/agents.js.
+          { label: "Self-Audit",        icon: ShieldCheck,  color: "text-[#C8961C]", action: "/api/command", body: { text: "/sentinel self-audit", fromName: "Dashboard" } },
+        ] as const).map(({ label, icon: Icon, color, action, body }) => (
+          <SidebarAction key={label} label={label} icon={Icon} color={color} action={action} body={body} expanded={expanded} />
         ))}
       </div>
     </motion.nav>

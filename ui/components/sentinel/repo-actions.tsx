@@ -6,18 +6,23 @@ import { callAction } from "@/lib/actions";
 export function RepoActions() {
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const run = async (label: string, path: string) => {
     setLoading(label);
+    setError(null);
     try {
       await callAction(path);
       router.refresh();
-    } catch {}
+    } catch {
+      setError(`${label === "audit" ? "Audit All" : "Security scan"} failed — backend route not available.`);
+    }
     setLoading(null);
   };
 
   return (
-    <div className="flex gap-2">
+    <div className="flex items-center gap-2">
+      {error && <span className="text-[10px] text-s-red">{error}</span>}
       <button
         disabled={!!loading}
         onClick={() => run("audit", "/api/system/audit-all")}

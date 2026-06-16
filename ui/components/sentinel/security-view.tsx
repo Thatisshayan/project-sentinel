@@ -39,19 +39,30 @@ export function SecurityView({ scores, issues, summary }: Props) {
   const router = useRouter();
   const [scanning, setScanning] = useState(false);
   const [patching, setPatching] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const runScan = async () => {
     setScanning(true);
-    try { await callAction("/api/system/security-scan"); } catch {}
+    setError(null);
+    try {
+      await callAction("/api/system/security-scan");
+      router.refresh();
+    } catch {
+      setError("Security scan failed — backend route not available.");
+    }
     setScanning(false);
-    router.refresh();
   };
 
   const patch = async (id: number) => {
     setPatching(id);
-    try { await callAction(`/api/security/issue/${id}/patch`); } catch {}
+    setError(null);
+    try {
+      await callAction(`/api/security/issue/${id}/patch`);
+      router.refresh();
+    } catch {
+      setError("Patch failed — backend route not available.");
+    }
     setPatching(null);
-    router.refresh();
   };
 
   return (
@@ -71,6 +82,10 @@ export function SecurityView({ scores, issues, summary }: Props) {
           </div>
         ))}
       </div>
+
+      {error && (
+        <div className="text-[10px] text-s-red px-1">{error}</div>
+      )}
 
       {/* Repo grid */}
       <div className="border border-s-border rounded-lg overflow-hidden">
