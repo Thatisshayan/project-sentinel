@@ -160,6 +160,15 @@ export const getCosts = () =>
 export const getRepoDetail = (name: string) =>
   api<RepoMetric & { tasks: AuditTask[]; lastCycle: object | null }>(`/repo/${name}`);
 
+export interface ConnectorStatus {
+  name: string;
+  status: 'connected' | 'error' | 'unconfigured';
+  detail: string | null;
+}
+
+export const getIntegrationsStatus = () =>
+  api<{ connectors: ConnectorStatus[] }>('/integrations/status');
+
 // ── Actions ───────────────────────────────────────────────────────────────────
 
 export const approveSprint = (sprintId: number) =>

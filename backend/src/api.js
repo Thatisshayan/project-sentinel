@@ -360,4 +360,15 @@ router.get('/costs', async (req, res) => {
   }
 });
 
+router.get('/integrations/status', async (req, res) => {
+  try {
+    const { getIntegrationsStatus } = require('./integrationsStatus');
+    const status = await getIntegrationsStatus();
+    res.json(status);
+  } catch (err) {
+    logger.error({ err: err.message }, 'GET /integrations/status error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

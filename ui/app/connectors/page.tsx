@@ -1,11 +1,12 @@
 import { cn } from "@/lib/utils";
+import { getIntegrationsStatus, type ConnectorStatus } from "@/lib/api";
 
-const REAL_CONNECTORS = [
-  { name: "GitHub",   color: "#e6edf3", category: "Dev",    how: "Webhook on push/PR events",          status: "connected" },
-  { name: "Telegram", color: "#26A5E4", category: "Comms",  how: "Bot webhook — commands & alerts",     status: "connected" },
-  { name: "Notion",   color: "#ffffff", category: "PM",     how: "API — project status & task sync",    status: "connected" },
-  { name: "Railway",  color: "#B835F4", category: "Deploy", how: "GraphQL API — deployment status",     status: "connected" },
-];
+const CONNECTOR_META: Record<string, { color: string; category: string; how: string }> = {
+  GitHub:   { color: "#e6edf3", category: "Dev",    how: "Webhook on push/PR events" },
+  Telegram: { color: "#26A5E4", category: "Comms",  how: "Bot webhook — commands & alerts" },
+  Notion:   { color: "#ffffff", category: "PM",     how: "API — project status & task sync" },
+  Railway:  { color: "#B835F4", category: "Deploy", how: "GraphQL API — deployment status" },
+};
 
 const AVAILABLE_CONNECTORS = [
   { name: "Vercel",    color: "#ffffff", category: "Deploy",  status: "available" },
@@ -22,12 +23,22 @@ const AVAILABLE_CONNECTORS = [
   { name: "Resend",    color: "#ffffff", category: "Email",   status: "available" },
 ];
 
-export default function ConnectorsPage() {
+export default async function ConnectorsPage() {
+  let liveConnectors: ConnectorStatus[] = [];
+  try {
+    const result = await getIntegrationsStatus();
+    liveConnectors = result.connectors;
+  } catch {
+    // API unavailable — fall back to empty state
+  }
+
+  const connected = liveConnectors.filter(c => c.status === 'connected').length;
+
   return (
     <div className="p-5 space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex gap-4 text-xs text-s-muted">
-          <span><span className="text-s-green font-semibold">{REAL_CONNECTORS.length}</span> connected</span>
+          <span><span className="text-s-green font-semibold">{connected}</span> connected</span>
           <span><span className="text-s-dim font-semibold">{AVAILABLE_CONNECTORS.length}</span> available</span>
         </div>
       </div>
@@ -36,9 +47,21 @@ export default function ConnectorsPage() {
         <div className="text-[9px] font-bold uppercase tracking-widest text-s-dim mb-3">Connected</div>
         <div className="grid gap-0 border border-s-border rounded-lg overflow-hidden"
           style={{ gridTemplateColumns: "repeat(4,1fr)" }}>
-          {REAL_CONNECTORS.map((c, i) => (
-            <ConnCard key={c.name} c={c} colIdx={i % 4} rowIdx={Math.floor(i / 4)} totalRows={Math.ceil(REAL_CONNECTORS.length / 4)} />
-          ))}
+          {liveConnectors.map((c, i) => {
+            const meta = CONNECTOR_META[c.name] ?? { color: "#888", category: "Other", how: "" };
+            return (
+              <ConnCard
+                key={c.name}
+                c={{ ...c, color: meta.color, category: meta.category, how: meta.how }}
+                colIdx={i % 4}
+                rowIdx={Math.floor(i / 4)}
+                totalRows={Math.ceil(liveConnectors.length / 4)}
+              />
+            );
+          })}
+          {liveConnectors.length === 0 && (
+            <div className="col-span-4 p-4 text-xs text-s-dim">Could not reach API — check backend connection.</div>
+          )}
         </div>
       </section>
 
@@ -56,12 +79,18 @@ export default function ConnectorsPage() {
 }
 
 function ConnCard({ c, colIdx, rowIdx, totalRows }: {
-  c: { name: string; color: string; category: string; status: string; how?: string };
+  c: { name: string; color: string; category: string; status: string; how?: string; detail?: string | null };
   colIdx: number; rowIdx: number; totalRows: number;
 }) {
   const isLastRow = rowIdx === totalRows - 1;
   const isLastCol = colIdx === 3;
   const connected = c.status === "connected";
+  const isError   = c.status === "error";
+
+  const dotColor = connected ? "#22C55E" : isError ? "#EF4444" : "#444";
+  const labelColor = connected ? "text-s-green" : isError ? "text-red-400" : "text-s-dim";
+  const label = connected ? "Connected" : isError ? "Error" : "Not configured";
+
   return (
     <div className={cn(
       "p-3 hover:bg-white/[0.025] transition-colors",
@@ -82,15 +111,15 @@ function ConnCard({ c, colIdx, rowIdx, totalRows }: {
       </div>
 
       <div className="flex items-center gap-1.5 mb-2.5">
-        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-          style={{ background: connected ? "#22C55E" : "#444" }} />
-        <span className={cn("text-[10px]", connected ? "text-s-green" : "text-s-dim")}>
-          {connected ? "Connected" : "Not configured"}
-        </span>
+        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: dotColor }} />
+        <span className={cn("text-[10px]", labelColor)}>{label}</span>
       </div>
 
       {connected && c.how && (
         <div className="text-[9px] text-s-dim leading-relaxed">{c.how}</div>
+      )}
+      {isError && c.detail && (
+        <div className="text-[9px] text-red-400/70 leading-relaxed truncate" title={c.detail}>{c.detail}</div>
       )}
     </div>
   );
