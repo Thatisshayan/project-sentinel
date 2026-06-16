@@ -1,6 +1,6 @@
 const logger = require('./logger');
 
-const DASHSCOPE_BASE = process.env.DASHSCOPE_BASE_URL || DASHSCOPE_BASE;
+const DASHSCOPE_BASE = process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
 const BUILDERS = {
   // claude: {
