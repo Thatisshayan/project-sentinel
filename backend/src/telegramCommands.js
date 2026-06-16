@@ -654,6 +654,15 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
       return true;
     }
 
+    case 'brain': {
+      const { runStrategicBrain } = require('./sentinelBrain');
+      await sendTelegramMessage('🧠 Running strategic brain...', null, topicId);
+      runStrategicBrain(topicId).catch(err =>
+        logger.error({ err: err.message }, 'Manual brain run failed')
+      );
+      return true;
+    }
+
     default:
       return false;
   }
