@@ -151,14 +151,17 @@ async function createAuditTask(data) {
 }
 
 async function getNextBatch(repoFullName, batchSize) {
+  // Eligibility is decided by the task's own status/safe flag, not by its
+  // original parent cycle's status — executeApprovedTasks() always creates
+  // or reuses the *current* cycle to drive execution, so gating on the
+  // original cycle's status here orphaned any task whose old cycle had
+  // since completed, permanently blocking otherwise-safe queued tasks.
   const r = await query(`
-    SELECT at.* FROM audit_tasks at
-    JOIN audit_cycles ac ON ac.id = at.audit_cycle_id
-    WHERE at.repo_full_name = $1
-      AND at.status = 'queued'
-      AND at.safe_to_auto_execute = true
-      AND ac.status = 'executing'
-    ORDER BY at.task_number ASC
+    SELECT * FROM audit_tasks
+    WHERE repo_full_name = $1
+      AND status = 'queued'
+      AND safe_to_auto_execute = true
+    ORDER BY task_number ASC
     LIMIT $2
   `, [repoFullName, batchSize]);
   return r.rows;
