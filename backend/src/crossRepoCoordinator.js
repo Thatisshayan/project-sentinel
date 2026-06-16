@@ -1,4 +1,5 @@
 const logger = require('./logger');
+const { getGithubOrg } = require('./repoResolver');
 
 // Dependency graph: when repo A changes, repo B should be re-audited.
 // Configurable via CROSS_REPO_DEPS env var (JSON) or the defaults below.
@@ -51,7 +52,7 @@ async function notifyDependents(pushedRepo, pushedCommitSha, authorName) {
   logger.info({ pushedRepo, dependents }, 'Cross-repo dependency triggered');
 
   const { triggerAudit } = require('./auditOrchestrator');
-  const GITHUB_OWNER = process.env.GITHUB_OWNER || 'Thatisshayan';
+  const GITHUB_OWNER = getGithubOrg();
 
   for (const depRepo of dependents) {
     logger.info({ pushedRepo, depRepo }, 'Triggering dependent repo audit');

@@ -1,5 +1,6 @@
 const axios  = require('axios');
 const logger = require('./logger');
+const { repoFullName }                   = require('./repoResolver');
 const { getPortfolioSummary, REPO_LIST } = require('./portfolioAnalytics');
 const { getOpenPatterns, getDailyCost, getMonthlyCost, getAllLatestMetrics } = require('./portfolioDb');
 const { sendTelegramMessage } = require('./telegramClient');
@@ -195,7 +196,7 @@ async function runStrategicBrain(topicId) {
     if (decision.auto_execute && autoEnabled && decision.action === 'execute') {
       for (const repoName of (decision.focus_repos || [])) {
         const entry  = REPO_LIST.find(r => r.repoName === repoName)
-          || { repoName, repoFullName: `Thatisshayan/${repoName}` };
+          || { repoName, repoFullName: repoFullName(repoName) };
         const locked = await isRepoLocked(repoName).catch(() => null);
         if (locked) {
           actionsTaken.push({ repo: repoName, skipped: 'locked' });

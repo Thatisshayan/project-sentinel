@@ -1,5 +1,6 @@
 const logger = require('./logger');
 const axios  = require('axios');
+const { repoFullName } = require('./repoResolver');
 const { sendTelegramMessage }      = require('./telegramClient');
 const { runAudit }                 = require('./claudeCodeAudit');
 const { writeTasksToNotion }       = require('./auditTaskWriter');
@@ -8,8 +9,8 @@ const { createAuditCycle,
 const { createSelfAuditCycle,
         updateSelfAuditCycle }     = require('./selfAuditDb');
 
-const SENTINEL_REPO = 'Thatisshayan/project-sentinel';
 const SENTINEL_NAME = 'project-sentinel';
+const SENTINEL_REPO = repoFullName(SENTINEL_NAME);
 
 async function runSelfAudit() {
   logger.info('Starting Sentinel self-audit');

@@ -126,6 +126,7 @@ const REQUIRED = [
   'TELEGRAM_BOT_TOKEN',
   'TELEGRAM_CHAT_ID',
   'DEBUGGER_SHARED_SECRET',
+  'GITHUB_ORG',
 ];
 // Phase 2 vars (optional - will work without them but Phase 2 features disabled)
 const PHASE2_VARS = [

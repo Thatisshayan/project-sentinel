@@ -1,4 +1,5 @@
 const logger = require('./logger');
+const { repoFullName }                = require('./repoResolver');
 const { sendTelegramMessage }         = require('./telegramClient');
 const { findNotionProject }           = require('./notionClient');
 const { stopDebugAttempts,
@@ -236,7 +237,7 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
       const { executeApprovedTasks } = require('./auditOrchestrator');
       await sendTelegramMessage('Approving Sentinel self-improvement tasks...', null, topicId);
       executeApprovedTasks(
-        'Thatisshayan/project-sentinel',
+        repoFullName('project-sentinel'),
         'project-sentinel',
         topicId
       ).catch(() => {});
@@ -312,7 +313,7 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
       if (parts[2]) {
         const [score, issues] = await Promise.all([
           getLatestSecurityScore(parts[2]),
-          getOpenIssues(`Thatisshayan/${parts[2]}`),
+          getOpenIssues(repoFullName(parts[2])),
         ]);
         const counts = {
           critical: issues.filter(i => i.severity === 'critical').length,
@@ -355,7 +356,7 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
       const { runSecurityScan } = require('./securityScanner');
       await sendTelegramMessage(`Running security scan on ${parts[2]}...`, null, topicId);
       runSecurityScan({
-        repoFullName: `Thatisshayan/${parts[2]}`,
+        repoFullName: repoFullName(parts[2]),
         repoName: parts[2], commitSha: 'HEAD', topicId,
       }).catch(() => {});
       return true;
@@ -368,8 +369,8 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
       }
       const { getOpenIssues: getIssues }     = require('./securityDb');
       const { applySecurityPatches } = require('./securityPatcher');
-      const patchIssues = await getIssues(`Thatisshayan/${parts[2]}`);
-      applySecurityPatches(`Thatisshayan/${parts[2]}`, parts[2], patchIssues, topicId).catch(() => {});
+      const patchIssues = await getIssues(repoFullName(parts[2]));
+      applySecurityPatches(repoFullName(parts[2]), parts[2], patchIssues, topicId).catch(() => {});
       return true;
     }
 
@@ -480,13 +481,13 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
         UPDATE audit_tasks SET safe_to_auto_execute = true
         WHERE repo_full_name = $1 AND status = 'queued'
         RETURNING id
-      `, [`Thatisshayan/${parts[2]}`]).catch(() => null);
+      `, [repoFullName(parts[2])]).catch(() => null);
       const count = updated?.rows?.length || 0;
       await sendTelegramMessage(
         `Unlocked ${count} tasks for ${parts[2]}. Starting execution...`, null, topicId
       );
       if (count > 0) {
-        executeApprovedTasks(`Thatisshayan/${parts[2]}`, parts[2], topicId)
+        executeApprovedTasks(repoFullName(parts[2]), parts[2], topicId)
           .catch(err => logger.error({ err: err.message }, 'Force-execute failed'));
       }
       return true;
@@ -771,13 +772,13 @@ async function handleExecute(repoArg, topicId) {
     return true;
   }
   await sendTelegramMessage(`Starting task execution for ${repoArg}...`, null, topicId);
-  executeApprovedTasks(`Thatisshayan/${repoArg}`, repoArg, topicId)
+  executeApprovedTasks(repoFullName(repoArg), repoArg, topicId)
     .catch(err => logger.error({ err: err.message }, 'Execute failed'));
   return true;
 }
 
 async function handleSkipAudit(repoArg, topicId) {
-  await stopAllTasksForRepo(`Thatisshayan/${repoArg}`);
+  await stopAllTasksForRepo(repoFullName(repoArg));
   await sendTelegramMessage(
     `Audit skipped for ${repoArg}. Tasks remain in Notion as Queued.`,
     null,
@@ -794,7 +795,7 @@ async function handleManualAudit(repoArg, topicId) {
   const project = await findNotionProject(repoArg).catch(() => null);
   await sendTelegramMessage(`Manual audit triggered for ${repoArg}...`, null, topicId);
   triggerAudit({
-    repoFullName:  `Thatisshayan/${repoArg}`,
+    repoFullName:  repoFullName(repoArg),
     repoName:      repoArg,
     projectName:   project?.projectName || repoArg,
     commitSha:     `manual-${Date.now()}`,
@@ -820,7 +821,7 @@ async function handleListTasks(repoArg, topicId, chatId) {
     WHERE repo_full_name=$1
       AND status IN ('queued','in_progress','failed','build_check')
     ORDER BY task_number ASC LIMIT 12
-  `, [`Thatisshayan/${repoArg}`]);
+  `, [repoFullName(repoArg)]);
 
   if (r.rows.length === 0) {
     await sendTelegramMessage(`No active tasks for ${repoArg}.`, null, topicId);
@@ -843,7 +844,7 @@ async function handleListTasks(repoArg, topicId, chatId) {
       { text: '⏭️ Skip', callback_data: `task-skip:${t.id}` },
     ]);
     buttons.push([
-      { text: '✅ Approve All & Run', callback_data: `task-approve-all:Thatisshayan/${repoArg}` },
+      { text: '✅ Approve All & Run', callback_data: `task-approve-all:${repoFullName(repoArg)}` },
     ]);
     await sendMenu(chatId, topicId, `🔒 ${unsafe.length} task(s) need your approval:`, buttons);
   }
@@ -864,7 +865,7 @@ async function handleSkipBatch(repoArg, batchNumArg, topicId) {
     WHERE repo_full_name=$1
       AND batch_number=$2
       AND status IN ('queued','in_progress')
-  `, [`Thatisshayan/${repoArg}`, parseInt(batchNumArg)]);
+  `, [repoFullName(repoArg), parseInt(batchNumArg)]);
 
   for (const row of r.rows) {
     await updateAuditTask(row.id, { status: 'skipped' });
@@ -875,7 +876,7 @@ async function handleSkipBatch(repoArg, batchNumArg, topicId) {
     null,
     topicId
   );
-  processNextBatch(`Thatisshayan/${repoArg}`, repoArg, topicId).catch(() => {});
+  processNextBatch(repoFullName(repoArg), repoArg, topicId).catch(() => {});
   return true;
 }
 
@@ -895,7 +896,7 @@ async function handleCallbackQuery(callbackQuery) {
     await answerCallback(queryId).catch(() => {});
     const repoName = data.replace('execute:', '');
     await sendTelegramMessage(`Starting execution for ${repoName}...`, null, threadId).catch(() => {});
-    executeApprovedTasks(`Thatisshayan/${repoName}`, repoName, threadId).catch(() => {});
+    executeApprovedTasks(repoFullName(repoName), repoName, threadId).catch(() => {});
     return true;
   }
 
@@ -903,7 +904,7 @@ async function handleCallbackQuery(callbackQuery) {
     await answerCallback(queryId).catch(() => {});
     const repoName = data.replace('skip:', '');
     const { stopAllTasksForRepo: stopRepo } = require('./auditDb');
-    await stopRepo(`Thatisshayan/${repoName}`);
+    await stopRepo(repoFullName(repoName));
     await sendTelegramMessage(`Audit skipped for ${repoName}.`, null, threadId).catch(() => {});
     return true;
   }
@@ -1065,7 +1066,7 @@ async function handleCallbackQuery(callbackQuery) {
     const parts2      = data.split(':');
     const repoAction  = parts2[1];
     const repoName    = parts2[2];
-    const repoFullName = `Thatisshayan/${repoName}`;
+    const repoFullName = repoFullName(repoName);
     try {
       if (repoAction === 'audit') {
         triggerAudit({ repoFullName, repoName, commitSha: `manual-${Date.now()}`,
@@ -1106,7 +1107,7 @@ async function handleCallbackQuery(callbackQuery) {
         try { const { cancelAutoApprove } = require('./autoApprover'); await cancelAutoApprove(); } catch {}
         await sendTelegramMessage('Sprint skipped.', null, threadId);
       } else if (approveAction === 'self') {
-        executeApprovedTasks('Thatisshayan/project-sentinel', 'project-sentinel', threadId).catch(() => {});
+        executeApprovedTasks(repoFullName('project-sentinel'), 'project-sentinel', threadId).catch(() => {});
       }
     } catch (err) {
       logger.warn({ err: err.message }, 'Approve callback failed');

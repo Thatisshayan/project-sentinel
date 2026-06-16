@@ -1,6 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const axios     = require('axios');
 const logger    = require('./logger');
+const { repoFullName }         = require('./repoResolver');
 const { getPortfolioSummary }  = require('./portfolioAnalytics');
 const { getOpenPatterns,
         getDailyCost,
@@ -62,7 +63,7 @@ function resolveRepoName(input) {
   const { REPO_LIST } = require('./portfolioAnalytics');
   const ALL_REPOS = [
     ...REPO_LIST,
-    { repoName: 'project-sentinel', repoFullName: 'Thatisshayan/project-sentinel' },
+    { repoName: 'project-sentinel', repoFullName: repoFullName('project-sentinel') },
   ];
   const normalize = s => s.toLowerCase().replace(/[-_\s]/g, '');
   const inputNorm = normalize(input);
@@ -377,7 +378,7 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
 async function executeAction(action, topicId) {
   const resolved     = action.repo ? resolveRepoName(action.repo) : null;
   const repoName     = resolved?.repoName     || action.repo || null;
-  const repoFullName = resolved?.repoFullName || (action.repo ? `Thatisshayan/${action.repo}` : null);
+  const repoFullName = resolved?.repoFullName || (action.repo ? repoFullName(action.repo) : null);
 
   switch (action.action) {
     case 'execute_tasks':
@@ -493,7 +494,7 @@ async function executeAction(action, topicId) {
       if (!action.repo || !action.title) break;
       const taskResolved = resolveRepoName(action.repo);
       const taskRepoName = taskResolved?.repoName || action.repo;
-      const taskRepoFull = taskResolved?.repoFullName || `Thatisshayan/${action.repo}`;
+      const taskRepoFull = taskResolved?.repoFullName || repoFullName(action.repo);
       try {
         const { createAuditTask, createAuditCycle, getActiveCycleForRepo } = require('./auditDb');
 

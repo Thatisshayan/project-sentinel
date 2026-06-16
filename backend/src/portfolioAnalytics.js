@@ -6,21 +6,24 @@ const {
   getDailyCost,
   getMonthlyCost,
 } = require('./portfolioDb');
+const { repoFullName: makeFullName } = require('./repoResolver');
 
-const REPO_LIST = [
-  { repoName: 'acc',                 repoFullName: 'Thatisshayan/acc' },
-  { repoName: 'tapcash',             repoFullName: 'Thatisshayan/tapcash' },
-  { repoName: 'AlphonsoEcosystem',   repoFullName: 'Thatisshayan/AlphonsoEcosystem' },
-  { repoName: 'session-guard',       repoFullName: 'Thatisshayan/session-guard' },
-  { repoName: 'costpilot',           repoFullName: 'Thatisshayan/costpilot' },
-  { repoName: 'shiporex',            repoFullName: 'Thatisshayan/shiporex' },
-  { repoName: 'aegis',               repoFullName: 'Thatisshayan/aegis' },
-  { repoName: 'mint',                repoFullName: 'Thatisshayan/mint' },
-  { repoName: 'agents-ops-board',    repoFullName: 'Thatisshayan/agents-ops-board' },
-  { repoName: 'founder-social-club', repoFullName: 'Thatisshayan/founder-social-club' },
-  { repoName: 'obsidian-studio',     repoFullName: 'Thatisshayan/obsidian-studio' },
-  { repoName: 'obsidian-media',      repoFullName: 'Thatisshayan/obsidian-media' },
-];
+function buildRepoList() {
+  try {
+    const watched = process.env.WATCHED_REPOS;
+    const names   = watched
+      ? watched.split(',').map(s => s.trim()).filter(Boolean)
+      : ['acc','tapcash','AlphonsoEcosystem','session-guard','costpilot',
+         'shiporex','aegis','mint','agents-ops-board','founder-social-club',
+         'obsidian-studio','obsidian-media'];
+    return names.map(repoName => ({ repoName, repoFullName: makeFullName(repoName) }));
+  } catch {
+    // GITHUB_ORG not set at load time; startup validation in index.js catches this.
+    return [];
+  }
+}
+
+const REPO_LIST = buildRepoList();
 
 const DEFAULT_PRIORITIES = {
   'acc':                 'critical',

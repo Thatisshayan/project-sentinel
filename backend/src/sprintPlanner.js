@@ -1,5 +1,6 @@
 const axios  = require('axios');
 const logger = require('./logger');
+const { getGithubOrg } = require('./repoResolver');
 const { query }                          = require('./dbClient');
 const { getAllLatestMetrics }            = require('./portfolioDb');
 const { getCapacityStatus, selectBuilder } = require('./capacityManager');
@@ -164,7 +165,7 @@ Respond with ONLY valid JSON:
   "tasks": [
     {
       "repoName": "<repo name>",
-      "repoFullName": "Thatisshayan/<repo>",
+      "repoFullName": "${getGithubOrg()}/<repo>",
       "taskTitle": "<title>",
       "taskDescription": "<description>",
       "priority": "critical|high|medium|low",

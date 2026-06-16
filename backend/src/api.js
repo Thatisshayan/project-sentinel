@@ -7,6 +7,7 @@
 const router  = require('express').Router();
 const { query } = require('./dbClient');
 const logger  = require('./logger');
+const { repoFullName } = require('./repoResolver');
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
@@ -294,7 +295,7 @@ router.post('/repo/:name/audit', async (req, res) => {
       INSERT INTO audit_cycles (repo_full_name, repo_name, commit_sha, status, audit_agent)
       VALUES ($1, $2, 'manual-'||extract(epoch from now())::text, 'awaiting_approval', 'claude-code')
       ON CONFLICT DO NOTHING
-    `, [`Thatisshayan/${req.params.name}`, req.params.name]);
+    `, [repoFullName(req.params.name), req.params.name]);
     res.json({ ok: true, message: `Audit queued for ${req.params.name}` });
   } catch (err) {
     res.status(500).json({ error: err.message });

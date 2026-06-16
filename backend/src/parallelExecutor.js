@@ -1,5 +1,6 @@
 const logger = require('./logger');
 const axios  = require('axios');
+const { getGithubOrg } = require('./repoResolver');
 const { sendTelegramMessage }              = require('./telegramClient');
 const { selectAgent, assignAgent, freeAgent } = require('./agentRegistry');
 const { checkAndLockFiles,
@@ -97,7 +98,7 @@ async function executeTaskParallel(task, context) {
 
       try {
         const ghRes = await axios.get(
-          `https://api.github.com/repos/Thatisshayan/${repoName}/pulls`,
+          `https://api.github.com/repos/${getGithubOrg()}/${repoName}/pulls`,
           {
             headers: {
               Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
@@ -121,7 +122,7 @@ async function executeTaskParallel(task, context) {
 
       if (!prVerified) {
         await sendTelegramMessage(
-          `⚠️ Task marked failed — builder ran but no PR was created on GitHub.\nPR: https://github.com/Thatisshayan/${repoName}/pulls`,
+          `⚠️ Task marked failed — builder ran but no PR was created on GitHub.\nPR: https://github.com/${getGithubOrg()}/${repoName}/pulls`,
           repoName, topicId
         ).catch(() => {});
         await announceFailed(agentId, agentConfig.label, repoName,
@@ -133,7 +134,7 @@ async function executeTaskParallel(task, context) {
 
       const prLine = verifiedPrUrl
         ? `PR: ${verifiedPrUrl}`
-        : `PR: https://github.com/Thatisshayan/${repoName}/pulls`;
+        : `PR: https://github.com/${getGithubOrg()}/${repoName}/pulls`;
 
       await announceComplete(agentId, agentConfig.label, repoName,
         `${task.title || task.task_title}\n${prLine}`, verifiedPrUrl);
