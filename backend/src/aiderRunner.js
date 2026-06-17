@@ -152,6 +152,10 @@ async function cloneAndFix(context) {
     await repoGit.addConfig('user.email', 'sentinel@project-sentinel.app');
     await repoGit.addConfig('user.name',  'Project Sentinel');
 
+    // Record the base commit SHA before branching so we can detect new commits
+    const baseLog = await repoGit.log({ maxCount: 1 });
+    const baseSha = baseLog.latest?.hash || null;
+
     // Create fix branch
     const fixBranch = `sentinel/fix-${attemptNumber}-${Date.now()}`;
     await repoGit.checkoutLocalBranch(fixBranch);
@@ -168,22 +172,26 @@ async function cloneAndFix(context) {
       };
     }
 
-    // Check if Aider made any commits by comparing fix branch to base branch
-    const diffSummary = await repoGit.diffSummary([branchName, fixBranch]);
-    const hasChanges = diffSummary.files.length > 0;
+    // Detect new commits by comparing HEAD SHA to the pre-branch base SHA.
+    // diffSummary([branch, fixBranch]) is unreliable in shallow clones when
+    // aider makes no commits (refs are identical, diff is empty but fn can
+    // behave unexpectedly), so we compare SHAs directly instead.
+    const log = await repoGit.log({ maxCount: 1 });
+    const latestCommit = log.latest;
 
-    if (!hasChanges) {
+    if (!latestCommit || latestCommit.hash === baseSha) {
+      logger.warn({
+        repoFullName,
+        attempt: attemptNumber,
+        aiderTail: aiderResult.stdout.slice(-1000),
+      }, 'Aider made no new commits — cannot_fix');
       return {
         status:      'cannot_fix',
-        reason:      'Aider ran successfully but made no changes — could not identify a safe fix',
+        reason:      'Aider ran successfully but made no new commits — could not identify a safe fix',
         fixBranch,
         aiderOutput: aiderResult.stdout,
       };
     }
-
-    // Get the latest commit on fix branch
-    const log = await repoGit.log({ maxCount: 1 });
-    const latestCommit = log.latest;
 
     // Push fix branch to GitHub
     await repoGit.push('origin', fixBranch);

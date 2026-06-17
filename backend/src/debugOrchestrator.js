@@ -219,15 +219,9 @@ async function updateNotionForHighRisk(repoFullName, commitSha, data) {
     const project  = await findNotionProject(repoName);
     if (!project) return;
 
+    // Only pass debug-specific fields — do NOT pass empty commit fields or they
+    // will clobber real commit data already written by the webhook handler.
     await updateNotionProject(project.pageId, {
-      commitSha,
-      commitMessage:       '',
-      commitUrl:           '',
-      branchName:          '',
-      authorName:          '',
-      commitTimestamp:     new Date().toISOString(),
-      changedFilesText:    '',
-      filesChangedCount:   0,
       riskLevel:           'High',
       deploymentStatus:    'failed',
       lastBuildError:      data.failureReason?.substring(0, 500) || '',
@@ -248,16 +242,9 @@ async function updateNotionState(repoFullName, state, extra = {}) {
     const project  = await findNotionProject(repoName);
     if (!project) return;
 
+    // Only pass state fields — do NOT pass empty commit fields or they will
+    // clobber real commit data already written by the webhook handler.
     await updateNotionProject(project.pageId, {
-      commitSha:           '',
-      commitMessage:       '',
-      commitUrl:           '',
-      branchName:          '',
-      authorName:          '',
-      commitTimestamp:     new Date().toISOString(),
-      changedFilesText:    '',
-      filesChangedCount:   0,
-      riskLevel:           'Medium',
       currentProjectState: state,
       ...extra,
     });

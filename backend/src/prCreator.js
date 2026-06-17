@@ -90,8 +90,16 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
     };
   } catch (err) {
     const status = err.response?.status;
-    const data = err.response?.data;
-    logger.error({ err: err.message, status, data, repoFullName }, 'Failed to create PR');
+    const errBody = err.response?.data;
+    logger.error({
+      err: err.message,
+      status,
+      githubMessage: errBody?.message,
+      githubErrors:  errBody?.errors,
+      repoFullName,
+      fixBranch,
+      base,
+    }, 'Failed to create PR');
     return { prUrl: null, prNumber: null };
   }
 }
