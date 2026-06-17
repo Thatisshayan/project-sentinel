@@ -23,14 +23,23 @@ router.use((req, res, next) => {
 
 router.get('/portfolio', async (req, res) => {
   try {
-    // Latest snapshot per repo, with latest security score joined in
+    // Latest snapshot per repo. health_score is picked from the most recent
+    // row where it is non-null — a null row written at webhook-receipt time
+    // (before build data is available) must not mask a previously computed score.
     const repos = await query(`
       SELECT DISTINCT ON (pm.repo_name)
-        pm.repo_name, pm.repo_full_name, pm.health_score, pm.build_status,
+        pm.repo_name, pm.repo_full_name,
+        COALESCE(pm.health_score, hs.health_score) AS health_score,
+        pm.build_status,
         pm.priority, pm.builds_passed, pm.builds_failed,
         pm.tasks_done, pm.tasks_queued, pm.last_commit_at, pm.last_build_at, pm.recorded_at,
         COALESCE(ss.score, 0) AS security_score
       FROM portfolio_metrics pm
+      LEFT JOIN LATERAL (
+        SELECT health_score FROM portfolio_metrics
+        WHERE repo_name = pm.repo_name AND health_score IS NOT NULL
+        ORDER BY recorded_at DESC LIMIT 1
+      ) hs ON true
       LEFT JOIN LATERAL (
         SELECT score FROM security_scores
         WHERE repo_name = pm.repo_name
@@ -310,6 +319,46 @@ router.post('/repo/:name/audit', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+router.post('/system/audit-all', (req, res) => {
+  const { REPO_LIST }   = require('./portfolioAnalytics');
+  const { triggerAudit } = require('./auditOrchestrator');
+  const { repoFullName } = require('./repoResolver');
+  res.json({ ok: true, queued: REPO_LIST.length });
+  for (const repo of REPO_LIST) {
+    triggerAudit({
+      repoFullName:  repo.repoFullName,
+      repoName:      repo.repoName,
+      projectName:   repo.repoName,
+      commitSha:     `manual-${Date.now()}`,
+      commitMessage: '[bulk-audit]',
+      branchName:    'main',
+      authorName:    'Dashboard',
+      authorEmail:   '',
+      topicId:       null,
+    }).catch(err => logger.warn({ err: err.message, repo: repo.repoName }, 'Bulk audit item failed'));
+  }
+});
+
+router.post('/system/security-scan', (req, res) => {
+  const { REPO_LIST }     = require('./portfolioAnalytics');
+  const { runSecurityScan } = require('./securityScanner');
+  res.json({ ok: true, queued: REPO_LIST.length });
+  for (const repo of REPO_LIST) {
+    runSecurityScan({
+      repoFullName: repo.repoFullName,
+      repoName:     repo.repoName,
+      commitSha:    'HEAD',
+      topicId:      null,
+    }).catch(err => logger.warn({ err: err.message, repo: repo.repoName }, 'Bulk scan item failed'));
+  }
+});
+
+router.post('/security/issue/:id/patch', (req, res) => {
+  res.status(501).json({
+    error: 'Not implemented — use Telegram command /sentinel security-patch <repo> to patch issues',
+  });
 });
 
 router.post('/system/pause', async (req, res) => {

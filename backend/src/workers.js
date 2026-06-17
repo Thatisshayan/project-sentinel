@@ -98,22 +98,15 @@ function startBuildPollWorker() {
       const project = await findNotionProject(repoName);
       if (project) {
         await updateNotionProject(project.pageId, {
-          commitSha,
-          commitMessage:       '',
-          commitUrl:           '',
-          branchName:          '',
-          authorName:          '',
-          commitTimestamp:     new Date().toISOString(),
-          changedFilesText:    '',
-          filesChangedCount:   0,
-          riskLevel:           'Medium',
+          // Don't pass commit metadata — it was already written by the webhook
+          // handler and must not be overwritten with empty values here.
           deploymentStatus:    result.overall,
           buildProvider:       result.buildProvider,
           buildUrl:            result.buildUrl,
           currentProjectState: result.overall === 'success' ? 'Resolved' : 'Broken',
           lastBuildError:      result.overall === 'failed'
             ? (result.failureReason || '').substring(0, 500)
-            : '',
+            : undefined,
         });
       }
     } catch (err) {

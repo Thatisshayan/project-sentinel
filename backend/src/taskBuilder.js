@@ -136,12 +136,10 @@ async function executeBatch(tasks, context, builderAssignment) {
 
     const { query }    = require('./dbClient');
     const remaining    = await query(`
-      SELECT COUNT(*) as count FROM audit_tasks at
-      JOIN audit_cycles ac ON ac.id = at.audit_cycle_id
-      WHERE at.repo_full_name=$1
-        AND at.status='queued'
-        AND at.safe_to_auto_execute=true
-        AND ac.status='executing'
+      SELECT COUNT(*) as count FROM audit_tasks
+      WHERE repo_full_name=$1
+        AND status='queued'
+        AND safe_to_auto_execute=true
     `, [repoFullName]);
 
     return {

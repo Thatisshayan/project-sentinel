@@ -97,38 +97,29 @@ async function updateNotionProject(pageId, data) {
 
   const now = new Date().toISOString();
 
-  const allProperties = {
-    'Last Commit Message': {
-      rich_text: [{ text: { content: String(commitMessage).substring(0, 2000) } }],
-    },
-    'Last Commit Hash': {
-      rich_text: [{ text: { content: String(commitSha).substring(0, 100) } }],
-    },
-    'Last Commit URL': {
-      url: commitUrl || null,
-    },
-    'Last Branch': {
-      rich_text: [{ text: { content: String(branchName).substring(0, 100) } }],
-    },
-    'Last Commit Author': {
-      rich_text: [{ text: { content: String(authorName).substring(0, 100) } }],
-    },
-    'Last Commit Date': {
-      date: { start: commitTimestamp },
-    },
-    'Changed Files': {
-      rich_text: [{ text: { content: String(changedFilesText).substring(0, 2000) } }],
-    },
-    'Files Changed Count': {
-      number: filesChangedCount,
-    },
-    'Last Updated': {
-      date: { start: now },
-    },
-    'Risk Level': {
-      select: { name: riskLevel },
-    },
-  };
+  // Only include a field when the caller explicitly provides a non-undefined
+  // value — callers like the build-poll worker set only build-related fields
+  // and must not clobber commit metadata that was already written by the webhook.
+  const allProperties = {};
+  if (commitMessage !== undefined)
+    allProperties['Last Commit Message'] = { rich_text: [{ text: { content: String(commitMessage).substring(0, 2000) } }] };
+  if (commitSha !== undefined)
+    allProperties['Last Commit Hash']    = { rich_text: [{ text: { content: String(commitSha).substring(0, 100) } }] };
+  if (commitUrl !== undefined)
+    allProperties['Last Commit URL']     = { url: commitUrl || null };
+  if (branchName !== undefined)
+    allProperties['Last Branch']         = { rich_text: [{ text: { content: String(branchName).substring(0, 100) } }] };
+  if (authorName !== undefined)
+    allProperties['Last Commit Author']  = { rich_text: [{ text: { content: String(authorName).substring(0, 100) } }] };
+  if (commitTimestamp !== undefined)
+    allProperties['Last Commit Date']    = { date: { start: commitTimestamp } };
+  if (changedFilesText !== undefined)
+    allProperties['Changed Files']       = { rich_text: [{ text: { content: String(changedFilesText).substring(0, 2000) } }] };
+  if (filesChangedCount !== undefined)
+    allProperties['Files Changed Count'] = { number: filesChangedCount };
+  if (riskLevel !== undefined)
+    allProperties['Risk Level']          = { select: { name: riskLevel } };
+  allProperties['Last Updated']          = { date: { start: now } };
 
   // Optional fields — only sent when the caller actually provides them, so
   // callers that don't track build/risk state (e.g. plain push events) don't
@@ -137,7 +128,7 @@ async function updateNotionProject(pageId, data) {
     allProperties['Deployment Status'] = { select: { name: deploymentStatus } };
   }
   if (buildProvider !== undefined) {
-    allProperties['Build Provider'] = { rich_text: [{ text: { content: String(buildProvider || '').substring(0, 100) } }] };
+    allProperties['Build Provider'] = { select: { name: String(buildProvider || '').substring(0, 100) } };
   }
   if (buildUrl !== undefined) {
     allProperties['Build URL'] = { url: buildUrl || null };
