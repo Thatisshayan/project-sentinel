@@ -86,6 +86,20 @@ async function enqueueBuildCheck(data) {
     return existing;
   }
 
+  // Record the build event in the DB so health-score analytics can count it.
+  // The row is created at queue time; result is not updated — analytics uses
+  // debug_attempts rows to count failures vs total rows here to count passes.
+  try {
+    const { query: dbQuery } = require('./dbClient');
+    await dbQuery(`
+      INSERT INTO build_poll_jobs (job_id, repo_full_name, commit_sha, status)
+      VALUES ($1, $2, $3, 'pending')
+      ON CONFLICT (job_id) DO NOTHING
+    `, [jobId, data.repoFullName, data.commitSha]);
+  } catch (err) {
+    logger.warn({ err: err.message, jobId }, 'Failed to record build_poll_jobs row — non-blocking');
+  }
+
   return queue.add('check', data, {
     jobId,
     delay: 45000, // Wait 45s before first check — GitHub Actions takes 20-40s to register a run
