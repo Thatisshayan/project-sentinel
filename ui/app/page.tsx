@@ -136,8 +136,8 @@ export default async function OverviewPage() {
 }
 
 function mapBuild(s: string | null): Repo['build'] {
-  if (s === 'passed' || s === 'pass') return 'pass';
-  if (s === 'failed' || s === 'fail') return 'fail';
+  if (s === 'passing' || s === 'passed' || s === 'pass' || s === 'success') return 'pass';
+  if (s === 'failed' || s === 'fail' || s === 'failure') return 'fail';
   return 'pending';
 }
 
