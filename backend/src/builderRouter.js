@@ -18,21 +18,28 @@ function toNvidiaModel(rawName) {
 const BUILDERS = {
   nvidia: {
     id:          'nvidia',
-    label:       'NVIDIA NIM — Nemotron 70B',
+    label:       'NVIDIA NIM — Llama 3.1 70B',
     type:        'openai_compatible',
-    aiderModel:  toNvidiaModel(process.env.NVIDIA_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'),
+    // nemotron-70b is a reasoning model that emits <think> blocks — aider cannot
+    // parse those as SEARCH/REPLACE diffs.  Default to llama-3.1-70b-instruct
+    // which is a plain instruction model that produces clean diffs.
+    // NVIDIA_MODEL can still override but must NOT be set to nemotron for aider tasks.
+    aiderModel:  toNvidiaModel(process.env.NVIDIA_MODEL || 'meta/llama-3.1-70b-instruct'),
     apiBase:     'https://integrate.api.nvidia.com/v1',
     envKey:      'NVIDIA_API_KEY',
-    description: 'NVIDIA NIM — best free reasoning model',
+    description: 'NVIDIA NIM — Llama 3.1 70B instruction model',
   },
   qwen_coder: {
     id:          'qwen_coder',
-    label:       'Qwen 2.5 Coder 32B (NVIDIA)',
+    label:       'Llama 3.3 70B (NVIDIA NIM)',
     type:        'openai_compatible',
-    aiderModel:  'openai/qwen/qwen2.5-coder-32b-instruct',
+    // qwen/qwen2.5-coder-32b-instruct reached EOL 2026-05-12 on NVIDIA NIM (HTTP 410).
+    // Using meta/llama-3.3-70b-instruct — strong instruction-following model,
+    // reliably produces aider SEARCH/REPLACE diff blocks.
+    aiderModel:  'openai/meta/llama-3.3-70b-instruct',
     apiBase:     'https://integrate.api.nvidia.com/v1',
     envKey:      'NVIDIA_API_KEY',
-    description: 'Best free code model for building tasks',
+    description: 'Meta Llama 3.3 70B on NVIDIA NIM — primary code builder',
   },
   llama_fast: {
     id:          'llama_fast',
@@ -106,18 +113,20 @@ const BUILDERS = {
 
 const DEFAULT_BUILDER = 'qwen_coder';
 
-// Ordered fallback chain when a builder fails
+// Ordered fallback chain when a builder fails.
+// Both qwen_coder and nvidia now use NVIDIA NIM; if NIM is down both will fail
+// together, so fallbacks prefer DashScope then Gemini then DeepSeek.
 const FALLBACK_CHAIN = {
-  nvidia:          ['qwen_coder', 'gemini', 'deepseek'],
-  qwen_coder:      ['nvidia',    'gemini', 'deepseek'],
-  qwen_coder_dash: ['qwen_coder','nvidia', 'deepseek'],
-  gemini:          ['nvidia',    'qwen_coder', 'deepseek'],
-  qwen_max:        ['nvidia',    'qwen_coder', 'deepseek'],
-  qwen_plus:       ['qwen_max',  'nvidia',     'deepseek'],
-  qwen_turbo:      ['qwen_coder','nvidia',     'deepseek'],
-  llama_fast:      ['nvidia',    'qwen_coder', 'deepseek'],
-  deepseek:        ['nvidia',    'qwen_coder', 'gemini'],
-  opencode:        ['nvidia'],
+  nvidia:          ['qwen_coder_dash', 'gemini', 'deepseek', 'qwen_coder'],
+  qwen_coder:      ['qwen_coder_dash', 'gemini', 'deepseek', 'nvidia'],
+  qwen_coder_dash: ['qwen_coder',      'gemini', 'deepseek'],
+  gemini:          ['qwen_coder_dash', 'qwen_coder', 'deepseek'],
+  qwen_max:        ['qwen_coder_dash', 'qwen_coder', 'deepseek'],
+  qwen_plus:       ['qwen_max',        'qwen_coder_dash', 'deepseek'],
+  qwen_turbo:      ['qwen_coder_dash', 'qwen_coder',      'deepseek'],
+  llama_fast:      ['qwen_coder',      'qwen_coder_dash',  'deepseek'],
+  deepseek:        ['qwen_coder_dash', 'qwen_coder', 'gemini'],
+  opencode:        ['qwen_coder'],
 };
 
 function getFallbackBuilder(failedBuilder) {
