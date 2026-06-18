@@ -486,6 +486,62 @@ async function handleRepoOpsCmd(subcommand, parts, chatId, topicId) {
       await sendTelegramMessage('▶️ Automation resumed.', null, topicId);
       return true;
     }
+    case 'reset-failed': {
+      // Re-queue all failed tasks for a repo so they can be retried after a builder fix.
+      if (!parts[2]) {
+        await sendTelegramMessage('Usage: /sentinel reset-failed <repo>', null, topicId);
+        return true;
+      }
+      const { query: dbq } = require('../dbClient');
+      const r = await dbq(`
+        UPDATE audit_tasks
+        SET status = 'queued', failure_reason = NULL
+        WHERE repo_full_name = $1 AND status = 'failed'
+        RETURNING id
+      `, [repoFullName(parts[2])]).catch(() => null);
+      const count = r?.rows?.length || 0;
+      await sendTelegramMessage(
+        `♻️ Reset ${count} failed tasks to queued for ${parts[2]}.\n/sentinel execute ${parts[2]} to run them.`,
+        null, topicId
+      );
+      return true;
+    }
+    case 'check-builder': {
+      const { execSync: exec } = require('child_process');
+      const { listBuilders }   = require('../builderRouter');
+      const lines = [];
+
+      // Check aider binary
+      try {
+        const v = exec('aider --version 2>&1', { timeout: 8000 }).toString().trim();
+        lines.push(`✅ aider: ${v}`);
+      } catch (e) {
+        lines.push(`❌ aider: NOT FOUND — builder tasks will fail`);
+      }
+
+      // Check git
+      try {
+        exec('git --version 2>&1', { timeout: 5000 });
+        lines.push(`✅ git: available`);
+      } catch {
+        lines.push(`❌ git: NOT FOUND`);
+      }
+
+      lines.push('');
+
+      // List builder API key status
+      const builders = listBuilders();
+      for (const b of builders) {
+        const icon = b.configured ? '✅' : '○';
+        lines.push(`${icon} ${b.label}${b.configured ? '' : ' — key not set'}`);
+      }
+
+      await sendTelegramMessage(
+        `🔧 Builder Status\n\n${lines.join('\n')}`,
+        null, topicId
+      );
+      return true;
+    }
     default:
       return false;
   }

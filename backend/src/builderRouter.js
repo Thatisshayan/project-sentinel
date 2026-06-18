@@ -107,7 +107,7 @@ const BUILDERS = {
   },
 };
 
-const DEFAULT_BUILDER = 'nvidia';
+const DEFAULT_BUILDER = 'qwen_coder';
 
 // Ordered fallback chain when a builder fails
 const FALLBACK_CHAIN = {
@@ -139,15 +139,27 @@ function getBuilderConfig(assignment) {
   const config = BUILDERS[key];
 
   if (!config) {
-    logger.warn({ assignment, fallback: DEFAULT_BUILDER },
-      'Unknown builder assignment — using default');
-    return BUILDERS[DEFAULT_BUILDER];
+    logger.warn({ assignment, fallback: DEFAULT_BUILDER }, 'Unknown builder assignment — using default');
+    return getBuilderConfig(DEFAULT_BUILDER);
   }
 
   if (config.envKey && !process.env[config.envKey]) {
-    logger.warn({ builder: key, envKey: config.envKey, fallback: DEFAULT_BUILDER },
-      'Builder API key missing — falling back to nvidia');
-    return BUILDERS[DEFAULT_BUILDER];
+    // Walk the FALLBACK_CHAIN to find the first builder with a valid key.
+    // Do NOT fall back to BUILDERS[DEFAULT_BUILDER] unconditionally — if the
+    // default itself has no key this creates an infinite loop.
+    const chain = FALLBACK_CHAIN[key] || [];
+    for (const candidate of chain) {
+      const fb = BUILDERS[candidate];
+      if (fb && (!fb.envKey || process.env[fb.envKey])) {
+        logger.warn({ builder: key, envKey: config.envKey, fallback: candidate },
+          'Builder API key missing — falling back');
+        return fb;
+      }
+    }
+    // No configured fallback found — return the requested config anyway and let
+    // the caller surface the auth error via aider stderr.
+    logger.warn({ builder: key, envKey: config.envKey }, 'Builder API key missing and no fallback available');
+    return config;
   }
 
   return config;

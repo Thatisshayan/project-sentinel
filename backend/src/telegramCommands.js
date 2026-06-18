@@ -173,6 +173,7 @@ async function handleCallbackQuery(callbackQuery) {
         '/sentinel performance      — AI model performance stats',
         '/sentinel prompts          — prompt optimisation report',
         '/sentinel brain            — run strategic daily brain',
+        '/sentinel check-builder    — verify aider + API keys',
         '/sentinel menu             — quick action keyboard',
         '/sentinel help             — this menu',
       ].join('\n'),

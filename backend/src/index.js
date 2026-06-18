@@ -19,17 +19,20 @@ try { ({ checkAndOnboardNewRepos } = require('./repoOnboarder')); } catch {}
 
 async function probeTools() {
   const { execSync } = require('child_process');
+  const { logAgentMessage } = require('./agentDb');
 
-  // Check aider
+  // Check aider — log result to agent_messages so it appears in the UI
   try {
     const v = execSync('aider --version 2>&1', { timeout: 8000 }).toString().trim();
     logger.info({ version: v }, 'Aider is available');
+    await logAgentMessage('sentinel', 'Sentinel', `Builder ready: ${v}`, 'info', null).catch(() => {});
   } catch {
     logger.warn('Aider not found in PATH — builder tasks will fail');
+    await logAgentMessage('sentinel', 'Sentinel', 'WARNING: aider not found in PATH — builder tasks will fail. Check Railway deploy logs.', 'error', null).catch(() => {});
     const { sendTelegramMessage } = require('./telegramClient');
     await sendTelegramMessage(
       'Project Sentinel WARNING: `aider` not found in PATH on this instance.\n' +
-      'Builder tasks will fail until fixed. Check Railway deploy logs.',
+      'Builder tasks will fail until fixed. Run /sentinel check-builder for details.',
       null, null
     ).catch(() => {});
   }

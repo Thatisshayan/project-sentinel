@@ -422,14 +422,11 @@ async function processNextBatch(repoFullName, repoName, topicId) {
     ].filter(Boolean).join('\n'), null, topicId).catch(() => {});
 
   } else {
+    // Re-queue all tasks so they can be retried — the builder failed (infra/API/aider),
+    // not the tasks themselves. Marking them failed would silently destroy the queue.
     for (const task of tasks) {
-      await updateAuditTask(task.id, {
-        status: 'failed',
-        failure_reason: (batchResult.reason || 'Unknown').substring(0, 500),
-      });
-      await updateNotionTaskStatus(task.notion_page_id, 'failed', {
-        failureReason: batchResult.reason,
-      });
+      await updateAuditTask(task.id, { status: 'queued', failure_reason: null });
+      await updateNotionTaskStatus(task.notion_page_id, 'queued').catch(() => {});
     }
 
     await sendTelegramMessage([
@@ -438,8 +435,8 @@ async function processNextBatch(repoFullName, repoName, topicId) {
       `Repo: ${repoName}`,
       `Reason: ${batchResult.reason || 'Unknown'}`,
       ``,
-      `/sentinel retry ${repoName} — retry batch`,
-      `/sentinel skip-batch ${repoName} ${batchNum} — skip and continue`,
+      `Tasks have been re-queued for retry.`,
+      `/sentinel execute ${repoName} — retry now`,
     ].join('\n'), null, topicId).catch(() => {});
   }
 }

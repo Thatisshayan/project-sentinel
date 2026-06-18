@@ -1,6 +1,6 @@
 const simpleGit  = require('simple-git');
 const tmp        = require('tmp');
-const { spawn }  = require('child_process');
+const { spawn, execSync } = require('child_process');
 const fs         = require('fs');
 const path       = require('path');
 const logger     = require('./logger');
@@ -80,8 +80,12 @@ async function executeBatch(tasks, context, builderAssignment) {
       }
 
       if (!taskResult.success) {
-        logger.warn({ taskNumber: task.task_number, reason: taskResult.reason },
-          'Task failed — stopping batch at this point');
+        logger.warn({
+          taskNumber:  task.task_number,
+          reason:      taskResult.reason || `aider exit code ${taskResult.exitCode}`,
+          stdoutTail:  (taskResult.stdout || '').slice(-2000),
+          stderrTail:  (taskResult.stderr || '').slice(-2000),
+        }, 'Task failed — stopping batch at this point');
         break;
       }
 
@@ -161,7 +165,29 @@ async function executeBatch(tasks, context, builderAssignment) {
   }
 }
 
+function installDependencies(repoPath) {
+  try {
+    if (fs.existsSync(path.join(repoPath, 'package-lock.json'))) {
+      execSync('npm ci --prefer-offline --no-audit', { cwd: repoPath, timeout: 180000, stdio: 'pipe' });
+      logger.info({ repoPath }, 'npm ci complete');
+    } else if (fs.existsSync(path.join(repoPath, 'package.json'))) {
+      execSync('npm install --no-audit', { cwd: repoPath, timeout: 180000, stdio: 'pipe' });
+      logger.info({ repoPath }, 'npm install complete');
+    } else if (fs.existsSync(path.join(repoPath, 'requirements.txt'))) {
+      execSync('pip install -r requirements.txt -q', { cwd: repoPath, timeout: 120000, stdio: 'pipe' });
+      logger.info({ repoPath }, 'pip install complete');
+    } else if (fs.existsSync(path.join(repoPath, 'go.mod'))) {
+      execSync('go mod download', { cwd: repoPath, timeout: 120000, stdio: 'pipe' });
+      logger.info({ repoPath }, 'go mod download complete');
+    }
+  } catch (err) {
+    logger.warn({ err: err.message.slice(0, 300) }, 'Dependency install failed — aider will proceed without pre-installed deps');
+  }
+}
+
 async function runAiderForTask(repoPath, task, context, builderConfig) {
+  installDependencies(repoPath);
+
   const message = buildAiderTaskMessage(task, context);
   const msgFile = path.join(repoPath, '.sentinel-aider-task.tmp');
   fs.writeFileSync(msgFile, message, 'utf8');
@@ -169,6 +195,7 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
   const args = [
     '--model',        builderConfig.aiderModel,
     '--yes-always',
+    '--auto-commits',
     '--no-browser',
     '--message-file', msgFile,
   ];
@@ -214,18 +241,20 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
 }
 
 function buildAiderTaskMessage(task, context) {
-  return `Improvement task on ${context.projectName || context.repoName}.
+  return `You are an autonomous code improvement agent working on ${context.projectName || context.repoName}.
 
-TASK ${task.task_number}/10: ${task.title}
+TASK: ${task.title}
 ${task.description}
 
-Files: ${(task.affected_files || []).join(', ')}
-Acceptance: ${task.acceptance_criteria}
+Relevant files: ${(task.affected_files || []).join(', ') || 'detect from context'}
+Acceptance criteria: ${task.acceptance_criteria || 'see description above'}
 
-Rules: minimal changes only. No auth/payments/.env/migrations/Dockerfile.
-Run npm run build and npm test. If fail: do not commit.
-Commit: feat(sentinel): ${task.title} — Task ${task.task_number}/10
-One commit. Do NOT push.`;
+RULES:
+- Make the smallest change that satisfies the task. No refactoring unrelated code.
+- Do NOT touch: .env files, auth/payment logic, database migrations, Dockerfile, CI config.
+- Commit all changes with this exact message: feat(sentinel): ${task.title}
+- One commit only. Do NOT push.
+- CI will validate the build — do not run build or test commands.`;
 }
 
 module.exports = { executeBatch };
