@@ -327,17 +327,24 @@ router.post('/system/set-builder', async (req, res) => {
 // ── Repo actions ──────────────────────────────────────────────────────────────
 
 router.post('/repo/:name/audit', async (req, res) => {
+  // Respond immediately; audit runs async in background
+  res.json({ ok: true, message: `Audit queued for ${req.params.name}` });
   try {
-    // Trigger is handled by the audit orchestrator via webhook normally.
-    // For manual trigger we insert a signal row that workers pick up.
-    await query(`
-      INSERT INTO audit_cycles (repo_full_name, project_name, commit_sha, status, audit_agent)
-      VALUES ($1, $2, 'manual-'||extract(epoch from now())::text, 'awaiting_approval', 'claude-code')
-      ON CONFLICT DO NOTHING
-    `, [repoFullName(req.params.name), req.params.name]);
-    res.json({ ok: true, message: `Audit queued for ${req.params.name}` });
+    const { triggerAudit } = require('./auditOrchestrator');
+    const name = req.params.name;
+    triggerAudit({
+      repoFullName:  repoFullName(name),
+      repoName:      name,
+      projectName:   name,
+      commitSha:     `manual-${Date.now()}`,
+      commitMessage: '[manual-audit]',
+      branchName:    'main',
+      authorName:    'Dashboard',
+      authorEmail:   '',
+      topicId:       null,
+    }).catch(err => logger.warn({ err: err.message, name }, 'Dashboard audit failed'));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.warn({ err: err.message }, 'Could not start dashboard audit');
   }
 });
 
