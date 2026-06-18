@@ -207,9 +207,17 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
     '--message-file', msgFile,
   ];
 
-  const existing = (task.affected_files || [])
-    .filter(f => fs.existsSync(path.join(repoPath, f)))
-    .slice(0, 8);
+  // Resolve affected_files against the actual repo layout.
+  // Tasks are generated with paths relative to repo root, but monorepos may
+  // have the file under backend/, ui/, src/, etc. Search common subdirs.
+  const SEARCH_DIRS = ['', 'backend', 'ui', 'src', 'app', 'lib'];
+  const existing = (task.affected_files || []).flatMap(f => {
+    for (const dir of SEARCH_DIRS) {
+      const candidate = dir ? path.join(dir, f) : f;
+      if (fs.existsSync(path.join(repoPath, candidate))) return [candidate];
+    }
+    return [];
+  }).slice(0, 8);
   if (existing.length > 0) args.push(...existing);
 
   return new Promise((resolve) => {
