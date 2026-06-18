@@ -6,3 +6,4 @@ node_modules/
 .aider*
 PHASE2_*.md
 session-sentinel-phase1-build.md
+rwstatus.json
