@@ -12,12 +12,18 @@ const AUDIT_MODEL = process.env.AUDIT_MODEL || 'nvidia/llama-3.1-nemotron-70b-in
 
 const CONTEXT_FILE_BUDGET  = 30;
 const CONTEXT_CHAR_BUDGET  = 20000;
-const SOURCE_DIRS          = ['src', 'lib', 'routes', 'services', 'models', 'controllers', 'app'];
-const SKIP_DIRS            = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next']);
+// Ordered by priority — deeper monorepo paths come before shallow ones so we
+// don't fill the budget with trivial root-level stubs and miss actual code.
+const SOURCE_DIRS = [
+  'backend/src', 'frontend/src', 'ui/src', 'packages/api/src', 'packages/server/src',
+  'src', 'lib', 'routes', 'services', 'models', 'controllers', 'app',
+  'backend', 'frontend', 'server', 'api',
+];
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next', '.turbo']);
 
-// Builds a lightweight text snapshot of the repo (package.json, README, key
-// source files) for AI providers that have no file-read tool of their own —
-// e.g. the NVIDIA NIM chat-completions path, which only sees this prompt.
+// Builds a lightweight text snapshot of the repo for AI providers that have
+// no file-read tool (e.g. NVIDIA NIM chat-completions path).
+// Handles both flat repos and monorepos (backend/src, ui/src, etc.).
 function buildRepoContext(repoPath) {
   const sections = [];
   let charsUsed  = 0;
@@ -34,12 +40,28 @@ function buildRepoContext(repoPath) {
     catch { return null; }
   }
 
+  // Root-level manifests
   addSection('package.json', readSafe('package.json'));
   addSection('README.md',    readSafe('README.md') || readSafe('readme.md'));
 
-  const entryFile = ['index.js', 'app.js', 'server.js']
-    .find(f => fs.existsSync(path.join(repoPath, f)));
-  if (entryFile) addSection(entryFile, readSafe(entryFile));
+  // Nested package.json files (monorepo workspaces) — skip if same as root
+  for (const sub of ['backend', 'frontend', 'ui', 'server', 'api']) {
+    const content = readSafe(`${sub}/package.json`);
+    if (content) addSection(`${sub}/package.json`, content);
+  }
+
+  // Entry files — check both root and common monorepo subdirs
+  const entryPaths = [
+    'index.js', 'app.js', 'server.js',
+    'backend/src/index.js', 'backend/index.js',
+    'frontend/src/index.js', 'ui/src/index.js',
+  ];
+  for (const ep of entryPaths) {
+    if (fs.existsSync(path.join(repoPath, ep))) {
+      addSection(ep, readSafe(ep));
+      break;
+    }
+  }
 
   const files = [];
   function walk(dir) {
@@ -58,11 +80,15 @@ function buildRepoContext(repoPath) {
       }
     }
   }
-  for (const dir of SOURCE_DIRS) walk(path.join(repoPath, dir));
+  for (const dir of SOURCE_DIRS) {
+    const abs = path.join(repoPath, dir);
+    if (fs.existsSync(abs)) walk(abs);
+  }
 
   for (const file of files) {
     if (charsUsed >= CONTEXT_CHAR_BUDGET) break;
-    addSection(path.relative(repoPath, file), readSafe(path.relative(repoPath, file)));
+    const rel = path.relative(repoPath, file);
+    addSection(rel, readSafe(rel));
   }
 
   return sections.join('\n\n');
@@ -120,7 +146,7 @@ Output this exact structure:
       "category": "security",
       "title": "<short title under 80 characters>",
       "description": "<full description of what to do and why>",
-      "affectedFiles": ["src/file.js"],
+      "affectedFiles": ["path/to/actual/file.js"],
       "estimatedComplexity": "low",
       "safeToAutoExecute": true,
       "safetyReason": "<why it is or is not safe>",
