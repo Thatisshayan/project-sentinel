@@ -2,28 +2,25 @@ const logger = require('./logger');
 
 const DASHSCOPE_BASE = process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
-// litellm routes 'provider/model' strings to that provider's own integration.
-// For OpenAI-compatible custom-base-URL calls, the model must be 'openai/<name>'
-// so litellm uses OPENAI_API_BASE rather than routing to the named provider.
-// This strips any existing provider prefix and re-adds 'openai/'.
-function toOpenAICompatModel(rawName) {
-  const bare = rawName.includes('/') ? rawName.split('/').slice(1).join('/') : rawName;
-  return `openai/${bare}`;
+// NVIDIA NIM requires the full provider/model name in the model field
+// (e.g. "qwen/qwen2.5-coder-32b-instruct", not just "qwen2.5-coder-32b-instruct").
+// Aider uses the 'openai/' prefix to force the OpenAI client, and passes
+// everything after that prefix as the model name to the custom API base.
+// So 'openai/qwen/qwen2.5-coder-32b-instruct' sends model="qwen/qwen2.5-coder-32b-instruct"
+// to NVIDIA NIM, which is exactly what the API expects.
+function toNvidiaModel(rawName) {
+  // Already in openai/provider/model format — leave as-is
+  if (rawName.startsWith('openai/')) return rawName;
+  // Already has provider prefix (e.g. 'nvidia/llama-...') — just add openai/
+  return `openai/${rawName}`;
 }
 
 const BUILDERS = {
-  // claude: {
-  //   id:          'claude',
-  //   label:       'Claude Code',
-  //   type:        'claude_code',
-  //   envKey:      'ANTHROPIC_API_KEY',
-  //   description: 'Anthropic — primary builder',
-  // },
   nvidia: {
     id:          'nvidia',
     label:       'NVIDIA NIM — Nemotron 70B',
     type:        'openai_compatible',
-    aiderModel:  toOpenAICompatModel(process.env.NVIDIA_MODEL || 'llama-3.1-nemotron-70b-instruct'),
+    aiderModel:  toNvidiaModel(process.env.NVIDIA_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'),
     apiBase:     'https://integrate.api.nvidia.com/v1',
     envKey:      'NVIDIA_API_KEY',
     description: 'NVIDIA NIM — best free reasoning model',
@@ -32,7 +29,7 @@ const BUILDERS = {
     id:          'qwen_coder',
     label:       'Qwen 2.5 Coder 32B (NVIDIA)',
     type:        'openai_compatible',
-    aiderModel:  'openai/qwen2.5-coder-32b-instruct',
+    aiderModel:  'openai/qwen/qwen2.5-coder-32b-instruct',
     apiBase:     'https://integrate.api.nvidia.com/v1',
     envKey:      'NVIDIA_API_KEY',
     description: 'Best free code model for building tasks',
@@ -41,7 +38,7 @@ const BUILDERS = {
     id:          'llama_fast',
     label:       'Llama 3.1 8B (NVIDIA)',
     type:        'openai_compatible',
-    aiderModel:  'openai/llama-3.1-8b-instruct',
+    aiderModel:  'openai/meta/llama-3.1-8b-instruct',
     apiBase:     'https://integrate.api.nvidia.com/v1',
     envKey:      'NVIDIA_API_KEY',
     description: 'Ultra fast fallback for low complexity tasks',
