@@ -190,6 +190,20 @@ app.listen(PORT, () => {
     startSprintWorker();
     startAgentCleanupWorker();
     logger.info('Workers started');
+
+    // Reset tasks stuck in 'in_progress' from a previous deploy that was killed
+    // mid-execution. Without this, tasks never return to 'queued' and the
+    // pipeline stalls permanently after every Railway redeploy.
+    const { query: dbCleanup } = require('./dbClient');
+    const stale = await dbCleanup(`
+      UPDATE audit_tasks SET status = 'queued', updated_at = NOW()
+      WHERE status = 'in_progress'
+      RETURNING id, repo_full_name
+    `).catch(() => null);
+    if (stale?.rows?.length) {
+      logger.info({ count: stale.rows.length }, 'Startup: reset in_progress tasks to queued');
+    }
+
     // Seed health metrics from GitHub API on startup so repos don't show 6.5 default
     const { syncAllRepoMetrics } = require('./githubMetricsSyncer');
     syncAllRepoMetrics().catch(err =>
