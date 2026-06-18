@@ -429,7 +429,7 @@ async function processNextBatch(repoFullName, repoName, topicId) {
       await updateNotionTaskStatus(task.notion_page_id, 'queued').catch(() => {});
     }
 
-    const errDetail = (batchResult.lastStderr || batchResult.lastStdout || '').slice(-600);
+    const errDetail = (batchResult.lastStderr || batchResult.lastStdout || '').slice(-800);
     await sendTelegramMessage([
       `Project Sentinel — Batch ${batchNum} Failed ❌`,
       ``,
@@ -439,6 +439,14 @@ async function processNextBatch(repoFullName, repoName, topicId) {
       ``,
       `Tasks re-queued. /sentinel execute ${repoName} to retry.`,
     ].filter(Boolean).join('\n'), null, topicId).catch(() => {});
+
+    // Also log to agent_messages so it's visible in the UI without Telegram
+    const { logAgentMessage } = require('./agentDb');
+    await logAgentMessage(
+      'sentinel', 'Sentinel',
+      `Batch ${batchNum} failed for ${repoName}. Reason: ${batchResult.reason || 'Unknown'}${errDetail ? '\n\nBuilder output:\n' + errDetail : ''}`,
+      'error', repoName
+    ).catch(() => {});
   }
 }
 
