@@ -27,7 +27,7 @@ async function checkAndOnboardNewRepos() {
       const notionClient = require('./notionClient');
       if (typeof notionClient.createNotionProject === 'function') {
         await notionClient.createNotionProject({
-          repoName, priority: 'medium', builderAgent: 'nvidia', healthScore: 0,
+          repoName, priority: 'medium', builderAgent: 'qwen_coder', healthScore: 0,
         }).catch(err => logger.warn({ err: err.message, repoName }, 'Notion row creation failed'));
       } else {
         logger.warn({ repoName }, 'createNotionProject not available — add repo row to Notion manually');

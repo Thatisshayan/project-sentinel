@@ -130,12 +130,12 @@ async function triggerAudit(payload) {
   logger.info({ repoFullName, cycleId: cycle.id }, 'Audit cycle started');
 
   // Get builder assignment from Notion
-  let builderAgent = 'nvidia';
+  let builderAgent = 'qwen_coder';
   try {
     const project = await findNotionProject(repoName);
-    builderAgent = project?.builderAgent || 'nvidia';
+    builderAgent = project?.builderAgent || 'qwen_coder';
   } catch (e) {
-    logger.warn({ err: e.message }, 'Could not read builder from Notion — using nvidia');
+    logger.warn({ err: e.message }, 'Could not read builder from Notion — using qwen_coder');
   }
 
   const builderConfig = getBuilderConfig(builderAgent);
@@ -329,7 +329,7 @@ async function processNextBatch(repoFullName, repoName, topicId) {
     await updateNotionTaskStatus(task.notion_page_id, 'in_progress');
   }
 
-  const builderConfig = getBuilderConfig(tasks[0].builder_agent || 'nvidia');
+  const builderConfig = getBuilderConfig(tasks[0].builder_agent || 'qwen_coder');
   const batchNum      = tasks[0].batch_number;
   const taskTitles    = tasks.map(t => `${t.task_number}. ${t.title}`).join('\n');
 
@@ -345,7 +345,7 @@ async function processNextBatch(repoFullName, repoName, topicId) {
 
   const notionProject = await findNotionProject(repoName).catch(() => null);
 
-  const primaryBuilder  = tasks[0].builder_agent || 'nvidia';
+  const primaryBuilder  = tasks[0].builder_agent || 'qwen_coder';
   let   batchResult     = await executeBatch(tasks, {
     repoFullName, repoName,
     projectName: notionProject?.projectName || repoName,

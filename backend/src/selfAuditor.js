@@ -59,7 +59,7 @@ async function runSelfAudit() {
       projectName:        'Project Sentinel',
       commitSha,
       notionParentPageId: null,
-      builderAgent:       'nvidia',
+      builderAgent:       'qwen_coder',
       source:             'Sentinel Self-Audit',
     });
 
