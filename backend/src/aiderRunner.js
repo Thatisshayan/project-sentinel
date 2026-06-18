@@ -36,10 +36,10 @@ YOUR RULES:
 3. Do not refactor anything unrelated to the failure.
 4. Do not touch: .env files, auth logic, payment logic, database migrations, Dockerfile, CI config.
 5. If you cannot identify a safe fix with high confidence, do nothing and explain why in a comment.
-6. Run the build command after your fix to verify it passes before committing.
-7. If tests exist (npm test), run them. If they fail, do not commit.
-8. Commit message must be exactly: fix(sentinel): repair ${buildProvider} build failure — attempt ${attemptNumber}
-9. Use one clean commit. Do not create multiple commits.
+6. Do NOT run npm install, npm test, npm run build, or any shell commands. The CI will verify.
+7. Output the ENTIRE contents of each changed file — no elisions, no "..." placeholders.
+8. Use one clean commit only. Do not create multiple commits.
+9. Do NOT push.
 
 Start by reading the relevant files, then apply your fix.`;
 }
@@ -55,11 +55,20 @@ async function runAider(repoPath, context) {
     const msgFile = path.join(repoPath, '.sentinel-aider-msg.tmp');
     fs.writeFileSync(msgFile, message, 'utf8');
 
+    // gemini/gemini-2.5-pro supports SEARCH/REPLACE natively; whole format works for anything else
+    const isCodeSpecialist = /gemini|codestral|qwen.*coder|deepseek.*coder/i.test(model);
+    const editFormat = isCodeSpecialist ? 'diff' : 'whole';
+
     const args = [
       '--model',       model,
       '--yes-always',
       '--no-browser',
+      '--no-stream',
       '--auto-commits',
+      '--no-check-update',
+      '--no-suggest-shell-commands',
+      '--edit-format',  editFormat,
+      '--map-tokens',  '2048',
       '--message-file', msgFile,
     ];
 
