@@ -212,7 +212,13 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
   // Resolve affected_files against the actual repo layout BEFORE building the
   // message so the resolved paths appear in "Relevant files:" — otherwise the
   // model might diff the original (non-existent) path and aider silently fails.
-  const SEARCH_DIRS = ['', 'backend', 'ui', 'src', 'app', 'lib'];
+  // Check both flat-repo and monorepo paths. Ordered: exact match first, then
+  // common monorepo subdirs, then shallow roots.
+  const SEARCH_DIRS = [
+    '', 'backend/src', 'backend', 'frontend/src', 'frontend',
+    'ui/src', 'ui', 'server/src', 'server',
+    'src', 'app', 'lib',
+  ];
   const existing = (task.affected_files || []).flatMap(f => {
     for (const dir of SEARCH_DIRS) {
       const candidate = dir ? path.join(dir, f) : f;
