@@ -429,15 +429,16 @@ async function processNextBatch(repoFullName, repoName, topicId) {
       await updateNotionTaskStatus(task.notion_page_id, 'queued').catch(() => {});
     }
 
+    const errDetail = (batchResult.lastStderr || batchResult.lastStdout || '').slice(-600);
     await sendTelegramMessage([
       `Project Sentinel — Batch ${batchNum} Failed ❌`,
       ``,
       `Repo: ${repoName}`,
       `Reason: ${batchResult.reason || 'Unknown'}`,
+      errDetail ? `\nBuilder output:\n${errDetail}` : '',
       ``,
-      `Tasks have been re-queued for retry.`,
-      `/sentinel execute ${repoName} — retry now`,
-    ].join('\n'), null, topicId).catch(() => {});
+      `Tasks re-queued. /sentinel execute ${repoName} to retry.`,
+    ].filter(Boolean).join('\n'), null, topicId).catch(() => {});
   }
 }
 

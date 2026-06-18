@@ -46,6 +46,8 @@ async function executeBatch(tasks, context, builderAssignment) {
 
     const completedTasks = [];
     let   lastCommitSha  = null;
+    let   lastTaskStdout = '';
+    let   lastTaskStderr = '';
 
     for (const task of tasks) {
       logger.info({ taskNumber: task.task_number, builder: builderConfig.id },
@@ -79,12 +81,15 @@ async function executeBatch(tasks, context, builderAssignment) {
         if (heartbeatTimer) clearInterval(heartbeatTimer);
       }
 
+      lastTaskStdout = (taskResult.stdout || '').slice(-1500);
+      lastTaskStderr = (taskResult.stderr || '').slice(-1500);
+
       if (!taskResult.success) {
         logger.warn({
           taskNumber:  task.task_number,
           reason:      taskResult.reason || `aider exit code ${taskResult.exitCode}`,
-          stdoutTail:  (taskResult.stdout || '').slice(-2000),
-          stderrTail:  (taskResult.stderr || '').slice(-2000),
+          stdoutTail:  lastTaskStdout,
+          stderrTail:  lastTaskStderr,
         }, 'Task failed — stopping batch at this point');
         break;
       }
@@ -102,17 +107,19 @@ async function executeBatch(tasks, context, builderAssignment) {
       } else {
         logger.warn({
           taskNumber: task.task_number,
-          stdoutTail: (taskResult.stdout || '').slice(-1500),
-          stderrTail: (taskResult.stderr || '').slice(-1500),
+          stdoutTail: lastTaskStdout,
+          stderrTail: lastTaskStderr,
         }, 'No new commit found — task may have been skipped by the builder');
       }
     }
 
     if (completedTasks.length === 0) {
       return {
-        status: 'failed',
-        reason: 'No tasks in the batch produced a commit',
+        status:  'failed',
+        reason:  'No tasks in the batch produced a commit',
         taskBranch,
+        lastStdout: lastTaskStdout,
+        lastStderr: lastTaskStderr,
       };
     }
 
