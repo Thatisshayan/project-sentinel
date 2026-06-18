@@ -21,7 +21,7 @@ export interface RepoMetric {
   repo_name: string;
   repo_full_name: string;
   health_score: number;
-  build_status: 'pass' | 'fail' | 'pending' | null;
+  build_status: string | null;
   priority: string;
   builds_passed: number;
   builds_failed: number;
