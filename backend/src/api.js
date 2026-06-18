@@ -311,7 +311,7 @@ router.post('/repo/:name/audit', async (req, res) => {
     // Trigger is handled by the audit orchestrator via webhook normally.
     // For manual trigger we insert a signal row that workers pick up.
     await query(`
-      INSERT INTO audit_cycles (repo_full_name, repo_name, commit_sha, status, audit_agent)
+      INSERT INTO audit_cycles (repo_full_name, project_name, commit_sha, status, audit_agent)
       VALUES ($1, $2, 'manual-'||extract(epoch from now())::text, 'awaiting_approval', 'claude-code')
       ON CONFLICT DO NOTHING
     `, [repoFullName(req.params.name), req.params.name]);
