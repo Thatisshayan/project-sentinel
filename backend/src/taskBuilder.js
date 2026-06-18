@@ -297,11 +297,11 @@ Files to edit: ${filePaths}
 Acceptance criteria: ${task.acceptance_criteria || 'see description above'}
 
 RULES:
-- Make the smallest change that satisfies the task. No refactoring unrelated code.
+- Read each file listed above. Make the minimal targeted change that satisfies the task.
+- Output the ENTIRE contents of each changed file — no elisions, no "..." placeholders.
 - Do NOT touch: .env files, auth/payment logic, database migrations, Dockerfile, CI config.
-- ALWAYS make at least one concrete code change and commit it — do not skip or say "already done".
-- One commit only. Do NOT push.
-- Do not run build, test, or install commands.`;
+- ALWAYS make at least one concrete code change. Do not say "already done" or skip.
+- One commit only. Do NOT push. Do not run build, test, or install commands.`;
 }
 
 module.exports = { executeBatch };
