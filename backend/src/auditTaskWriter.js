@@ -71,7 +71,7 @@ async function writeTasksToNotion(auditResult, auditCycleId, payload) {
         safetyReason:        task.safetyReason,
         acceptanceCriteria:  task.acceptanceCriteria,
         batchNumber,
-        builderAgent:        builderAgent || 'claude',
+        builderAgent:        builderAgent || 'qwen_coder',
         notionPageId,
       });
       written.push({ taskNumber: task.taskNumber, title: task.title, notionPageId });
@@ -98,7 +98,7 @@ function buildNotionProperties(task, meta) {
     'Complexity':           { select: { name: task.estimatedComplexity || 'medium' } },
     'Safe to Auto-Execute': { select: { name: task.safeToAutoExecute ? 'Yes' : 'No' } },
     'Source':               { select: { name: 'Project Sentinel Audit' } },
-    'Assigned Builder':     { select: { name: builderAgent || 'claude' } },
+    'Assigned Builder':     { select: { name: builderAgent || 'qwen_coder' } },
     'Batch':                { number: batchNumber },
     'Task Number':          { number: task.taskNumber },
     'Audit Commit':         {

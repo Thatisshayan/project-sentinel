@@ -304,6 +304,26 @@ router.get('/security/portfolio', async (req, res) => {
   }
 });
 
+// ── Builder management ────────────────────────────────────────────────────────
+
+router.post('/system/set-builder', async (req, res) => {
+  try {
+    const { repoName, builder } = req.body;
+    const { getBuilderConfig } = require('./builderRouter');
+    if (!getBuilderConfig(builder)) {
+      return res.status(400).json({ error: `Unknown builder: ${builder}` });
+    }
+    const r = await query(`
+      UPDATE audit_tasks SET builder_agent = $1
+      WHERE repo_full_name LIKE $2 AND status = 'queued'
+      RETURNING id
+    `, [builder, `%/${repoName}`]);
+    res.json({ ok: true, updated: r.rows.length, builder });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Repo actions ──────────────────────────────────────────────────────────────
 
 router.post('/repo/:name/audit', async (req, res) => {

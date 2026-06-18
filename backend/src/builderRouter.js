@@ -176,6 +176,7 @@ function getAiderEnv(config) {
     case 'llama_fast':
       env.OPENAI_API_KEY  = process.env.NVIDIA_API_KEY || '';
       env.OPENAI_API_BASE = 'https://integrate.api.nvidia.com/v1';
+      env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1';
       break;
     case 'qwen_max':
     case 'qwen_plus':
