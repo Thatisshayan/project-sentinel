@@ -429,7 +429,14 @@ async function processNextBatch(repoFullName, repoName, topicId) {
       await updateNotionTaskStatus(task.notion_page_id, 'queued').catch(() => {});
     }
 
-    const errDetail = (batchResult.lastStderr || batchResult.lastStdout || '').slice(-800);
+    // Show stdout (aider conversation) and stderr (errors/warnings) separately
+    // so we can see both what the model did and what errors occurred.
+    const stdoutTail = (batchResult.lastStdout || '').slice(-600);
+    const stderrTail = (batchResult.lastStderr || '').slice(-400);
+    const errDetail  = [
+      stderrTail ? `stderr:\n${stderrTail}` : '',
+      stdoutTail ? `stdout:\n${stdoutTail}` : '',
+    ].filter(Boolean).join('\n\n').slice(-1000);
     await sendTelegramMessage([
       `Project Sentinel — Batch ${batchNum} Failed ❌`,
       ``,

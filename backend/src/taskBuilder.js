@@ -105,11 +105,25 @@ async function executeBatch(tasks, context, builderAssignment) {
         logger.info({ taskNumber: task.task_number, sha: lastCommitSha.slice(0, 7) },
           'Task committed');
       } else {
+        // No commit — check if files were changed but not committed (aider bug or hook failure)
+        let gitStatus = '';
+        try {
+          const st = await repoGit.status();
+          gitStatus = `modified:${st.modified.length} new:${st.created.length} staged:${(st.staged||[]).length}`;
+        } catch (_) {}
         logger.warn({
           taskNumber: task.task_number,
           stdoutTail: lastTaskStdout,
           stderrTail: lastTaskStderr,
+          gitStatus,
         }, 'No new commit found — task may have been skipped by the builder');
+        // Log to agent_messages for UI visibility
+        const { logAgentMessage } = require('./agentDb');
+        await logAgentMessage(
+          'sentinel', 'Sentinel',
+          `Task ${task.task_number} "${task.title}" produced no commit (${gitStatus}).\nStdout:\n${(taskResult.stdout||'').slice(-600)}\nStderr:\n${(taskResult.stderr||'').slice(-200)}`,
+          'error', context.repoName
+        ).catch(() => {});
       }
     }
 
@@ -195,21 +209,9 @@ function installDependencies(repoPath) {
 async function runAiderForTask(repoPath, task, context, builderConfig) {
   installDependencies(repoPath);
 
-  const message = buildAiderTaskMessage(task, context);
-  const msgFile = path.join(repoPath, '.sentinel-aider-task.tmp');
-  fs.writeFileSync(msgFile, message, 'utf8');
-
-  const args = [
-    '--model',        builderConfig.aiderModel,
-    '--yes-always',
-    '--auto-commits',
-    '--no-browser',
-    '--message-file', msgFile,
-  ];
-
-  // Resolve affected_files against the actual repo layout.
-  // Tasks are generated with paths relative to repo root, but monorepos may
-  // have the file under backend/, ui/, src/, etc. Search common subdirs.
+  // Resolve affected_files against the actual repo layout BEFORE building the
+  // message so the resolved paths appear in "Relevant files:" — otherwise the
+  // model might diff the original (non-existent) path and aider silently fails.
   const SEARCH_DIRS = ['', 'backend', 'ui', 'src', 'app', 'lib'];
   const existing = (task.affected_files || []).flatMap(f => {
     for (const dir of SEARCH_DIRS) {
@@ -218,6 +220,21 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
     }
     return [];
   }).slice(0, 8);
+
+  const message = buildAiderTaskMessage(task, context, existing);
+  const msgFile = path.join(repoPath, '.sentinel-aider-task.tmp');
+  fs.writeFileSync(msgFile, message, 'utf8');
+
+  const args = [
+    '--model',        builderConfig.aiderModel,
+    '--yes-always',
+    '--auto-commits',
+    '--no-browser',
+    '--no-stream',
+    '--edit-format',  'diff',
+    '--message-file', msgFile,
+  ];
+
   if (existing.length > 0) args.push(...existing);
 
   return new Promise((resolve) => {
@@ -255,21 +272,27 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
   });
 }
 
-function buildAiderTaskMessage(task, context) {
+function buildAiderTaskMessage(task, context, resolvedFiles) {
+  // Use resolved paths if available — these are the actual paths in the cloned
+  // repo and must match what aider sees when it produces diffs.
+  const filePaths = (resolvedFiles && resolvedFiles.length > 0)
+    ? resolvedFiles.join(', ')
+    : (task.affected_files || []).join(', ') || 'explore the repo to find relevant files';
+
   return `You are an autonomous code improvement agent working on ${context.projectName || context.repoName}.
 
 TASK: ${task.title}
 ${task.description}
 
-Relevant files: ${(task.affected_files || []).join(', ') || 'detect from context'}
+Files to edit: ${filePaths}
 Acceptance criteria: ${task.acceptance_criteria || 'see description above'}
 
 RULES:
 - Make the smallest change that satisfies the task. No refactoring unrelated code.
 - Do NOT touch: .env files, auth/payment logic, database migrations, Dockerfile, CI config.
-- Commit all changes with this exact message: feat(sentinel): ${task.title}
+- ALWAYS make at least one concrete code change and commit it — do not skip or say "already done".
 - One commit only. Do NOT push.
-- CI will validate the build — do not run build or test commands.`;
+- Do not run build, test, or install commands.`;
 }
 
 module.exports = { executeBatch };
