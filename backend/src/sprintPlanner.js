@@ -182,7 +182,12 @@ Respond with ONLY valid JSON:
 
   let proposal;
   try {
-    proposal = JSON.parse(raw.replace(/```json?|```/g, '').trim());
+    const cleaned = raw
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/```json?|```/g, '')
+      .trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    proposal = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
   } catch (err) {
     throw new Error(`Sprint proposal JSON parse failed: ${err.message}\nRaw: ${raw.slice(0, 200)}`);
   }

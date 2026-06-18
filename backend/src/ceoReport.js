@@ -128,7 +128,10 @@ Write a SHORT, direct founder-style weekly update. 3 sections:
 Tone: confident, like a sharp technical co-founder. No fluff. No "I hope this helps."
 Max 200 words. Start with "📊 Weekly Update —" and today's date (${todayStr}).`;
 
-    const ceoNote = await callAI(prompt).catch(() => null);
+    const rawNote = await callAI(prompt).catch(() => null);
+    const ceoNote = rawNote
+      ? rawNote.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+      : null;
 
     const message = ceoNote || [
       `📊 Weekly Update — ${todayStr}`,

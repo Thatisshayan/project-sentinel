@@ -190,7 +190,14 @@ async function runStrategicBrain(topicId) {
     const raw = await callBrainAI(intelligence);
     let decision;
     try {
-      decision = JSON.parse(raw.replace(/```json?|```/g, '').trim());
+      // Strip <think>...</think> blocks — nemotron emits reasoning before JSON.
+      // Must happen before JSON.parse: the string starts with <think>... which is not valid JSON.
+      const cleaned = raw
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/```json?|```/g, '')
+        .trim();
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      decision = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
       validateBrainOutput(decision);
     } catch (parseErr) {
       logger.warn({ raw, err: parseErr.message }, 'Brain returned invalid output — skipping execution');

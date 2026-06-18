@@ -242,7 +242,12 @@ function parseAuditOutput(stdout) {
     throw new Error('Claude Code returned empty audit output');
   }
 
-  const jsonMatch = stdout.match(/\{[\s\S]*\}/);
+  // Strip <think>...</think> blocks — reasoning models (nemotron, deepseek-reasoner)
+  // emit these before JSON. The greedy /\{[\s\S]*\}/ regex can match into a think
+  // block if it contains { characters, producing unparseable text.
+  const stripped = stdout.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+  const jsonMatch = stripped.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     throw new Error('No JSON object found in Claude Code audit output');
   }
@@ -251,7 +256,7 @@ function parseAuditOutput(stdout) {
   try {
     parsed = JSON.parse(jsonMatch[0]);
   } catch (err) {
-    throw new Error(`Failed to parse audit JSON: ${err.message}`);
+    throw new Error(`Failed to parse audit JSON: ${err.message} — raw tail: ${stripped.slice(-200)}`);
   }
 
   validateAuditOutput(parsed);

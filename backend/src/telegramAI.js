@@ -335,9 +335,16 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
 
     let parsed;
     try {
-      parsed = JSON.parse(raw.replace(/```json?|```/g, '').trim());
+      const cleaned = raw
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/```json?|```/g, '')
+        .trim();
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
     } catch {
-      parsed = { action: 'answer', message: raw };
+      // Strip think blocks so they don't leak into Telegram messages
+      const visibleRaw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      parsed = { action: 'answer', message: visibleRaw };
     }
 
     const responseText = parsed.action === 'answer' ? parsed.message : null;
