@@ -46,12 +46,19 @@ async function runSelfAudit() {
       branchName:    'main',
     });
 
-    // Create an audit_cycles row so /sentinel self-approve can find it
+    // Use a unique cycle key so ON CONFLICT never fires — the self-auditor runs
+    // on the same HEAD SHA repeatedly (no new commit between Sunday runs), and
+    // ON CONFLICT DO NOTHING returns null, which then fails the NOT NULL constraint
+    // on audit_task.audit_cycle_id.  A timestamp suffix makes each run unique.
+    const cycleSha = `${commitSha}-self-${Date.now()}`;
     const auditCycle = await createAuditCycle({
       repoFullName: SENTINEL_REPO,
-      commitSha,
+      commitSha:    cycleSha,
       projectName:  'Project Sentinel',
     });
+    if (!auditCycle) {
+      logger.warn({ cycleSha }, 'Could not create self-audit cycle — tasks will be written to Notion only');
+    }
 
     const writeResult = await writeTasksToNotion(auditResult, auditCycle?.id || null, {
       repoFullName:       SENTINEL_REPO,
