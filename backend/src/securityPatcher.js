@@ -55,6 +55,8 @@ async function applySecurityPatches(repoFullName, repoName, issues, topicId) {
     );
 
     const cloneGit   = simpleGit(tmpDir);
+    await cloneGit.addConfig('user.email', 'sentinel@project-sentinel.app');
+    await cloneGit.addConfig('user.name',  'Project Sentinel');
     const branchName = `sentinel/security-patch-${Date.now()}`;
     await cloneGit.checkoutLocalBranch(branchName);
 
