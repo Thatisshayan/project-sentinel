@@ -26,6 +26,7 @@ const {
 const { sendDailyReport }        = require('./dailyReport');
 const { detectPatterns }         = require('./patternDetector');
 const { refreshAllMetrics, refreshRepoMetrics } = require('./portfolioAnalytics');
+const { syncAllRepoMetrics }     = require('./githubMetricsSyncer');
 const { updateDashboard }        = require('./notionDashboard');
 const { generateSprintProposal } = require('./sprintPlanner');
 const { recordWeeklyVelocity }   = require('./velocityTracker');
@@ -348,6 +349,14 @@ function startDailyReportWorker() {
     jobId:  'provider-health-cron',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule provider health cron'));
 
+  // Every 3 hours — sync repo health metrics from GitHub API directly.
+  // This is the fallback source when webhooks are not arriving; it prevents
+  // all repos from showing the default 6.5 health score indefinitely.
+  queue.add('github-metrics-sync', {}, {
+    repeat: { every: 3 * 60 * 60 * 1000 },
+    jobId:  'github-metrics-sync-repeat',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule GitHub metrics sync'));
+
   // Daily 6:55am Toronto — record yesterday's brain outcome before today's decision
   queue.add('brain-outcome', {}, {
     repeat: { pattern: '55 6 * * *', tz: SENTINEL_TZ },
@@ -456,6 +465,10 @@ function startDailyReportWorker() {
     if (job.name === 'provider-health') {
       const { probeAIProviders } = require('./providerHealthCheck');
       await probeAIProviders().catch(e => logger.warn({ err: e.message }, 'Daily provider health probe failed'));
+      return;
+    }
+    if (job.name === 'github-metrics-sync') {
+      await syncAllRepoMetrics().catch(e => logger.warn({ err: e.message }, 'GitHub metrics sync failed'));
       return;
     }
     if (job.name === 'brain-outcome') {

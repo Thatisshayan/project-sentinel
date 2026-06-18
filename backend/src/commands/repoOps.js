@@ -506,6 +506,19 @@ async function handleRepoOpsCmd(subcommand, parts, chatId, topicId) {
       );
       return true;
     }
+    case 'sync-metrics': {
+      await sendTelegramMessage('🔄 Syncing repo health metrics from GitHub API...', null, topicId);
+      const { syncAllRepoMetrics } = require('../githubMetricsSyncer');
+      syncAllRepoMetrics()
+        .then(result => sendTelegramMessage(
+          `✅ Metrics sync complete — ${result?.synced ?? 0}/${result?.total ?? 0} repos updated.`,
+          null, topicId
+        ))
+        .catch(err => sendTelegramMessage(
+          `❌ Metrics sync failed: ${err.message}`, null, topicId
+        ));
+      return true;
+    }
     case 'check-builder': {
       const { execSync: exec } = require('child_process');
       const { listBuilders }   = require('../builderRouter');

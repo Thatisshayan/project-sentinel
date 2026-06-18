@@ -190,6 +190,11 @@ app.listen(PORT, () => {
     startSprintWorker();
     startAgentCleanupWorker();
     logger.info('Workers started');
+    // Seed health metrics from GitHub API on startup so repos don't show 6.5 default
+    const { syncAllRepoMetrics } = require('./githubMetricsSyncer');
+    syncAllRepoMetrics().catch(err =>
+      logger.warn({ err: err.message }, 'Startup GitHub metrics sync failed — non-blocking')
+    );
   } catch (err) {
     logger.error({ err: err.message }, 'Failed to initialise Phase 2 components');
     // Do not crash — Phase 1 still works without Phase 2
