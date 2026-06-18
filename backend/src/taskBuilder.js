@@ -226,13 +226,15 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
   fs.writeFileSync(msgFile, message, 'utf8');
 
   const args = [
-    '--model',        builderConfig.aiderModel,
+    '--model',               builderConfig.aiderModel,
     '--yes-always',
     '--auto-commits',
     '--no-browser',
     '--no-stream',
-    '--edit-format',  'diff',
-    '--message-file', msgFile,
+    '--edit-format',         'diff',
+    '--no-check-update',
+    '--no-suggest-shell-commands',
+    '--message-file',        msgFile,
   ];
 
   if (existing.length > 0) args.push(...existing);
