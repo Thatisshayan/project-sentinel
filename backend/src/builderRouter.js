@@ -31,15 +31,16 @@ const BUILDERS = {
   },
   qwen_coder: {
     id:          'qwen_coder',
-    label:       'Llama 3.3 70B (NVIDIA NIM)',
+    label:       'Codestral 22B (NVIDIA NIM)',
     type:        'openai_compatible',
     // qwen/qwen2.5-coder-32b-instruct reached EOL 2026-05-12 on NVIDIA NIM (HTTP 410).
-    // Using meta/llama-3.3-70b-instruct — strong instruction-following model,
-    // reliably produces aider SEARCH/REPLACE diff blocks.
-    aiderModel:  'openai/meta/llama-3.3-70b-instruct',
+    // Codestral 22B is Mistral AI's code-specialist model — purpose-built for code
+    // editing and reliably produces aider SEARCH/REPLACE diff blocks.
+    aiderModel:  'openai/mistralai/codestral-22b-v0.1',
+    editFormat:  'diff',
     apiBase:     'https://integrate.api.nvidia.com/v1',
     envKey:      'NVIDIA_API_KEY',
-    description: 'Meta Llama 3.3 70B on NVIDIA NIM — primary code builder',
+    description: 'Mistral Codestral 22B on NVIDIA NIM — primary code builder',
   },
   llama_fast: {
     id:          'llama_fast',
@@ -55,6 +56,7 @@ const BUILDERS = {
     label:       'Aider + Gemini 2.5 Pro',
     type:        'aider',
     aiderModel:  'gemini/gemini-2.5-pro',
+    editFormat:  'diff',
     envKey:      'GEMINI_API_KEY',
     description: 'Google free tier — solid quality fallback',
   },
@@ -81,6 +83,7 @@ const BUILDERS = {
     label:       'Qwen 2.5 Coder (DashScope)',
     type:        'openai_compatible',
     aiderModel:  'openai/qwen2.5-coder-32b-instruct',
+    editFormat:  'diff',
     apiBase:     DASHSCOPE_BASE,
     envKey:      'DASHSCOPE_API_KEY',
     description: 'Alibaba code specialist for building tasks',
@@ -99,6 +102,7 @@ const BUILDERS = {
     label:       'Aider + DeepSeek Coder',
     type:        'aider',
     aiderModel:  'deepseek/deepseek-coder',
+    editFormat:  'diff',
     envKey:      'DEEPSEEK_API_KEY',
     description: 'Very cheap — routine low-complexity tasks',
   },

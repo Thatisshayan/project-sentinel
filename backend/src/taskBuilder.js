@@ -225,13 +225,19 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
   const msgFile = path.join(repoPath, '.sentinel-aider-task.tmp');
   fs.writeFileSync(msgFile, message, 'utf8');
 
+  // 'whole' instructs aider to output the complete file contents after edits —
+  // any instruction-following model can do this. 'diff' (SEARCH/REPLACE blocks)
+  // is more token-efficient but requires models specifically trained on the format
+  // (e.g. qwen2.5-coder); generic models like llama/mistral fail silently.
+  const editFormat = builderConfig.editFormat || 'whole';
+
   const args = [
     '--model',               builderConfig.aiderModel,
     '--yes-always',
     '--auto-commits',
     '--no-browser',
     '--no-stream',
-    '--edit-format',         'diff',
+    '--edit-format',         editFormat,
     '--no-check-update',
     '--no-suggest-shell-commands',
     '--map-tokens',          '2048',
