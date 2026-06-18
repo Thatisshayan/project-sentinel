@@ -145,7 +145,7 @@ async function createAuditTask(data) {
     data.title,             data.description,        data.priority,
     data.category,          data.affectedFiles || [], data.complexity,
     data.safeToAutoExecute, data.safetyReason,       data.acceptanceCriteria,
-    data.batchNumber,       data.builderAgent || 'claude',
+    data.batchNumber,       data.builderAgent || 'qwen_coder',
   ]);
   return r.rows[0] || null;
 }
@@ -161,7 +161,7 @@ async function getNextBatch(repoFullName, batchSize) {
     WHERE repo_full_name = $1
       AND status = 'queued'
       AND safe_to_auto_execute = true
-    ORDER BY task_number ASC
+    ORDER BY batch_number ASC, task_number ASC
     LIMIT $2
   `, [repoFullName, batchSize]);
   return r.rows;
