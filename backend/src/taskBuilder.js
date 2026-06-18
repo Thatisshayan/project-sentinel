@@ -234,6 +234,7 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
     '--edit-format',         'diff',
     '--no-check-update',
     '--no-suggest-shell-commands',
+    '--map-tokens',          '2048',
     '--message-file',        msgFile,
   ];
 
