@@ -338,6 +338,18 @@ describe('processNextBatch', () => {
         remainingTasks: 0,
       });
     createPullRequest.mockResolvedValue({ prUrl: 'https://github.com/pr/2', prNumber: 2 });
+
+    // Isolate the fallback chain: only NVIDIA_API_KEY should be available so that
+    // claude_code (ANTHROPIC_API_KEY), qwen_coder_dash (DASHSCOPE_API_KEY), and
+    // gemini (GEMINI_API_KEY) are all skipped, leaving qwen_coder as the winner.
+    const savedAnthropicKey  = process.env.ANTHROPIC_API_KEY;
+    const savedDashscapeKey  = process.env.DASHSCOPE_API_KEY;
+    const savedGeminiKey     = process.env.GEMINI_API_KEY;
+    const savedDeepseekKey   = process.env.DEEPSEEK_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.DASHSCOPE_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.DEEPSEEK_API_KEY;
     process.env.NVIDIA_API_KEY = 'test-key';
 
     await processNextBatch('your-org/tapcash', 'tapcash', null);
@@ -347,6 +359,10 @@ describe('processNextBatch', () => {
     expect(createPullRequest).toHaveBeenCalled();
 
     delete process.env.NVIDIA_API_KEY;
+    if (savedAnthropicKey !== undefined) process.env.ANTHROPIC_API_KEY = savedAnthropicKey;
+    if (savedDashscapeKey !== undefined) process.env.DASHSCOPE_API_KEY = savedDashscapeKey;
+    if (savedGeminiKey    !== undefined) process.env.GEMINI_API_KEY    = savedGeminiKey;
+    if (savedDeepseekKey  !== undefined) process.env.DEEPSEEK_API_KEY  = savedDeepseekKey;
   });
 
   test('on total failure (no fallback succeeds): marks tasks failed and notifies', async () => {
