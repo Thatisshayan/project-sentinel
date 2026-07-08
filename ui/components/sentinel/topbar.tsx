@@ -107,8 +107,12 @@ export function Topbar() {
 
         <Divider />
 
-        <button className="flex items-center gap-1.5 px-2 py-[5px] rounded border border-[#2e2e2e] bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-[#888888] text-[10px]"
-          aria-label="Open command palette (⌘K / Ctrl+K)">
+        <button
+          disabled
+          title="Command palette not yet implemented"
+          className="flex items-center gap-1.5 px-2 py-[5px] rounded border border-[#2e2e2e] bg-white/[0.03] transition-colors text-[#888888] text-[10px] opacity-40 cursor-not-allowed"
+          aria-label="Command palette (not yet implemented)"
+        >
           <Search size={10} />
           <span className="font-mono">⌘K</span>
         </button>
