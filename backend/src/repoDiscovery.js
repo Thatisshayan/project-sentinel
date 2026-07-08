@@ -10,8 +10,16 @@ const {
   markDiscoveredRepoOnboarded,
 } = require('./portfolioDb');
 
-// Sentinel's own repo — never onboard itself as a "new" repo to track.
-const SELF_REPO = 'project-sentinel';
+// Sentinel's own infrastructure — never auto-onboard these as "tracked repos"
+// to audit/build against. Add any other Sentinel-adjacent service here.
+const SELF_REPOS = ['project-sentinel', 'sentinel-ui'];
+
+// Marker row (not a real repo) recording "the one-time baseline seed has
+// run". Deliberately NOT "is discovered_repos empty" — a botched first
+// deploy of this feature already inserted a couple of real rows before this
+// safety check existed, so an emptiness check would wrongly skip baseline
+// seeding and auto-onboard everything else that leaked through.
+const BASELINE_MARKER = '__sentinel_baseline_seeded__';
 
 // Lists every repo the GITHUB_TOKEN's owner can see (public + private),
 // paginated. Works whether GITHUB_ORG is a personal account or a real org —
@@ -43,9 +51,16 @@ async function listAllOwnedRepos() {
   return repos.filter(r => r.owner?.login?.toLowerCase() === org.toLowerCase());
 }
 
-// Scans GitHub for repos not yet known to Sentinel (static WATCHED_REPOS list,
-// previously-discovered repos, or Sentinel itself) and onboards each one:
-// Notion row + GitHub webhook + first audit + Telegram announcement.
+// Scans GitHub for repos not yet known to Sentinel and onboards genuinely
+// NEW ones: Notion row + GitHub webhook + first audit + Telegram announcement.
+//
+// Safety: the very first time this ever runs, `discovered_repos` is empty —
+// that must NOT be read as "every repo on the account is new". Doing so once
+// mass-onboarded 20 unrelated personal repos (including Sentinel's own
+// sibling service) the moment this feature shipped. So the first run instead
+// seeds every repo it currently sees as "known" WITHOUT onboarding anything;
+// only repos that show up in a *later* scan (i.e. actually created after
+// Sentinel started watching) get auto-onboarded.
 async function discoverAndOnboardRepos() {
   if (!process.env.GITHUB_TOKEN) {
     logger.warn('GITHUB_TOKEN not set — repo discovery skipped');
@@ -60,13 +75,34 @@ async function discoverAndOnboardRepos() {
     return { discovered: 0, error: err.message };
   }
 
+  const previouslyKnown = await getDiscoveredRepoNames();
+  const isFirstRun = !previouslyKnown.includes(BASELINE_MARKER);
+
   const known = new Set([
     ...getWatchedRepos().map(r => r.toLowerCase()),
-    ...(await getDiscoveredRepoNames()).map(r => r.toLowerCase()),
-    SELF_REPO.toLowerCase(),
+    ...previouslyKnown.map(r => r.toLowerCase()),
+    ...SELF_REPOS.map(r => r.toLowerCase()),
   ]);
 
   const newRepos = ghRepos.filter(r => !known.has(r.name.toLowerCase()));
+
+  if (isFirstRun) {
+    logger.info(
+      { count: newRepos.length, repos: newRepos.map(r => r.name) },
+      'Repo discovery: first run — seeding baseline without onboarding (these repos already existed)'
+    );
+    for (const repo of newRepos) {
+      await insertDiscoveredRepo({
+        repoName: repo.name, repoFullName: repo.full_name,
+        githubId: repo.id,   isPrivate: repo.private,
+      }).catch(err => logger.warn({ err: err.message, repoName: repo.name }, 'Baseline seed failed'));
+    }
+    await insertDiscoveredRepo({
+      repoName: BASELINE_MARKER, repoFullName: 'internal/baseline-marker',
+      githubId: 0, isPrivate: true,
+    }).catch(err => logger.error({ err: err.message }, 'Failed to write baseline marker — discovery will re-seed next run'));
+    return { discovered: 0, seeded: newRepos.length };
+  }
 
   if (newRepos.length === 0) {
     logger.info({ scanned: ghRepos.length }, 'Repo discovery: no new repos found');
