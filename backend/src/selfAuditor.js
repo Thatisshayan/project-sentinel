@@ -1,5 +1,6 @@
 const logger = require('./logger');
 const axios  = require('axios');
+const { repoFullName } = require('./repoResolver');
 const { sendTelegramMessage }      = require('./telegramClient');
 const { runAudit }                 = require('./claudeCodeAudit');
 const { writeTasksToNotion }       = require('./auditTaskWriter');
@@ -8,8 +9,8 @@ const { createAuditCycle,
 const { createSelfAuditCycle,
         updateSelfAuditCycle }     = require('./selfAuditDb');
 
-const SENTINEL_REPO = 'Thatisshayan/project-sentinel';
 const SENTINEL_NAME = 'project-sentinel';
+const SENTINEL_REPO = repoFullName(SENTINEL_NAME);
 
 async function runSelfAudit() {
   logger.info('Starting Sentinel self-audit');
@@ -45,12 +46,19 @@ async function runSelfAudit() {
       branchName:    'main',
     });
 
-    // Create an audit_cycles row so /sentinel self-approve can find it
+    // Use a unique cycle key so ON CONFLICT never fires — the self-auditor runs
+    // on the same HEAD SHA repeatedly (no new commit between Sunday runs), and
+    // ON CONFLICT DO NOTHING returns null, which then fails the NOT NULL constraint
+    // on audit_task.audit_cycle_id.  A timestamp suffix makes each run unique.
+    const cycleSha = `${commitSha}-self-${Date.now()}`;
     const auditCycle = await createAuditCycle({
       repoFullName: SENTINEL_REPO,
-      commitSha,
+      commitSha:    cycleSha,
       projectName:  'Project Sentinel',
     });
+    if (!auditCycle) {
+      logger.warn({ cycleSha }, 'Could not create self-audit cycle — tasks will be written to Notion only');
+    }
 
     const writeResult = await writeTasksToNotion(auditResult, auditCycle?.id || null, {
       repoFullName:       SENTINEL_REPO,
@@ -58,7 +66,7 @@ async function runSelfAudit() {
       projectName:        'Project Sentinel',
       commitSha,
       notionParentPageId: null,
-      builderAgent:       'nvidia',
+      builderAgent:       'qwen_coder',
       source:             'Sentinel Self-Audit',
     });
 

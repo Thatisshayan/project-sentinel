@@ -8,17 +8,17 @@ Add these:
 | Variable | Value |
 |----------|-------|
 | NOTION_API_KEY | From .env.MD |
-| NOTION_DATABASE_ID | fdeacf62-61e2-4b07-8e16-c19e8df9ffbe |
+| NOTION_DATABASE_ID | `<your-notion-database-id>` |
 | TELEGRAM_BOT_TOKEN | From .env.MD |
-| TELEGRAM_CHAT_ID | -1003524913240 |
+| TELEGRAM_CHAT_ID | `<your-telegram-chat-id>` |
 | GITHUB_TOKEN | From .env.MD |
 | VERCEL_TOKEN | From .env.MD |
 | RAILWAY_TOKEN | From .env.MD |
-| RAILWAY_PROJECT_ID | 4fcfc966-adf8-4e26-aea3-571d67d1cc62 |
+| RAILWAY_PROJECT_ID | `<your-railway-project-id>` |
 
 ## Step 2: Connect GitHub Repo
 In the **sentinel-backend** service → **Settings** → **Connect repo**.
-Select: `Thatisshayan/project-sentinel`
+Select: `<your-github-username>/project-sentinel`
 Root directory: `backend/`
 
 ## Step 3: Deploy

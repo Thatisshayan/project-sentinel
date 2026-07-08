@@ -34,21 +34,33 @@ async function scanDependencies(repoPath, repoFullName, scanId) {
     const fixable     = !!vuln.fixAvailable;
     const autoFixable = fixable && !isSensitiveDep(pkgName) && severity !== 'critical';
 
-    const cveIds = (vuln.via || [])
-      .filter(v => typeof v === 'object' && v.url)
-      .map(v => v.source || null).filter(Boolean);
+    // npm audit's `via` entries don't carry CVE strings — `source` is a numeric
+    // GHSA advisory id and `url` points at the GitHub advisory page. Extract the
+    // GHSA id from the URL (the only thing that looks like a real identifier),
+    // and fall back to the CVSS score npm audit already provides per-advisory.
+    const advisories = (vuln.via || []).filter(v => typeof v === 'object' && v.url);
+    const ghsaIds = advisories
+      .map(v => v.url?.match(/GHSA-[a-z0-9-]+/i)?.[0] || null)
+      .filter(Boolean);
+    const npmCvssScore = advisories.find(v => typeof v.cvss?.score === 'number')?.cvss?.score ?? null;
 
     let cvssScore = null;
-    if (cveIds.length > 0 && process.env.NIST_NVD_API_KEY) {
-      cvssScore = await lookupCvssScore(cveIds[0]).catch(() => null);
+    const firstCveLike = (vuln.via || [])
+      .filter(v => typeof v === 'object')
+      .map(v => v.url?.match(/CVE-\d{4}-\d+/i)?.[0] || null)
+      .find(Boolean) || null;
+
+    if (firstCveLike && process.env.NIST_NVD_API_KEY) {
+      cvssScore = await lookupCvssScore(firstCveLike).catch(() => null);
     }
+    if (cvssScore === null) cvssScore = npmCvssScore;
 
     const issue = {
       scanId, repoFullName, issueType: 'vulnerability', severity,
       title: `${pkgName}: ${vuln.name || severity} vulnerability`,
       description: (vuln.via || []).filter(v => typeof v === 'object')
         .map(v => v.title || '').join('; ').substring(0, 500),
-      cveId: cveIds[0] || null, cvssScore,
+      cveId: firstCveLike || ghsaIds[0] || null, cvssScore,
       fixAvailable: fixable,
       fixDescription: fixable
         ? `npm audit fix${vuln.fixAvailable === true ? '' : ' --force'}`

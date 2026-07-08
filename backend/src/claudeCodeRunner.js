@@ -2,8 +2,8 @@ const { spawn } = require('child_process');
 const logger    = require('./logger');
 
 const BUILD_TIMEOUT_MS = () =>
-  parseInt(process.env.DEBUG_TIMEOUT_MINUTES || '30') * 60 * 1000;
-const BUILD_MODEL = process.env.BUILD_MODEL || 'qwen/qwen2.5-coder-32b-instruct';
+  parseInt(process.env.DEBUG_TIMEOUT_MINUTES || process.env.AIDER_TIMEOUT_MINUTES || '30') * 60 * 1000;
+const BUILD_MODEL = process.env.BUILD_MODEL || 'claude-sonnet-4-6';
 
 function buildTaskPrompt(task, context) {
   const { projectName, repoName } = context;
@@ -31,16 +31,13 @@ RULES — follow every one exactly:
 4. Never change: .env files, auth logic, payments, migrations,
    Dockerfile, CI config, .github/, railway.toml, vercel.json.
 5. Keep changes minimal. Do not over-engineer.
-6. Use Bash to run the build command after changes:
-   - If package.json has "build" script: run npm run build
-   - If package.json has "test" script: run npm test
-   - If build/tests fail: run git checkout -- . and make NO commit.
-7. If build passes, use Bash to commit with this EXACT message:
+6. After making changes, use Bash to commit with this EXACT message:
    feat(sentinel): ${task.title} — Task ${task.task_number}/10
-8. If you cannot complete safely, run git checkout -- . and stop.
-9. One clean commit only. Do NOT push. Backend handles push.
+7. If you cannot complete safely, run git checkout -- . and make NO commit.
+8. One clean commit only. Do NOT push. The backend handles push.
+9. Do NOT run npm install, npm test, npm run build, or any package manager commands.
 
-Conservative and precise. This is a working codebase.`;
+Conservative and precise. This is a live production codebase.`;
 }
 
 async function runClaudeCodeForTask(repoPath, task, context) {
@@ -48,7 +45,7 @@ async function runClaudeCodeForTask(repoPath, task, context) {
 
   return new Promise((resolve) => {
     const args = [
-      '--no-interactive',
+      '--print',
       '--allowedTools', 'Edit,Write,Read,Bash',
       ...(BUILD_MODEL.startsWith('claude') ? ['--model', BUILD_MODEL] : []),
       '-p', prompt,

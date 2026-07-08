@@ -1,0 +1,92 @@
+const axios   = require('axios');
+const logger  = require('./logger');
+
+// T15 — probe each configured AI provider (quick ping, non-blocking).
+// Used at startup (index.js) and on a daily cron (workers.js) so that
+// agents whose key goes bad mid-day are caught too, not just on deploy.
+async function probeAIProviders() {
+  const probes = [
+    {
+      name: 'NVIDIA NIM', key: 'NVIDIA_API_KEY',
+      url:  'https://integrate.api.nvidia.com/v1/models',
+      auth: () => `Bearer ${process.env.NVIDIA_API_KEY}`,
+    },
+    {
+      name: 'Gemini',    key: 'GEMINI_API_KEY',
+      url:  'https://generativelanguage.googleapis.com/v1beta/openai/models',
+      auth: () => `Bearer ${process.env.GEMINI_API_KEY}`,
+    },
+    {
+      name: 'DashScope (Qwen)', key: 'DASHSCOPE_API_KEY',
+      url:  `${process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}/models`,
+      auth: () => `Bearer ${process.env.DASHSCOPE_API_KEY}`,
+    },
+    {
+      name: 'DeepSeek', key: 'DEEPSEEK_API_KEY',
+      url:  'https://api.deepseek.com/models',
+      auth: () => `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+    },
+  ];
+
+  const results = [];
+  for (const p of probes) {
+    if (!process.env[p.key]) {
+      results.push(`  ○ ${p.name}: key not set`);
+      continue;
+    }
+    try {
+      await axios.get(p.url, {
+        headers: { Authorization: p.auth() },
+        timeout: 6000,
+      });
+      results.push(`  ✓ ${p.name}: reachable`);
+      logger.info({ provider: p.name }, 'AI provider reachable');
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 401 || status === 403) {
+        results.push(`  ✗ ${p.name}: key invalid (${status})`);
+      } else if (status === 400) {
+        // 400 = bad request format, not an auth failure — key is likely valid
+        results.push(`  ~ ${p.name}: endpoint format mismatch (key likely OK)`);
+        logger.info({ provider: p.name }, 'AI provider 400 — key likely valid, /models unsupported');
+      } else {
+        results.push(`  ? ${p.name}: ${status || err.code || err.message}`);
+      }
+      logger.warn({ provider: p.name, status }, 'AI provider probe failed');
+    }
+  }
+
+  logger.info({ results }, 'AI provider health check complete');
+
+  // Alert if any keys are definitely invalid (401/403)
+  const invalidProviders = results.filter(r => r.includes('✗'));
+  if (invalidProviders.length > 0) {
+    const { sendTelegramMessage } = require('./telegramClient');
+    await sendTelegramMessage(
+      `🔴 Sentinel AI Provider Alert\n\n` +
+      `${invalidProviders.length} provider(s) have invalid API keys:\n` +
+      `${invalidProviders.join('\n')}\n\n` +
+      `Go to Railway → Variables and update the key(s) to restore those agents.`,
+      null, null
+    ).catch(() => {});
+
+    // Mark affected agents as error so the UI shows truth instead of idle
+    const { markAgentError } = require('./agentDb');
+    const PROVIDER_AGENT_MAP = {
+      'NVIDIA NIM':       ['nvidia', 'qwen_coder', 'llama_fast'],
+      'Gemini':           ['gemini'],
+      'DashScope (Qwen)': ['qwen_coder_dash', 'qwen_max', 'qwen_turbo'],
+      'DeepSeek':         ['deepseek'],
+    };
+    for (const line of invalidProviders) {
+      const provider = line.match(/✗ (.+?):/)?.[1];
+      for (const agentId of (PROVIDER_AGENT_MAP[provider] || [])) {
+        await markAgentError(agentId, 'invalid_api_key').catch(() => {});
+      }
+    }
+  }
+
+  return results;
+}
+
+module.exports = { probeAIProviders };

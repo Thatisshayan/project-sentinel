@@ -97,6 +97,7 @@ async function executeNextSprintTask(sprintId, topicId) {
       repoName:     task.repo_name,
       projectName:  notionProject?.projectName || task.repo_name,
       branchName:   'main',
+      topicId,
     },
     task.builder_agent
   );
@@ -113,6 +114,7 @@ async function executeNextSprintTask(sprintId, topicId) {
         attemptNumber: task.execution_order,
         buildProvider: 'sprint',
         failureReason: task.task_title,
+        kind: 'task',
       },
     });
 

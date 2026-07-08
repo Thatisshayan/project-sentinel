@@ -3,6 +3,7 @@ const axios  = require('axios');
 const { sendTelegramMessage } = require('./telegramClient');
 const { triggerAudit }        = require('./auditOrchestrator');
 const { findNotionProject }   = require('./notionClient');
+const { repoFullName, getGithubOrg } = require('./repoResolver');
 
 function getWatchedRepos() {
   return (process.env.WATCHED_REPOS || '').split(',').map(r => r.trim()).filter(Boolean);
@@ -26,7 +27,7 @@ async function checkAndOnboardNewRepos() {
       const notionClient = require('./notionClient');
       if (typeof notionClient.createNotionProject === 'function') {
         await notionClient.createNotionProject({
-          repoName, priority: 'medium', builderAgent: 'nvidia', healthScore: 0,
+          repoName, priority: 'medium', builderAgent: 'qwen_coder', healthScore: 0,
         }).catch(err => logger.warn({ err: err.message, repoName }, 'Notion row creation failed'));
       } else {
         logger.warn({ repoName }, 'createNotionProject not available — add repo row to Notion manually');
@@ -39,7 +40,7 @@ async function checkAndOnboardNewRepos() {
 
       // 3. Trigger first audit
       await triggerAudit({
-        repoFullName:  `Thatisshayan/${repoName}`,
+        repoFullName:  repoFullName(repoName),
         repoName,
         projectName:   repoName,
         commitSha:     `onboard-${Date.now()}`,
@@ -71,10 +72,10 @@ async function checkAndOnboardNewRepos() {
 async function registerWebhook(repoName) {
   const domain     = process.env.RAILWAY_PUBLIC_DOMAIN;
   if (!domain) { logger.warn({ repoName }, 'RAILWAY_PUBLIC_DOMAIN not set — skipping webhook registration'); return; }
-  const webhookUrl = `https://${domain}/webhook`;
+  const webhookUrl = `https://${domain}/webhook/github`;
 
   await axios.post(
-    `https://api.github.com/repos/Thatisshayan/${repoName}/hooks`,
+    `https://api.github.com/repos/${getGithubOrg()}/${repoName}/hooks`,
     {
       name:   'web',
       active: true,

@@ -3,6 +3,7 @@ const IORedis = require('ioredis');
 const logger  = require('./logger');
 
 let connection = null;
+let lastRedisAlertAt = 0;
 
 function getRedisConnection() {
   if (!connection && process.env.REDIS_URL) {
@@ -12,6 +13,15 @@ function getRedisConnection() {
     });
     connection.on('error', err => {
       logger.error({ err: err.message }, 'Redis connection error');
+      const now = Date.now();
+      if (now - lastRedisAlertAt > 5 * 60 * 1000) {
+        lastRedisAlertAt = now;
+        const { sendTelegramMessage } = require('./telegramClient');
+        sendTelegramMessage(
+          `Project Sentinel — Redis Error ⚠️\n\nBullMQ jobs (build-poll, debug) may not process until Redis recovers.\nError: ${err.message}`,
+          null, null
+        ).catch(() => {});
+      }
     });
   }
   return connection;
@@ -61,13 +71,27 @@ function getDebugQueue() {
 // ── Job creators ─────────────────────────────────────────────────────────────
 
 async function enqueueBuildCheck(data) {
-  const queue = getBuildPollQueue();
-  if (!queue) {
-    logger.warn('REDIS_URL not configured — skipping build check queue');
-    return null;
+  const jobId = `build-check:${data.repoFullName}:${data.commitSha}`;
+
+  // Always write the DB row — health-score analytics (portfolioAnalytics.getRepoStats)
+  // counts build_poll_jobs rows to compute pass rate. This must happen even when Redis
+  // is not configured, otherwise all repos stay at the 6.5 default score forever.
+  try {
+    const { query: dbQuery } = require('./dbClient');
+    await dbQuery(`
+      INSERT INTO build_poll_jobs (job_id, repo_full_name, commit_sha, status)
+      VALUES ($1, $2, $3, 'pending')
+      ON CONFLICT (job_id) DO NOTHING
+    `, [jobId, data.repoFullName, data.commitSha]);
+  } catch (err) {
+    logger.warn({ err: err.message, jobId }, 'Failed to record build_poll_jobs row — non-blocking');
   }
 
-  const jobId = `build-check:${data.repoFullName}:${data.commitSha}`;
+  const queue = getBuildPollQueue();
+  if (!queue) {
+    logger.warn('REDIS_URL not configured — build check queued in DB only, no worker will poll');
+    return null;
+  }
 
   // Do not create duplicate jobs for the same commit
   const existing = await queue.getJob(jobId);

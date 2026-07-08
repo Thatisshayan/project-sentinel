@@ -36,10 +36,10 @@ YOUR RULES:
 3. Do not refactor anything unrelated to the failure.
 4. Do not touch: .env files, auth logic, payment logic, database migrations, Dockerfile, CI config.
 5. If you cannot identify a safe fix with high confidence, do nothing and explain why in a comment.
-6. Run the build command after your fix to verify it passes before committing.
-7. If tests exist (npm test), run them. If they fail, do not commit.
-8. Commit message must be exactly: fix(sentinel): repair ${buildProvider} build failure — attempt ${attemptNumber}
-9. Use one clean commit. Do not create multiple commits.
+6. Do NOT run npm install, npm test, npm run build, or any shell commands. The CI will verify.
+7. Output the ENTIRE contents of each changed file — no elisions, no "..." placeholders.
+8. Use one clean commit only. Do not create multiple commits.
+9. Do NOT push.
 
 Start by reading the relevant files, then apply your fix.`;
 }
@@ -55,11 +55,20 @@ async function runAider(repoPath, context) {
     const msgFile = path.join(repoPath, '.sentinel-aider-msg.tmp');
     fs.writeFileSync(msgFile, message, 'utf8');
 
+    // gemini/gemini-2.5-pro supports SEARCH/REPLACE natively; whole format works for anything else
+    const isCodeSpecialist = /gemini|codestral|qwen.*coder|deepseek.*coder/i.test(model);
+    const editFormat = isCodeSpecialist ? 'diff' : 'whole';
+
     const args = [
       '--model',       model,
       '--yes-always',
       '--no-browser',
+      '--no-stream',
       '--auto-commits',
+      '--no-check-update',
+      '--no-suggest-shell-commands',
+      '--edit-format',  editFormat,
+      '--map-tokens',  '2048',
       '--message-file', msgFile,
     ];
 
@@ -152,6 +161,10 @@ async function cloneAndFix(context) {
     await repoGit.addConfig('user.email', 'sentinel@project-sentinel.app');
     await repoGit.addConfig('user.name',  'Project Sentinel');
 
+    // Record the base commit SHA before branching so we can detect new commits
+    const baseLog = await repoGit.log({ maxCount: 1 });
+    const baseSha = baseLog.latest?.hash || null;
+
     // Create fix branch
     const fixBranch = `sentinel/fix-${attemptNumber}-${Date.now()}`;
     await repoGit.checkoutLocalBranch(fixBranch);
@@ -168,22 +181,26 @@ async function cloneAndFix(context) {
       };
     }
 
-    // Check if Aider made any commits by comparing fix branch to base branch
-    const diffSummary = await repoGit.diffSummary([branchName, fixBranch]);
-    const hasChanges = diffSummary.files.length > 0;
+    // Detect new commits by comparing HEAD SHA to the pre-branch base SHA.
+    // diffSummary([branch, fixBranch]) is unreliable in shallow clones when
+    // aider makes no commits (refs are identical, diff is empty but fn can
+    // behave unexpectedly), so we compare SHAs directly instead.
+    const log = await repoGit.log({ maxCount: 1 });
+    const latestCommit = log.latest;
 
-    if (!hasChanges) {
+    if (!latestCommit || latestCommit.hash === baseSha) {
+      logger.warn({
+        repoFullName,
+        attempt: attemptNumber,
+        aiderTail: aiderResult.stdout.slice(-1000),
+      }, 'Aider made no new commits — cannot_fix');
       return {
         status:      'cannot_fix',
-        reason:      'Aider ran successfully but made no changes — could not identify a safe fix',
+        reason:      'Aider ran successfully but made no new commits — could not identify a safe fix',
         fixBranch,
         aiderOutput: aiderResult.stdout,
       };
     }
-
-    // Get the latest commit on fix branch
-    const log = await repoGit.log({ maxCount: 1 });
-    const latestCommit = log.latest;
 
     // Push fix branch to GitHub
     await repoGit.push('origin', fixBranch);

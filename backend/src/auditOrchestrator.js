@@ -130,12 +130,12 @@ async function triggerAudit(payload) {
   logger.info({ repoFullName, cycleId: cycle.id }, 'Audit cycle started');
 
   // Get builder assignment from Notion
-  let builderAgent = 'nvidia';
+  let builderAgent = 'qwen_coder';
   try {
     const project = await findNotionProject(repoName);
-    builderAgent = project?.builderAgent || 'nvidia';
+    builderAgent = project?.builderAgent || 'qwen_coder';
   } catch (e) {
-    logger.warn({ err: e.message }, 'Could not read builder from Notion — using nvidia');
+    logger.warn({ err: e.message }, 'Could not read builder from Notion — using qwen_coder');
   }
 
   const builderConfig = getBuilderConfig(builderAgent);
@@ -329,7 +329,7 @@ async function processNextBatch(repoFullName, repoName, topicId) {
     await updateNotionTaskStatus(task.notion_page_id, 'in_progress');
   }
 
-  const builderConfig = getBuilderConfig(tasks[0].builder_agent || 'nvidia');
+  const builderConfig = getBuilderConfig(tasks[0].builder_agent || 'qwen_coder');
   const batchNum      = tasks[0].batch_number;
   const taskTitles    = tasks.map(t => `${t.task_number}. ${t.title}`).join('\n');
 
@@ -345,7 +345,7 @@ async function processNextBatch(repoFullName, repoName, topicId) {
 
   const notionProject = await findNotionProject(repoName).catch(() => null);
 
-  const primaryBuilder  = tasks[0].builder_agent || 'nvidia';
+  const primaryBuilder  = tasks[0].builder_agent || 'qwen_coder';
   let   batchResult     = await executeBatch(tasks, {
     repoFullName, repoName,
     projectName: notionProject?.projectName || repoName,
@@ -384,6 +384,7 @@ async function processNextBatch(repoFullName, repoName, topicId) {
         attemptNumber: batchNum,
         buildProvider: 'sentinel-tasks',
         failureReason: `Sentinel improvement batch ${batchNum} — tasks ${completedNums}`,
+        kind: 'task',
       },
     });
 
@@ -421,25 +422,38 @@ async function processNextBatch(repoFullName, repoName, topicId) {
     ].filter(Boolean).join('\n'), null, topicId).catch(() => {});
 
   } else {
+    // Re-queue all tasks so they can be retried — the builder failed (infra/API/aider),
+    // not the tasks themselves. Marking them failed would silently destroy the queue.
     for (const task of tasks) {
-      await updateAuditTask(task.id, {
-        status: 'failed',
-        failure_reason: (batchResult.reason || 'Unknown').substring(0, 500),
-      });
-      await updateNotionTaskStatus(task.notion_page_id, 'failed', {
-        failureReason: batchResult.reason,
-      });
+      await updateAuditTask(task.id, { status: 'queued', failure_reason: null });
+      await updateNotionTaskStatus(task.notion_page_id, 'queued').catch(() => {});
     }
 
+    // Show stdout (aider conversation) and stderr (errors/warnings) separately
+    // so we can see both what the model did and what errors occurred.
+    const stdoutTail = (batchResult.lastStdout || '').slice(-600);
+    const stderrTail = (batchResult.lastStderr || '').slice(-400);
+    const errDetail  = [
+      stderrTail ? `stderr:\n${stderrTail}` : '',
+      stdoutTail ? `stdout:\n${stdoutTail}` : '',
+    ].filter(Boolean).join('\n\n').slice(-1000);
     await sendTelegramMessage([
       `Project Sentinel — Batch ${batchNum} Failed ❌`,
       ``,
       `Repo: ${repoName}`,
       `Reason: ${batchResult.reason || 'Unknown'}`,
+      errDetail ? `\nBuilder output:\n${errDetail}` : '',
       ``,
-      `/sentinel retry ${repoName} — retry batch`,
-      `/sentinel skip-batch ${repoName} ${batchNum} — skip and continue`,
-    ].join('\n'), null, topicId).catch(() => {});
+      `Tasks re-queued. /sentinel execute ${repoName} to retry.`,
+    ].filter(Boolean).join('\n'), null, topicId).catch(() => {});
+
+    // Also log to agent_messages so it's visible in the UI without Telegram
+    const { logAgentMessage } = require('./agentDb');
+    await logAgentMessage(
+      'sentinel', 'Sentinel',
+      `Batch ${batchNum} failed for ${repoName}. Reason: ${batchResult.reason || 'Unknown'}${errDetail ? '\n\nBuilder output:\n' + errDetail : ''}`,
+      'error', repoName
+    ).catch(() => {});
   }
 }
 
@@ -449,10 +463,9 @@ async function handleBuildPassedAfterSentinelMerge(repoFullName, repoName,
                                                     branchName, topicId) {
   await markTasksDoneForBranch(repoFullName, branchName);
 
-  const remainingTasks = await getNextBatch(repoFullName, 1);
-  if (remainingTasks.length > 0) {
-    await processNextBatch(repoFullName, repoName, topicId);
-  }
+  // Always delegate to processNextBatch — it correctly marks the cycle
+  // complete and notifies the user even when zero tasks remain.
+  await processNextBatch(repoFullName, repoName, topicId);
 }
 
 // ── APPROVAL TIMEOUT ──────────────────────────────────────────────────────────

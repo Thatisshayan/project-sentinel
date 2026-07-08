@@ -1,5 +1,7 @@
 const axios  = require('axios');
 const logger = require('./logger');
+const { getGithubOrg } = require('./repoResolver');
+const { validateSprintOutput } = require('./aiOutputValidator');
 const { query }                          = require('./dbClient');
 const { getAllLatestMetrics }            = require('./portfolioDb');
 const { getCapacityStatus, selectBuilder } = require('./capacityManager');
@@ -41,7 +43,7 @@ async function callFreeAI(prompt) {
     const model = SPRINT_MODEL || 'qwen-max';
     logger.info({ model }, 'Sprint planner using DashScope Qwen');
     const res = await axios.post(
-      'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+      `${process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}/chat/completions`,
       { model, messages: [{ role: 'user', content: prompt }], max_tokens: 2000 },
       { headers: { Authorization: `Bearer ${process.env.DASHSCOPE_API_KEY}`, 'Content-Type': 'application/json' }, timeout: 90000 }
     );
@@ -164,7 +166,7 @@ Respond with ONLY valid JSON:
   "tasks": [
     {
       "repoName": "<repo name>",
-      "repoFullName": "Thatisshayan/<repo>",
+      "repoFullName": "${getGithubOrg()}/<repo>",
       "taskTitle": "<title>",
       "taskDescription": "<description>",
       "priority": "critical|high|medium|low",
@@ -180,7 +182,12 @@ Respond with ONLY valid JSON:
 
   let proposal;
   try {
-    proposal = JSON.parse(raw.replace(/```json?|```/g, '').trim());
+    const cleaned = raw
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/```json?|```/g, '')
+      .trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    proposal = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
   } catch (err) {
     throw new Error(`Sprint proposal JSON parse failed: ${err.message}\nRaw: ${raw.slice(0, 200)}`);
   }
@@ -188,6 +195,7 @@ Respond with ONLY valid JSON:
   if (!Array.isArray(proposal.tasks) || proposal.tasks.length === 0) {
     throw new Error('Sprint proposal returned no tasks');
   }
+  validateSprintOutput(proposal);
 
   const avgHealth = metrics.length > 0
     ? metrics.reduce((s, m) => s + parseFloat(m.health_score || 5), 0) / metrics.length

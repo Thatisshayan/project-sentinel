@@ -88,13 +88,13 @@ async function upsertRepoMetrics(data) {
     INSERT INTO portfolio_metrics
       (repo_full_name, repo_name, health_score, build_status,
        priority, builds_passed, builds_failed, tasks_done,
-       tasks_queued, debugger_runs, last_build_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       tasks_queued, debugger_runs, last_build_at, last_commit_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
   `, [
-    data.repoFullName,      data.repoName,         data.healthScore,
-    data.buildStatus,       data.priority,         data.buildsPassedToday,
-    data.buildsFailedToday, data.tasksDoneToday,   data.tasksQueued,
-    data.debuggerRunsToday, data.lastBuildAt,
+    data.repoFullName,      data.repoName,         data.healthScore ?? null,
+    data.buildStatus ?? null, data.priority ?? null, data.buildsPassedToday ?? null,
+    data.buildsFailedToday ?? null, data.tasksDoneToday ?? null, data.tasksQueued ?? null,
+    data.debuggerRunsToday ?? null, data.lastBuildAt ?? null, data.lastCommitAt ?? null,
   ]);
 }
 
@@ -144,6 +144,15 @@ async function getMonthlyCost() {
     SELECT COALESCE(SUM(estimated_cost), 0) as total
     FROM api_costs
     WHERE recorded_at > DATE_TRUNC('month', NOW())
+  `);
+  return parseFloat(r.rows[0]?.total || '0');
+}
+
+async function getWeeklyCost() {
+  const r = await query(`
+    SELECT COALESCE(SUM(estimated_cost), 0) as total
+    FROM api_costs
+    WHERE recorded_at > NOW() - INTERVAL '7 days'
   `);
   return parseFloat(r.rows[0]?.total || '0');
 }
@@ -208,6 +217,7 @@ module.exports = {
   getAllLatestMetrics,
   logApiCost,
   getDailyCost,
+  getWeeklyCost,
   getMonthlyCost,
   getCostByRepo,
   upsertPattern,

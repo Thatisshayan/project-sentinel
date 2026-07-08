@@ -1,8 +1,9 @@
-node_modules/
-.env
-.env.MD
 *.log
 .DS_Store
 .aider*
+.env
+.env.MD
 PHASE2_*.md
+node_modules/
+rwstatus.json
 session-sentinel-phase1-build.md

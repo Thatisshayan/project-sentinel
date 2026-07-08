@@ -1,6 +1,6 @@
 const simpleGit  = require('simple-git');
 const tmp        = require('tmp');
-const { spawn }  = require('child_process');
+const { spawn, execSync } = require('child_process');
 const fs         = require('fs');
 const path       = require('path');
 const logger     = require('./logger');
@@ -8,6 +8,8 @@ const { runClaudeCodeForTask } = require('./claudeCodeRunner');
 const { getBuilderConfig, getAiderEnv } = require('./builderRouter');
 const { updateAuditTask }    = require('./auditDb');
 const { updateNotionTaskStatus } = require('./auditTaskWriter');
+
+const AIDER_TIMEOUT_MS = parseInt(process.env.AIDER_TIMEOUT_MINUTES || '20', 10) * 60 * 1000;
 
 async function executeBatch(tasks, context, builderAssignment) {
   const { repoFullName, branchName, projectName, repoName, topicId } = context;
@@ -35,11 +37,17 @@ async function executeBatch(tasks, context, builderAssignment) {
     await repoGit.addConfig('user.email', 'sentinel@project-sentinel.app');
     await repoGit.addConfig('user.name',  'Project Sentinel');
 
+    // Record the current tip of the base branch before we start work
+    const initialLog = await repoGit.log({ maxCount: 1 });
+    const initialBaseSha = initialLog.latest?.hash || null;
+
     const taskBranch = `sentinel/batch-${batchNum}-tasks-${batchNums}`;
     await repoGit.checkoutLocalBranch(taskBranch);
 
     const completedTasks = [];
     let   lastCommitSha  = null;
+    let   lastTaskStdout = '';
+    let   lastTaskStderr = '';
 
     for (const task of tasks) {
       logger.info({ taskNumber: task.task_number, builder: builderConfig.id },
@@ -73,30 +81,77 @@ async function executeBatch(tasks, context, builderAssignment) {
         if (heartbeatTimer) clearInterval(heartbeatTimer);
       }
 
+      lastTaskStdout = (taskResult.stdout || '').slice(-1500);
+      lastTaskStderr = (taskResult.stderr || '').slice(-1500);
+
       if (!taskResult.success) {
-        logger.warn({ taskNumber: task.task_number, reason: taskResult.reason },
-          'Task failed — stopping batch at this point');
+        logger.warn({
+          taskNumber:  task.task_number,
+          reason:      taskResult.reason || `aider exit code ${taskResult.exitCode}`,
+          stdoutTail:  lastTaskStdout,
+          stderrTail:  lastTaskStderr,
+        }, 'Task failed — stopping batch at this point');
         break;
       }
 
+      // Detect a new commit by SHA, not by matching commit message text —
+      // the AI builder doesn't reliably follow the exact "feat(sentinel): ..."
+      // template, so message-matching silently discarded real commits.
       const log = await repoGit.log({ maxCount: 1 });
-      if (log.latest && log.latest.message.includes('sentinel')) {
-        lastCommitSha = log.latest.hash;
+      const headSha = log.latest?.hash || null;
+      if (headSha && headSha !== (lastCommitSha || initialBaseSha)) {
+        lastCommitSha = headSha;
         completedTasks.push(task);
         logger.info({ taskNumber: task.task_number, sha: lastCommitSha.slice(0, 7) },
           'Task committed');
       } else {
-        logger.warn({ taskNumber: task.task_number },
-          'No sentinel commit found — task may have been skipped by Claude Code');
+        // No commit — check if files were changed but not committed (aider bug or hook failure)
+        let gitStatus = '';
+        try {
+          const st = await repoGit.status();
+          gitStatus = `modified:${st.modified.length} new:${st.created.length} staged:${(st.staged||[]).length}`;
+        } catch (_) {}
+        logger.warn({
+          taskNumber: task.task_number,
+          stdoutTail: lastTaskStdout,
+          stderrTail: lastTaskStderr,
+          gitStatus,
+        }, 'No new commit found — task may have been skipped by the builder');
+        // Log to agent_messages for UI visibility
+        const { logAgentMessage } = require('./agentDb');
+        await logAgentMessage(
+          'sentinel', 'Sentinel',
+          `Task ${task.task_number} "${task.title}" produced no commit (${gitStatus}).\nStdout:\n${(taskResult.stdout||'').slice(-600)}\nStderr:\n${(taskResult.stderr||'').slice(-200)}`,
+          'error', context.repoName
+        ).catch(() => {});
       }
     }
 
     if (completedTasks.length === 0) {
       return {
-        status: 'failed',
-        reason: 'No tasks in the batch produced a commit',
+        status:  'failed',
+        reason:  'No tasks in the batch produced a commit',
         taskBranch,
+        lastStdout: lastTaskStdout,
+        lastStderr: lastTaskStderr,
       };
+    }
+
+    // Check if base branch moved during execution — warn if so (PR may have conflicts)
+    try {
+      await repoGit.fetch('origin', branchName || 'main');
+      const latestLog = await repoGit.log([`origin/${branchName || 'main'}`, '--max-count=1']);
+      const currentBaseSha = latestLog.latest?.hash || null;
+      if (initialBaseSha && currentBaseSha && initialBaseSha !== currentBaseSha) {
+        logger.warn({ repoFullName, initialBaseSha, currentBaseSha }, 'Base branch moved during batch — PR may have merge conflicts');
+        const { sendTelegramMessage } = require('./telegramClient');
+        sendTelegramMessage(
+          `Project Sentinel — Merge Conflict Risk ⚠️\n\nRepo: ${repoName}\nBase branch moved while the batch was running.\nThe PR may have conflicts — review before merging.`,
+          null, topicId
+        ).catch(() => {});
+      }
+    } catch (e) {
+      logger.warn({ err: e.message }, 'Could not check for base branch changes');
     }
 
     await repoGit.push('origin', taskBranch);
@@ -133,21 +188,70 @@ async function executeBatch(tasks, context, builderAssignment) {
   }
 }
 
+function installDependencies(repoPath) {
+  try {
+    if (fs.existsSync(path.join(repoPath, 'package-lock.json'))) {
+      execSync('npm ci --prefer-offline --no-audit', { cwd: repoPath, timeout: 180000, stdio: 'pipe' });
+      logger.info({ repoPath }, 'npm ci complete');
+    } else if (fs.existsSync(path.join(repoPath, 'package.json'))) {
+      execSync('npm install --no-audit', { cwd: repoPath, timeout: 180000, stdio: 'pipe' });
+      logger.info({ repoPath }, 'npm install complete');
+    } else if (fs.existsSync(path.join(repoPath, 'requirements.txt'))) {
+      execSync('pip install -r requirements.txt -q', { cwd: repoPath, timeout: 120000, stdio: 'pipe' });
+      logger.info({ repoPath }, 'pip install complete');
+    } else if (fs.existsSync(path.join(repoPath, 'go.mod'))) {
+      execSync('go mod download', { cwd: repoPath, timeout: 120000, stdio: 'pipe' });
+      logger.info({ repoPath }, 'go mod download complete');
+    }
+  } catch (err) {
+    logger.warn({ err: err.message.slice(0, 300) }, 'Dependency install failed — aider will proceed without pre-installed deps');
+  }
+}
+
 async function runAiderForTask(repoPath, task, context, builderConfig) {
-  const message = buildAiderTaskMessage(task, context);
+  installDependencies(repoPath);
+
+  // Resolve affected_files against the actual repo layout BEFORE building the
+  // message so the resolved paths appear in "Relevant files:" — otherwise the
+  // model might diff the original (non-existent) path and aider silently fails.
+  // Check both flat-repo and monorepo paths. Ordered: exact match first, then
+  // common monorepo subdirs, then shallow roots.
+  const SEARCH_DIRS = [
+    '', 'backend/src', 'backend', 'frontend/src', 'frontend',
+    'ui/src', 'ui', 'server/src', 'server',
+    'src', 'app', 'lib',
+  ];
+  const existing = (task.affected_files || []).flatMap(f => {
+    for (const dir of SEARCH_DIRS) {
+      const candidate = dir ? path.join(dir, f) : f;
+      if (fs.existsSync(path.join(repoPath, candidate))) return [candidate];
+    }
+    return [];
+  }).slice(0, 8);
+
+  const message = buildAiderTaskMessage(task, context, existing);
   const msgFile = path.join(repoPath, '.sentinel-aider-task.tmp');
   fs.writeFileSync(msgFile, message, 'utf8');
 
+  // 'whole' instructs aider to output the complete file contents after edits —
+  // any instruction-following model can do this. 'diff' (SEARCH/REPLACE blocks)
+  // is more token-efficient but requires models specifically trained on the format
+  // (e.g. qwen2.5-coder); generic models like llama/mistral fail silently.
+  const editFormat = builderConfig.editFormat || 'whole';
+
   const args = [
-    '--model',        builderConfig.aiderModel,
+    '--model',               builderConfig.aiderModel,
     '--yes-always',
+    '--auto-commits',
     '--no-browser',
-    '--message-file', msgFile,
+    '--no-stream',
+    '--edit-format',         editFormat,
+    '--no-check-update',
+    '--no-suggest-shell-commands',
+    '--map-tokens',          '2048',
+    '--message-file',        msgFile,
   ];
 
-  const existing = (task.affected_files || [])
-    .filter(f => fs.existsSync(path.join(repoPath, f)))
-    .slice(0, 8);
   if (existing.length > 0) args.push(...existing);
 
   return new Promise((resolve) => {
@@ -163,9 +267,14 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
     proc.stderr.on('data', c => { stderr += c.toString(); });
 
     const timer = setTimeout(() => {
+      const { sendTelegramMessage } = require('./telegramClient');
+      sendTelegramMessage(
+        `Project Sentinel — Aider Timeout ⏱️\n\nTask ${task.task_number}: ${task.title}\nRepo: ${context.repoName}\nAider killed after ${process.env.AIDER_TIMEOUT_MINUTES || 20}m — task skipped.`,
+        null, context.topicId
+      ).catch(() => {});
       proc.kill('SIGTERM');
       resolve({ success: false, reason: 'Aider timed out' });
-    }, 20 * 60 * 1000);
+    }, AIDER_TIMEOUT_MS);
 
     proc.on('close', (code) => {
       clearTimeout(timer);
@@ -180,19 +289,27 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
   });
 }
 
-function buildAiderTaskMessage(task, context) {
-  return `Improvement task on ${context.projectName || context.repoName}.
+function buildAiderTaskMessage(task, context, resolvedFiles) {
+  // Use resolved paths if available — these are the actual paths in the cloned
+  // repo and must match what aider sees when it produces diffs.
+  const filePaths = (resolvedFiles && resolvedFiles.length > 0)
+    ? resolvedFiles.join(', ')
+    : (task.affected_files || []).join(', ') || 'explore the repo to find relevant files';
 
-TASK ${task.task_number}/10: ${task.title}
+  return `You are an autonomous code improvement agent working on ${context.projectName || context.repoName}.
+
+TASK: ${task.title}
 ${task.description}
 
-Files: ${(task.affected_files || []).join(', ')}
-Acceptance: ${task.acceptance_criteria}
+Files to edit: ${filePaths}
+Acceptance criteria: ${task.acceptance_criteria || 'see description above'}
 
-Rules: minimal changes only. No auth/payments/.env/migrations/Dockerfile.
-Run npm run build and npm test. If fail: do not commit.
-Commit: feat(sentinel): ${task.title} — Task ${task.task_number}/10
-One commit. Do NOT push.`;
+RULES:
+- Read each file listed above. Make the minimal targeted change that satisfies the task.
+- Output the ENTIRE contents of each changed file — no elisions, no "..." placeholders.
+- Do NOT touch: .env files, auth/payment logic, database migrations, Dockerfile, CI config.
+- ALWAYS make at least one concrete code change. Do not say "already done" or skip.
+- One commit only. Do NOT push. Do not run build, test, or install commands.`;
 }
 
 module.exports = { executeBatch };

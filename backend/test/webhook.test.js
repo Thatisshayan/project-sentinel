@@ -32,6 +32,10 @@ jest.mock('../src/telegramClient', () => ({
   sendTelegramMessage: jest.fn().mockResolvedValue(true),
 }));
 
+jest.mock('../src/portfolioDb', () => ({
+  upsertRepoMetrics: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../src/deduplication', () => ({
   isAlreadyProcessed: jest.fn().mockResolvedValue(false),
   markAsProcessed:    jest.fn().mockResolvedValue(undefined),
@@ -47,6 +51,7 @@ const { findNotionProject,
 const { sendTelegramMessage }           = require('../src/telegramClient');
 const { isAlreadyProcessed,
         markAsProcessed }               = require('../src/deduplication');
+const { upsertRepoMetrics }             = require('../src/portfolioDb');
 
 const app = express();
 app.use(express.json());
@@ -56,20 +61,20 @@ const payload = {
   ref: 'refs/heads/main',
   repository: {
     name: 'tapcash',
-    full_name: 'Thatisshayan/tapcash',
-    html_url: 'https://github.com/Thatisshayan/tapcash',
+    full_name: 'your-org/tapcash',
+    html_url: 'https://github.com/your-org/tapcash',
   },
   head_commit: {
     id: 'deadbeef1234567890deadbeef1234567890dead',
     message: 'test: verify phase 1',
     url: 'https://github.com/commit/deadbeef',
-    author: { name: 'Shayan' },
+    author: { name: 'Test User' },
     timestamp: '2026-06-10T09:00:00Z',
     added: ['src/utils.js'],
     modified: [],
     removed: [],
   },
-  pusher: { name: 'Shayan' },
+  pusher: { name: 'Test User' },
 };
 
 function sign(body) {
@@ -90,6 +95,7 @@ beforeEach(() => {
   isAlreadyProcessed.mockResolvedValue(false);
   markAsProcessed.mockResolvedValue(undefined);
   sendTelegramMessage.mockResolvedValue(true);
+  upsertRepoMetrics.mockResolvedValue(undefined);
 });
 
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
@@ -172,6 +178,21 @@ describe('POST /webhook/github', () => {
     expect(sendTelegramMessage).not.toHaveBeenCalled();
   });
 
+  test('records last_commit_at in portfolio_metrics after push', async () => {
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(payload))
+      .send(payload);
+    await wait(200);
+    expect(upsertRepoMetrics).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoFullName: 'your-org/tapcash',
+        repoName:     'tapcash',
+        lastCommitAt: expect.any(Date),
+      })
+    );
+  });
+
   test('sends error Telegram when Notion update throws', async () => {
     updateNotionProject.mockRejectedValue(new Error('Notion API 500'));
     await request(app)
@@ -193,11 +214,11 @@ describe('PR event handling (pull_request webhook)', () => {
     pull_request: {
       number: 42,
       merged: true,
-      html_url: 'https://github.com/Thatisshayan/tapcash/pull/42',
+      html_url: 'https://github.com/your-org/tapcash/pull/42',
       head: { ref: 'sentinel/batch-1-tasks-1-5' },
       base: { ref: 'main' },
     },
-    repository: { name: 'tapcash', full_name: 'Thatisshayan/tapcash' },
+    repository: { name: 'tapcash', full_name: 'your-org/tapcash' },
   };
 
   test('ignores pull_request events for non-sentinel branches', async () => {

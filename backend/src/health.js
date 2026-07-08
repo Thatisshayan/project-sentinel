@@ -43,8 +43,12 @@ async function healthCheck(req, res) {
   try {
     const { getRedisConnection } = require('./queueClient');
     const conn = getRedisConnection();
-    await conn.ping();
-    health.services.redis = 'ok';
+    if (!conn) {
+      health.services.redis = 'not_configured';
+    } else {
+      await conn.ping();
+      health.services.redis = 'ok';
+    }
   } catch (err) {
     health.services.redis = 'error';
     logger.warn({ err: err.message }, 'Health: Redis error');

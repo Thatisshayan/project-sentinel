@@ -3,9 +3,10 @@ const { acquireFileLocks, releaseFileLocks,
         releaseExpiredLocks }  = require('./agentDb');
 const { announceConflict,
         sendConflictKeyboard } = require('./agentRoom');
+const { repoFullName: resolveRepoFullName } = require('./repoResolver');
 
 const DEPENDENT_REPOS = [
-  ['Thatisshayan/AlphonsoEcosystem', 'Thatisshayan/session-guard'],
+  [resolveRepoFullName('AlphonsoEcosystem'), resolveRepoFullName('session-guard')],
 ];
 
 // In-memory pending conflicts — resolved via Telegram inline keyboard

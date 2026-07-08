@@ -48,9 +48,9 @@ async function logCost(data) {
 
 async function getSpendSummary(period = 'today') {
   if (!isConfigured()) {
-    const { getDailyCost, getMonthlyCost } = require('./portfolioDb');
-    const [daily, monthly] = await Promise.all([getDailyCost(), getMonthlyCost()]);
-    return { daily, monthly, source: 'local' };
+    const { getDailyCost, getWeeklyCost, getMonthlyCost } = require('./portfolioDb');
+    const [daily, weekly, monthly] = await Promise.all([getDailyCost(), getWeeklyCost(), getMonthlyCost()]);
+    return { daily, weekly, monthly, source: 'local' };
   }
 
   try {
@@ -64,7 +64,7 @@ async function getSpendSummary(period = 'today') {
     return { ...r.data, source: 'costpilot' };
   } catch (err) {
     logger.warn({ err: err.message }, 'CostPilot summary unavailable');
-    return { daily: 0, monthly: 0, source: 'error' };
+    return { daily: 0, weekly: 0, monthly: 0, source: 'error' };
   }
 }
 

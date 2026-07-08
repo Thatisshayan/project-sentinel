@@ -165,27 +165,46 @@ async function checkRailway(repoFullName, commitSha) {
     );
 
     const edges = res.data?.data?.deployments?.edges || [];
-    const match = edges.find(e =>
+
+    // Try exact SHA match first
+    let match = edges.find(e =>
       e.node.meta && e.node.meta.commitHash === commitSha
     );
+
+    // Fallback: Railway often doesn't store commitHash in meta for auto-deploys.
+    // Use the most recent deployment created in the last 15 minutes.
+    if (!match) {
+      const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
+      match = edges.find(e =>
+        new Date(e.node.createdAt).getTime() > fifteenMinutesAgo &&
+        ['SUCCESS', 'FAILED', 'CRASHED', 'BUILDING', 'DEPLOYING'].includes(e.node.status)
+      );
+      if (match) {
+        logger.info({ repoFullName, status: match.node.status },
+          'Railway SHA match failed — using most recent deployment as fallback');
+      }
+    }
 
     if (!match) return { provider: 'railway', status: 'not_configured' };
 
     const node = match.node;
     const statusMap = {
-      SUCCESS:  'success',
-      FAILED:   'failed',
-      CRASHED:  'failed',
-      BUILDING: 'pending',
+      SUCCESS:   'success',
+      FAILED:    'failed',
+      CRASHED:   'failed',
+      BUILDING:  'pending',
       DEPLOYING: 'pending',
-      REMOVED:  'cancelled',
+      REMOVED:   'cancelled',
     };
 
     return {
       provider:      'railway',
       status:        statusMap[node.status] || 'unknown',
       deploymentUrl: node.staticUrl || null,
-      failureReason: null,
+      buildUrl:      `https://railway.app/project/${process.env.RAILWAY_PROJECT_ID}`,
+      failureReason: (node.status === 'FAILED' || node.status === 'CRASHED')
+        ? `Railway deployment ${node.status.toLowerCase()} — check Railway dashboard`
+        : null,
     };
   } catch (err) {
     logger.warn({ err: err.message }, 'Railway check failed');

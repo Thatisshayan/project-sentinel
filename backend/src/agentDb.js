@@ -104,6 +104,14 @@ async function setAgentIdle(agentId, success = true) {
   `, [agentId]);
 }
 
+async function markAgentError(agentId, reason) {
+  await query(`
+    UPDATE agent_registry
+    SET status = 'error', task_title = $2, last_active_at = NOW()
+    WHERE agent_id = $1
+  `, [agentId, reason]);
+}
+
 async function getActiveAgents() {
   const r = await query(`
     SELECT * FROM agent_registry
@@ -146,13 +154,24 @@ async function acquireFileLocks(repoFullName, filePaths, agentId, taskId) {
       conflicts.push({ filePath, lockedBy: existing.rows[0].locked_by });
     } else {
       try {
-        await query(`
+        const inserted = await query(`
           INSERT INTO file_locks
             (repo_full_name, file_path, locked_by, task_id, expires_at)
           VALUES ($1, $2, $3, $4, $5)
           ON CONFLICT (repo_full_name, file_path) DO NOTHING
         `, [repoFullName, filePath, agentId, taskId, expiresAt.toISOString()]);
-        acquired.push(filePath);
+        // ON CONFLICT DO NOTHING means a concurrent acquirer may have won the
+        // race between our SELECT and this INSERT — only count it as acquired
+        // if a row was actually inserted.
+        if (inserted.rowCount > 0) {
+          acquired.push(filePath);
+        } else {
+          const winner = await query(`
+            SELECT locked_by FROM file_locks
+            WHERE repo_full_name = $1 AND file_path = $2
+          `, [repoFullName, filePath]);
+          conflicts.push({ filePath, lockedBy: winner.rows[0]?.locked_by || 'unknown' });
+        }
       } catch (e) {
         conflicts.push({ filePath, lockedBy: 'unknown' });
       }
@@ -216,6 +235,7 @@ module.exports = {
   registerAgent,
   setAgentWorking,
   setAgentIdle,
+  markAgentError,
   getActiveAgents,
   getIdleAgents,
   getAllAgents,

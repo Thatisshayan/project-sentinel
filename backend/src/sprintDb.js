@@ -76,7 +76,7 @@ async function initSprintSchema() {
 async function getCurrentSprint() {
   const r = await query(`
     SELECT * FROM sprints
-    WHERE status IN ('approved','executing','proposed')
+    WHERE status IN ('approved','executing','proposed','paused')
     ORDER BY week_start DESC LIMIT 1
   `);
   return r.rows[0] || null;

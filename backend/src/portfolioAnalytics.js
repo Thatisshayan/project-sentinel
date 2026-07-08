@@ -6,21 +6,24 @@ const {
   getDailyCost,
   getMonthlyCost,
 } = require('./portfolioDb');
+const { repoFullName: makeFullName } = require('./repoResolver');
 
-const REPO_LIST = [
-  { repoName: 'acc',                 repoFullName: 'Thatisshayan/acc' },
-  { repoName: 'tapcash',             repoFullName: 'Thatisshayan/tapcash' },
-  { repoName: 'AlphonsoEcosystem',   repoFullName: 'Thatisshayan/AlphonsoEcosystem' },
-  { repoName: 'session-guard',       repoFullName: 'Thatisshayan/session-guard' },
-  { repoName: 'costpilot',           repoFullName: 'Thatisshayan/costpilot' },
-  { repoName: 'shiporex',            repoFullName: 'Thatisshayan/shiporex' },
-  { repoName: 'aegis',               repoFullName: 'Thatisshayan/aegis' },
-  { repoName: 'mint',                repoFullName: 'Thatisshayan/mint' },
-  { repoName: 'agents-ops-board',    repoFullName: 'Thatisshayan/agents-ops-board' },
-  { repoName: 'founder-social-club', repoFullName: 'Thatisshayan/founder-social-club' },
-  { repoName: 'obsidian-studio',     repoFullName: 'Thatisshayan/obsidian-studio' },
-  { repoName: 'obsidian-media',      repoFullName: 'Thatisshayan/obsidian-media' },
-];
+function buildRepoList() {
+  try {
+    const watched = process.env.WATCHED_REPOS;
+    const names   = watched
+      ? watched.split(',').map(s => s.trim()).filter(Boolean)
+      : ['acc','tapcash','AlphonsoEcosystem','session-guard','costpilot',
+         'shiporex','aegis','mint','agents-ops-board','founder-social-club',
+         'obsidian-studio','obsidian-media'];
+    return names.map(repoName => ({ repoName, repoFullName: makeFullName(repoName) }));
+  } catch {
+    // GITHUB_ORG not set at load time; startup validation in index.js catches this.
+    return [];
+  }
+}
+
+const REPO_LIST = buildRepoList();
 
 const DEFAULT_PRIORITIES = {
   'acc':                 'critical',
@@ -108,9 +111,20 @@ async function getRepoStats(repoFullName, repoName) {
     tasksDoneToday:    taskDone,
     tasksQueued:       taskQueued,
     lastBuildAt:       pollJobs.rows[0]?.last_build || null,
+    // build_poll_jobs is created at webhook-receipt time (one row per push),
+    // so its created_at doubles as "time of last commit/push" — there's no
+    // separate commit-timestamp table.
+    lastCommitAt:      pollJobs.rows[0]?.last_build || null,
     healthScore:       parseFloat(healthScore.toFixed(1)),
     buildStatus,
   };
+}
+
+async function refreshRepoMetrics(repoFullName, repoName) {
+  const priority = DEFAULT_PRIORITIES[repoName] || 'medium';
+  const stats    = await getRepoStats(repoFullName, repoName);
+  await upsertRepoMetrics({ repoFullName, repoName, ...stats, priority });
+  return stats;
 }
 
 async function refreshAllMetrics() {
@@ -156,4 +170,4 @@ async function getPortfolioSummary() {
   };
 }
 
-module.exports = { refreshAllMetrics, getPortfolioSummary, getRepoStats, REPO_LIST };
+module.exports = { refreshAllMetrics, refreshRepoMetrics, getPortfolioSummary, getRepoStats, REPO_LIST };

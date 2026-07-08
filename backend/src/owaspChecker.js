@@ -68,8 +68,12 @@ Be conservative. Do not invent issues.`;
 
   try {
     const response = await callNvidiaForSecurity(prompt);
-    const clean    = response.replace(/```json|```/g, '').trim();
-    evaluation     = JSON.parse(clean);
+    const clean    = response
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/```json|```/g, '')
+      .trim();
+    const arrMatch = clean.match(/\[[\s\S]*\]/);
+    evaluation     = JSON.parse(arrMatch ? arrMatch[0] : clean);
   } catch (err) {
     logger.warn({ err: err.message, repoName }, 'OWASP parse failed — using unknowns');
     evaluation = OWASP_ITEMS.map(item => ({

@@ -12,11 +12,17 @@ function getClient() {
 
 const DATABASE_ID = () => process.env.NOTION_DATABASE_ID;
 
-async function findNotionProject(repoName) {
-  const client    = getClient();
-  const repoLower = repoName.toLowerCase().replace(/[-_]/g, '');
+// Cache the full page list to avoid fetching all pages on every webhook
+const PAGE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const notionPageCache = { pages: null, cachedAt: 0 };
 
-  // Fetch ALL pages in the database (no filter — so we try all of them)
+async function getPageList() {
+  const now = Date.now();
+  if (notionPageCache.pages && (now - notionPageCache.cachedAt) < PAGE_CACHE_TTL_MS) {
+    return notionPageCache.pages;
+  }
+
+  const client = getClient();
   let cursor   = undefined;
   let allPages = [];
 
@@ -29,6 +35,16 @@ async function findNotionProject(repoName) {
     allPages = allPages.concat(response.results);
     cursor   = response.has_more ? response.next_cursor : undefined;
   } while (cursor);
+
+  notionPageCache.pages    = allPages;
+  notionPageCache.cachedAt = now;
+  logger.info({ count: allPages.length }, 'Notion page list cached');
+  return allPages;
+}
+
+async function findNotionProject(repoName) {
+  const repoLower = repoName.toLowerCase().replace(/[-_]/g, '');
+  const allPages  = await getPageList();
 
   function normalize(s) { return (s || '').toLowerCase().replace(/[-_\s]/g, ''); }
 
@@ -74,42 +90,61 @@ async function updateNotionProject(pageId, data) {
     commitMessage, commitSha, commitUrl,
     branchName, authorName, commitTimestamp,
     changedFilesText, filesChangedCount, riskLevel,
+    deploymentStatus, buildProvider, buildUrl,
+    currentProjectState, lastBuildError,
+    highRiskFlag, highRiskReason,
   } = data;
 
   const now = new Date().toISOString();
 
-  const allProperties = {
-    'Last Commit Message': {
-      rich_text: [{ text: { content: String(commitMessage).substring(0, 2000) } }],
-    },
-    'Last Commit Hash': {
-      rich_text: [{ text: { content: String(commitSha).substring(0, 100) } }],
-    },
-    'Last Commit URL': {
-      url: commitUrl || null,
-    },
-    'Last Branch': {
-      rich_text: [{ text: { content: String(branchName).substring(0, 100) } }],
-    },
-    'Last Commit Author': {
-      rich_text: [{ text: { content: String(authorName).substring(0, 100) } }],
-    },
-    'Last Commit Date': {
-      date: { start: commitTimestamp },
-    },
-    'Changed Files': {
-      rich_text: [{ text: { content: String(changedFilesText).substring(0, 2000) } }],
-    },
-    'Files Changed Count': {
-      number: filesChangedCount,
-    },
-    'Last Updated': {
-      date: { start: now },
-    },
-    'Risk Level': {
-      select: { name: riskLevel },
-    },
-  };
+  // Only include a field when the caller explicitly provides a non-undefined
+  // value — callers like the build-poll worker set only build-related fields
+  // and must not clobber commit metadata that was already written by the webhook.
+  const allProperties = {};
+  if (commitMessage !== undefined)
+    allProperties['Last Commit Message'] = { rich_text: [{ text: { content: String(commitMessage).substring(0, 2000) } }] };
+  if (commitSha !== undefined)
+    allProperties['Last Commit Hash']    = { rich_text: [{ text: { content: String(commitSha).substring(0, 100) } }] };
+  if (commitUrl !== undefined)
+    allProperties['Last Commit URL']     = { url: commitUrl || null };
+  if (branchName !== undefined)
+    allProperties['Last Branch']         = { rich_text: [{ text: { content: String(branchName).substring(0, 100) } }] };
+  if (authorName !== undefined)
+    allProperties['Last Commit Author']  = { rich_text: [{ text: { content: String(authorName).substring(0, 100) } }] };
+  if (commitTimestamp !== undefined)
+    allProperties['Last Commit Date']    = { date: { start: commitTimestamp } };
+  if (changedFilesText !== undefined)
+    allProperties['Changed Files']       = { rich_text: [{ text: { content: String(changedFilesText).substring(0, 2000) } }] };
+  if (filesChangedCount !== undefined)
+    allProperties['Files Changed Count'] = { number: filesChangedCount };
+  if (riskLevel !== undefined)
+    allProperties['Risk Level']          = { select: { name: riskLevel } };
+  allProperties['Last Updated']          = { date: { start: now } };
+
+  // Optional fields — only sent when the caller actually provides them, so
+  // callers that don't track build/risk state (e.g. plain push events) don't
+  // clobber existing Notion values with blanks.
+  if (deploymentStatus !== undefined) {
+    allProperties['Deployment Status'] = { select: { name: deploymentStatus } };
+  }
+  if (buildProvider !== undefined) {
+    allProperties['Build Provider'] = { select: { name: String(buildProvider || '').substring(0, 100) } };
+  }
+  if (buildUrl !== undefined) {
+    allProperties['Build URL'] = { url: buildUrl || null };
+  }
+  if (currentProjectState !== undefined) {
+    allProperties['Current Project State'] = { select: { name: currentProjectState } };
+  }
+  if (lastBuildError !== undefined) {
+    allProperties['Last Build Error'] = { rich_text: [{ text: { content: String(lastBuildError || '').substring(0, 2000) } }] };
+  }
+  if (highRiskFlag !== undefined) {
+    allProperties['High Risk'] = { select: { name: highRiskFlag } };
+  }
+  if (highRiskReason !== undefined) {
+    allProperties['High Risk Reason'] = { rich_text: [{ text: { content: String(highRiskReason || '').substring(0, 2000) } }] };
+  }
 
   try {
     await getClient().pages.update({
@@ -198,4 +233,9 @@ async function updateBuilderAgent(pageId, agentId) {
   });
 }
 
-module.exports = { findNotionProject, updateNotionProject, appendChangelog, updateBuilderAgent };
+function bustNotionCache() {
+  notionPageCache.pages    = null;
+  notionPageCache.cachedAt = 0;
+}
+
+module.exports = { findNotionProject, updateNotionProject, appendChangelog, updateBuilderAgent, bustNotionCache };

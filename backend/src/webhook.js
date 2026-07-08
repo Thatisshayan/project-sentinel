@@ -9,6 +9,8 @@ const { sendTelegramMessage }                              = require('./telegram
 const { isAlreadyProcessed, markAsProcessed }              = require('./deduplication');
 const { enqueueBuildCheck }                                = require('./queueClient');
 const { query }                                            = require('./dbClient');
+const { upsertRepoMetrics }                                = require('./portfolioDb');
+const { refreshRepoMetrics }                               = require('./portfolioAnalytics');
 
 const router = express.Router();
 
@@ -28,7 +30,12 @@ function verifySignature(req, res, next) {
     return res.status(401).json({ error: 'Missing signature header' });
   }
 
-  const body     = JSON.stringify(req.body);
+  // Use the raw request bytes (captured by express.json's verify hook in
+  // index.js), not JSON.stringify(req.body) — re-serializing the parsed
+  // object does not reproduce GitHub's original byte stream (whitespace,
+  // key order, escaping can differ), which would cause valid webhooks to
+  // intermittently fail signature verification.
+  const body     = req.rawBody || Buffer.from(JSON.stringify(req.body));
   const expected = 'sha256=' + crypto
     .createHmac('sha256', process.env.GITHUB_WEBHOOK_SECRET)
     .update(body)
@@ -191,6 +198,20 @@ async function processWebhook(payload) {
   } catch (err) {
     logger.error({ err: err.message, repoName }, 'Telegram send failed');
   }
+
+  // Record the commit event (no health score — analytics module owns that).
+  // Then immediately refresh real metrics so the score reflects current
+  // build data rather than staying at the stale hardcoded 6.5 placeholder.
+  upsertRepoMetrics({
+    repoFullName: data.repoFullName,
+    repoName:     data.repoName,
+    lastCommitAt: data.commitTimestamp ? new Date(data.commitTimestamp) : new Date(),
+    buildStatus:  'unknown',
+    priority:     'medium',
+  }).catch(err => logger.warn({ err: err.message }, 'Metrics upsert failed — non-blocking'));
+
+  refreshRepoMetrics(data.repoFullName, data.repoName)
+    .catch(err => logger.warn({ err: err.message }, 'Post-push metrics refresh failed — non-blocking'));
 
   // T11 — trigger security scan immediately on high-risk pushes (don't wait for build pass)
   if (notionProject && data.riskLevel === 'High') {

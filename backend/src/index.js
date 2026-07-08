@@ -19,72 +19,29 @@ try { ({ checkAndOnboardNewRepos } = require('./repoOnboarder')); } catch {}
 
 async function probeTools() {
   const { execSync } = require('child_process');
-  const axios        = require('axios');
+  const { logAgentMessage } = require('./agentDb');
 
-  // Check aider
+  // Check aider — log result to agent_messages so it appears in the UI
   try {
     const v = execSync('aider --version 2>&1', { timeout: 8000 }).toString().trim();
     logger.info({ version: v }, 'Aider is available');
+    await logAgentMessage('sentinel', 'Sentinel', `Builder ready: ${v}`, 'info', null).catch(() => {});
   } catch {
     logger.warn('Aider not found in PATH — builder tasks will fail');
+    await logAgentMessage('sentinel', 'Sentinel', 'WARNING: aider not found in PATH — builder tasks will fail. Check Railway deploy logs.', 'error', null).catch(() => {});
     const { sendTelegramMessage } = require('./telegramClient');
     await sendTelegramMessage(
       'Project Sentinel WARNING: `aider` not found in PATH on this instance.\n' +
-      'Builder tasks will fail until fixed. Check Railway deploy logs.',
+      'Builder tasks will fail until fixed. Run /sentinel check-builder for details.',
       null, null
     ).catch(() => {});
   }
 
-  // T15 — probe each configured AI provider (quick ping, non-blocking)
-  const probes = [
-    {
-      name: 'NVIDIA NIM', key: 'NVIDIA_API_KEY',
-      url:  'https://integrate.api.nvidia.com/v1/models',
-      auth: () => `Bearer ${process.env.NVIDIA_API_KEY}`,
-    },
-    {
-      name: 'Gemini',    key: 'GEMINI_API_KEY',
-      url:  'https://generativelanguage.googleapis.com/v1beta/openai/models',
-      auth: () => `Bearer ${process.env.GEMINI_API_KEY}`,
-    },
-    {
-      name: 'DashScope (Qwen)', key: 'DASHSCOPE_API_KEY',
-      url:  'https://dashscope.aliyuncs.com/compatible-mode/v1/models',
-      auth: () => `Bearer ${process.env.DASHSCOPE_API_KEY}`,
-    },
-    {
-      name: 'DeepSeek', key: 'DEEPSEEK_API_KEY',
-      url:  'https://api.deepseek.com/models',
-      auth: () => `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-    },
-  ];
-
-  const results = [];
-  for (const p of probes) {
-    if (!process.env[p.key]) {
-      results.push(`  ○ ${p.name}: key not set`);
-      continue;
-    }
-    try {
-      await axios.get(p.url, {
-        headers: { Authorization: p.auth() },
-        timeout: 6000,
-      });
-      results.push(`  ✓ ${p.name}: reachable`);
-      logger.info({ provider: p.name }, 'AI provider reachable');
-    } catch (err) {
-      const status = err.response?.status;
-      // 401/403 means key is wrong but endpoint is reachable; 200+ means OK
-      if (status === 401 || status === 403) {
-        results.push(`  ✗ ${p.name}: key invalid (${status})`);
-      } else {
-        results.push(`  ? ${p.name}: ${status || err.code || err.message}`);
-      }
-      logger.warn({ provider: p.name, status }, 'AI provider probe failed');
-    }
-  }
-
-  logger.info({ results }, 'AI provider health check complete');
+  // T15 — probe each configured AI provider at startup (quick ping, non-blocking).
+  // Also re-run daily via the 'provider-health' job in workers.js so keys that
+  // go bad mid-day (not just on deploy) get caught and surfaced as agent errors.
+  const { probeAIProviders } = require('./providerHealthCheck');
+  await probeAIProviders();
 }
 
 const REQUIRED = [
@@ -94,21 +51,21 @@ const REQUIRED = [
   'NOTION_DATABASE_ID',
   'TELEGRAM_BOT_TOKEN',
   'TELEGRAM_CHAT_ID',
+  'DEBUGGER_SHARED_SECRET',
+  'GITHUB_ORG',
 ];
 // Phase 2 vars (optional - will work without them but Phase 2 features disabled)
 const PHASE2_VARS = [
   'GITHUB_TOKEN',
   'DATABASE_URL',
   'REDIS_URL',
-  'DEBUGGER_SHARED_SECRET',
 ];
 
 const missing = REQUIRED.filter(k => !process.env[k] || process.env[k].trim() === '');
 
 if (missing.length > 0) {
-  console.error('\n❌ SENTINEL STARTUP FAILED — Missing environment variables:\n');
-  missing.forEach(k => console.error(`   • ${k}`));
-  console.error('\nSet these in Railway Variables (production) or .env (local).\n');
+  logger.fatal({ missing }, 'SENTINEL STARTUP FAILED — missing required environment variables');
+  missing.forEach(k => logger.fatal(`   • ${k}`));
   process.exit(1);
 }
 
@@ -117,28 +74,42 @@ if (missingPhase2.length > 0) {
   logger.warn({ missing: missingPhase2 }, 'Phase 2 environment variables not set — Phase 2 features disabled');
 }
 
+if (process.env.NODE_ENV === 'production' && !process.env.SENTINEL_UI_KEY?.trim()) {
+  logger.fatal('SENTINEL STARTUP FAILED — SENTINEL_UI_KEY must be set in production to protect the UI API');
+  process.exit(1);
+}
+
 const express = require('express');
 const app     = express();
 const { handleCommand, handleCallbackQuery } = require('./telegramCommands');
 
-app.use(express.json({ limit: '5mb' }));
+// Capture the raw request body bytes alongside the parsed JSON so webhook
+// signature verification (e.g. GitHub's x-hub-signature-256) can HMAC the
+// exact bytes that were sent instead of a re-serialized JS object, which
+// would not reliably reproduce GitHub's signature (different whitespace/key
+// order/escaping) and would cause valid webhooks to fail verification.
+app.use(express.json({
+  limit: '5mb',
+  verify: (req, res, buf) => { req.rawBody = buf; },
+}));
 app.set('trust proxy', 1);
 
 app.use('/webhook', require('./webhook'));
 app.get('/health',  require('./health'));
+app.use('/api',     require('./api'));
 
 // Telegram webhook for /sentinel commands
 app.post('/webhook/telegram', async (req, res) => {
   const expectedSecret = process.env.DEBUGGER_SHARED_SECRET;
   const secret = req.headers['x-telegram-bot-api-secret-token'];
-  
-  if (expectedSecret && secret !== expectedSecret) {
+
+  if (!expectedSecret) {
+    logger.error({ ip: req.ip }, 'DEBUGGER_SHARED_SECRET not set — rejecting Telegram webhook');
+    return res.status(401).json({ error: 'Webhook secret not configured on server' });
+  }
+  if (secret !== expectedSecret) {
     logger.warn({ ip: req.ip }, 'Telegram webhook secret mismatch');
     return res.status(401).json({ error: 'Invalid secret' });
-  }
-  
-  if (!expectedSecret) {
-    logger.warn('DEBUGGER_SHARED_SECRET not set — skipping secret validation');
   }
 
   const cb = req.body.callback_query;
@@ -219,6 +190,25 @@ app.listen(PORT, () => {
     startSprintWorker();
     startAgentCleanupWorker();
     logger.info('Workers started');
+
+    // Reset tasks stuck in 'in_progress' from a previous deploy that was killed
+    // mid-execution. Without this, tasks never return to 'queued' and the
+    // pipeline stalls permanently after every Railway redeploy.
+    const { query: dbCleanup } = require('./dbClient');
+    const stale = await dbCleanup(`
+      UPDATE audit_tasks SET status = 'queued', updated_at = NOW()
+      WHERE status = 'in_progress'
+      RETURNING id, repo_full_name
+    `).catch(() => null);
+    if (stale?.rows?.length) {
+      logger.info({ count: stale.rows.length }, 'Startup: reset in_progress tasks to queued');
+    }
+
+    // Seed health metrics from GitHub API on startup so repos don't show 6.5 default
+    const { syncAllRepoMetrics } = require('./githubMetricsSyncer');
+    syncAllRepoMetrics().catch(err =>
+      logger.warn({ err: err.message }, 'Startup GitHub metrics sync failed — non-blocking')
+    );
   } catch (err) {
     logger.error({ err: err.message }, 'Failed to initialise Phase 2 components');
     // Do not crash — Phase 1 still works without Phase 2

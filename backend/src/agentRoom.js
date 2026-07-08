@@ -399,12 +399,18 @@ async function getAgentRoomSummary() {
 
   const working = agents.filter(a => a.status === 'working');
   const idle    = agents.filter(a => a.status === 'idle');
+  const errored = agents.filter(a => a.status === 'error');
 
   const agentLines = agents.map(a => {
     const emoji  = getEmoji(a.agent_id);
-    const status = a.status === 'working'
-      ? `working on ${a.repo_full_name?.split('/')[1]} — ${a.task_title?.substring(0, 40)}`
-      : `idle (${a.completed_tasks} done)`;
+    let status;
+    if (a.status === 'working') {
+      status = `working on ${a.repo_full_name?.split('/')[1]} — ${a.task_title?.substring(0, 40)}`;
+    } else if (a.status === 'error') {
+      status = `🔴 ERROR (${a.task_title || 'unknown reason'}) — needs attention`;
+    } else {
+      status = `idle (${a.completed_tasks} done)`;
+    }
     return `${emoji} ${a.agent_label}: ${status}`;
   }).join('\n');
 
@@ -416,7 +422,7 @@ async function getAgentRoomSummary() {
   return [
     `🛡️ Agent Room Status`,
     ``,
-    `Active: ${working.length}  Idle: ${idle.length}`,
+    `Active: ${working.length}  Idle: ${idle.length}${errored.length > 0 ? `  🔴 Error: ${errored.length}` : ''}`,
     ``,
     agentLines || 'No agents registered yet.',
     ``,

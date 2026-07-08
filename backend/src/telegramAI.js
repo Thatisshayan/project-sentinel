@@ -1,6 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const axios     = require('axios');
 const logger    = require('./logger');
+const { repoFullName }         = require('./repoResolver');
 const { getPortfolioSummary }  = require('./portfolioAnalytics');
 const { getOpenPatterns,
         getDailyCost,
@@ -27,6 +28,40 @@ const { saveMessage,
         formatHistoryForPrompt } = require('./conversationMemory');
 
 const CHAT_MODEL = process.env.CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct';
+
+async function storeRedisContext(topicId, sender, message) {
+  try {
+    const { getRedisConnection } = require('./queueClient');
+    const redis = getRedisConnection();
+    if (!redis) return;
+    const key = `sentinel:context:${topicId || 'general'}`;
+    await redis.lpush(key, `[${sender}] ${message.substring(0, 200)}`);
+    await redis.ltrim(key, 0, 9);
+    await redis.expire(key, 3600);
+  } catch (e) {
+    logger.warn({ err: e.message }, 'Redis context store failed');
+  }
+}
+
+async function getRedisContext(topicId) {
+  try {
+    const { getRedisConnection } = require('./queueClient');
+    const redis = getRedisConnection();
+    if (!redis) return [];
+    const key = `sentinel:context:${topicId || 'general'}`;
+    const messages = await redis.lrange(key, 0, 9);
+    return messages.reverse(); // oldest first
+  } catch (e) {
+    logger.warn({ err: e.message }, 'Redis context fetch failed');
+    return [];
+  }
+}
+
+// Normalize AI-generated repo names (e.g. "projectSentinel") to canonical kebab names
+function resolveRepoName(input) {
+  const { canonicalizeRepoName } = require('./repoResolver');
+  return canonicalizeRepoName(input);
+}
 
 // Pick which agent should "speak" for a given message in the agent room
 function pickSpeakingAgent(messageText) {
@@ -70,7 +105,23 @@ NATURAL LANGUAGE TRIGGERS:
 - "build <feature>"                  → action: create_task
 - "start working on <repo>"          → action: execute_tasks
 - "run the tasks for <repo>"         → action: execute_tasks
+- "execute <repo>"                   → action: execute_tasks
+- "go on <repo>"                     → action: execute_tasks
+- "<agent> work on <repo>"           → action: execute_tasks
+- "start the task for <repo>"        → action: execute_tasks
+- "<agent> start <repo>"             → action: execute_tasks
 - "audit <repo>"                     → action: trigger_audit
+- "good morning" / "morning"         → action: send_report
+- "what needs attention?"            → action: send_report
+- "what's urgent?" / "what's broken" → action: send_report
+- "daily update" / "status update"   → action: send_report
+- "what are we working on?"          → action: show_agents
+- "who is working?"                  → action: show_agents
+- "how much have we spent?"          → action: show_costs
+- "cost update"                      → action: show_costs
+
+REPO NAMES (always use exact spelling in the "repo" field — never invent camelCase):
+acc, tapcash, AlphonsoEcosystem, session-guard, costpilot, shiporex, aegis, mint, agents-ops-board, founder-social-club, obsidian-studio, obsidian-media, project-sentinel
 
 AGENT IDs: nvidia, qwen_coder, qwen_coder_dash, llama_fast, gemini, qwen_max, qwen_plus, qwen_turbo, deepseek, opencode
 
@@ -165,7 +216,7 @@ async function callChatAPI(prompt) {
 
   if (process.env.DASHSCOPE_API_KEY) {
     const response = await axios.post(
-      'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+      `${process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}/chat/completions`,
       {
         model:      'qwen-max',
         messages:   [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],
@@ -227,13 +278,21 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
   logger.info({ from: fromName, text: messageText.substring(0, 80), speakingAgent },
     'AI handling Telegram message');
 
+  // Store this incoming message in Redis context window (non-blocking)
+  storeRedisContext(topicId, fromName, messageText).catch(() => {});
+
   try {
-    const [context, history] = await Promise.all([
+    const [context, history, recentActivity] = await Promise.all([
       buildContext(),
       getHistory(topicId, 15).catch(() => []),
+      getRedisContext(topicId),
     ]);
 
     const historySection = formatHistoryForPrompt(history);
+
+    const recentSection = recentActivity.length > 0
+      ? `\nRecent activity in this chat:\n${recentActivity.join('\n')}\n`
+      : '';
 
     const agentSection = roomContext
       ? `\nAGENT ROOM CONTEXT:\n${roomContext}\n`
@@ -267,7 +326,7 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
       } catch {}
     }
 
-    const prompt = `${personalityPrefix}${context}${historySection}${agentSection}${directAddressSection}${mentionSection}\nMessage from ${fromName}: ${messageText}`;
+    const prompt = `${personalityPrefix}${context}${historySection}${recentSection}${agentSection}${directAddressSection}${mentionSection}\nMessage from ${fromName}: ${messageText}`;
 
     const raw = await callChatAPI(prompt) ||
       '{"action":"answer","message":"Sorry, I had trouble understanding that."}';
@@ -276,15 +335,27 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
 
     let parsed;
     try {
-      parsed = JSON.parse(raw.replace(/```json?|```/g, '').trim());
+      const cleaned = raw
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/```json?|```/g, '')
+        .trim();
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
     } catch {
-      parsed = { action: 'answer', message: raw };
+      // Strip think blocks so they don't leak into Telegram messages
+      const visibleRaw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      parsed = { action: 'answer', message: visibleRaw };
     }
 
     const responseText = parsed.action === 'answer' ? parsed.message : null;
 
     // Save to memory (non-blocking)
     saveMessage(topicId, fromName, messageText, responseText, speakingAgent).catch(() => {});
+
+    // Store Sentinel's response in the Redis context window too
+    if (responseText) {
+      storeRedisContext(topicId, `Sentinel${speakingAgent ? `/${speakingAgent}` : ''}`, responseText).catch(() => {});
+    }
 
     // Route response through the speaking agent's bot when possible
     if (speakingAgent && parsed.action === 'answer' && parsed.message) {
@@ -305,37 +376,54 @@ async function handleMessage(messageText, fromName, topicId, roomContext,
   }
 }
 
+const REPO_REQUIRED_ACTIONS = ['execute_tasks', 'trigger_audit', 'stop_repo', 'assign_repo', 'create_task'];
+
 async function executeAction(action, topicId) {
-  const repoFullName = action.repo ? `Thatisshayan/${action.repo}` : null;
+  const resolved        = action.repo ? resolveRepoName(action.repo) : null;
+  const repoName        = resolved?.repoName || null;
+  const repoFullNameVal = resolved?.repoFullName || null;
+
+  // If the AI named a repo that doesn't match anything real, refuse instead of
+  // guessing a fake full name — a guessed name 404s on git clone, silently
+  // burning a task/audit attempt instead of telling the user what went wrong.
+  if (action.repo && !resolved && REPO_REQUIRED_ACTIONS.includes(action.action)) {
+    const { REPO_LIST } = require('./portfolioAnalytics');
+    const known = [...REPO_LIST.map(r => r.repoName), 'project-sentinel'].join(', ');
+    await sendTelegramMessage(
+      `I don't recognize repo "${action.repo}". Known repos: ${known}`,
+      null, topicId
+    ).catch(() => {});
+    return;
+  }
 
   switch (action.action) {
     case 'execute_tasks':
-      if (!repoFullName) break;
+      if (!repoFullNameVal) break;
       await sendTelegramMessage(
-        `Starting task execution for ${action.repo}...`, null, topicId
+        `Starting task execution for ${repoName}...`, null, topicId
       ).catch(() => {});
-      executeApprovedTasks(repoFullName, action.repo, topicId)
+      executeApprovedTasks(repoFullNameVal, repoName, topicId)
         .catch(err => logger.error({ err: err.message }, 'AI execute failed'));
       break;
 
     case 'trigger_audit':
-      if (!repoFullName) break;
+      if (!repoFullNameVal) break;
       await sendTelegramMessage(
-        `Triggering audit for ${action.repo}...`, null, topicId
+        `Triggering audit for ${repoName}...`, null, topicId
       ).catch(() => {});
       triggerAudit({
-        repoFullName, repoName: action.repo,
-        projectName: action.repo, commitSha: `manual-${Date.now()}`,
+        repoFullName: repoFullNameVal, repoName,
+        projectName: repoName, commitSha: `manual-${Date.now()}`,
         commitMessage: '[manual-audit]', branchName: 'main',
         authorName: 'Human', authorEmail: '', topicId,
       }).catch(err => logger.error({ err: err.message }, 'AI audit failed'));
       break;
 
     case 'stop_repo':
-      if (!repoFullName) break;
-      await stopAllTasksForRepo(repoFullName);
+      if (!repoFullNameVal) break;
+      await stopAllTasksForRepo(repoFullNameVal);
       await sendTelegramMessage(
-        `All tasks and audits stopped for ${action.repo}.`, null, topicId
+        `All tasks and audits stopped for ${repoName}.`, null, topicId
       ).catch(() => {});
       break;
 
@@ -389,17 +477,17 @@ async function executeAction(action, topicId) {
     }
 
     case 'assign_repo': {
-      if (!repoFullName || !action.agent) break;
-      const project = await findNotionProject(action.repo).catch(() => null);
+      if (!repoFullNameVal || !action.agent) break;
+      const project = await findNotionProject(repoName).catch(() => null);
       if (!project) {
         await sendTelegramMessage(
-          `No Notion project found for ${action.repo}.`, null, topicId
+          `No Notion project found for ${repoName}.`, null, topicId
         ).catch(() => {});
         break;
       }
       await updateBuilderAgent(project.pageId, action.agent);
       await sendTelegramMessage(
-        `${action.repo} assigned to ${action.agent} in Notion.`, null, topicId
+        `${repoName} assigned to ${action.agent} in Notion.`, null, topicId
       ).catch(() => {});
       break;
     }
@@ -420,24 +508,24 @@ async function executeAction(action, topicId) {
 
     case 'create_task': {
       if (!action.repo || !action.title) break;
-      const repoFull = `Thatisshayan/${action.repo}`;
+      const taskRepoName = repoName;
+      const taskRepoFull = repoFullNameVal;
       try {
-        const { createAuditTask } = require('./auditDb');
-        const { createAuditCycle, getActiveCycleForRepo } = require('./auditDb');
+        const { createAuditTask, createAuditCycle, getActiveCycleForRepo } = require('./auditDb');
 
-        let cycle = await getActiveCycleForRepo(repoFull).catch(() => null);
+        let cycle = await getActiveCycleForRepo(taskRepoFull).catch(() => null);
         if (!cycle) {
           cycle = await createAuditCycle({
-            repoFullName: repoFull,
+            repoFullName: taskRepoFull,
             commitSha:    `nl-task-${Date.now()}`,
-            projectName:  action.repo,
+            projectName:  taskRepoName,
           }).catch(() => null);
         }
 
         if (cycle) {
           await createAuditTask({
             auditCycleId:      cycle.id,
-            repoFullName:      repoFull,
+            repoFullName:      taskRepoFull,
             taskNumber:        1,
             title:             action.title,
             description:       action.description || action.title,
@@ -450,13 +538,13 @@ async function executeAction(action, topicId) {
           });
 
           await sendTelegramMessage([
-            `✅ Task created for ${action.repo}`,
+            `✅ Task created for ${taskRepoName}`,
             ``,
             `Title: ${action.title}`,
             `Priority: ${action.priority || 'medium'}`,
             `Status: queued (needs approval)`,
             ``,
-            `Use /sentinel force-execute ${action.repo} to run it now.`,
+            `Use /sentinel force-execute ${taskRepoName} to run it now.`,
           ].join('\n'), null, topicId).catch(() => {});
         }
       } catch (err) {
