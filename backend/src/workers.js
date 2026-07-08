@@ -357,6 +357,13 @@ function startDailyReportWorker() {
     jobId:  'github-metrics-sync-repeat',
   }).catch(err => logger.warn({ err: err.message }, 'Could not schedule GitHub metrics sync'));
 
+  // Every 30 minutes — scan GitHub for newly-created repos not yet tracked
+  // and auto-onboard them (Notion row, webhook, first audit, Telegram post).
+  queue.add('repo-discovery', {}, {
+    repeat: { every: 30 * 60 * 1000 },
+    jobId:  'repo-discovery-repeat',
+  }).catch(err => logger.warn({ err: err.message }, 'Could not schedule repo discovery'));
+
   // Daily 6:55am Toronto — record yesterday's brain outcome before today's decision
   queue.add('brain-outcome', {}, {
     repeat: { pattern: '55 6 * * *', tz: SENTINEL_TZ },
@@ -469,6 +476,11 @@ function startDailyReportWorker() {
     }
     if (job.name === 'github-metrics-sync') {
       await syncAllRepoMetrics().catch(e => logger.warn({ err: e.message }, 'GitHub metrics sync failed'));
+      return;
+    }
+    if (job.name === 'repo-discovery') {
+      const { discoverAndOnboardRepos } = require('./repoDiscovery');
+      await discoverAndOnboardRepos().catch(e => logger.warn({ err: e.message }, 'Repo discovery failed'));
       return;
     }
     if (job.name === 'brain-outcome') {

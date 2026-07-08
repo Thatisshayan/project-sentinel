@@ -130,7 +130,12 @@ async function refreshRepoMetrics(repoFullName, repoName) {
 async function refreshAllMetrics() {
   const results = [];
 
-  for (const repo of REPO_LIST) {
+  // Lazy require — repoDiscovery.js requires this module for REPO_LIST, so a
+  // top-level require here would be circular.
+  const { getFullRepoList } = require('./repoDiscovery');
+  const repoList = await getFullRepoList().catch(() => REPO_LIST);
+
+  for (const repo of repoList) {
     try {
       const stats    = await getRepoStats(repo.repoFullName, repo.repoName);
       const priority = DEFAULT_PRIORITIES[repo.repoName] || 'medium';

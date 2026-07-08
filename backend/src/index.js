@@ -17,6 +17,9 @@ const { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAg
 let checkAndOnboardNewRepos;
 try { ({ checkAndOnboardNewRepos } = require('./repoOnboarder')); } catch {}
 
+let discoverAndOnboardRepos;
+try { ({ discoverAndOnboardRepos } = require('./repoDiscovery')); } catch {}
+
 async function probeTools() {
   const { execSync } = require('child_process');
   const { logAgentMessage } = require('./agentDb');
@@ -178,9 +181,18 @@ app.listen(PORT, () => {
     logger.info('Security schema ready');
     await initConversationSchema();
     await probeTools();
+    const { registerBotCommands } = require('./telegramClient');
+    await registerBotCommands().catch(err =>
+      logger.warn({ err: err.message }, 'Telegram command menu registration failed — non-blocking')
+    );
     if (checkAndOnboardNewRepos) {
       await checkAndOnboardNewRepos().catch(err =>
         logger.warn({ err: err.message }, 'Repo onboarding check failed — non-blocking')
+      );
+    }
+    if (discoverAndOnboardRepos) {
+      await discoverAndOnboardRepos().catch(err =>
+        logger.warn({ err: err.message }, 'Repo discovery failed — non-blocking')
       );
     }
     await initAgentPool();

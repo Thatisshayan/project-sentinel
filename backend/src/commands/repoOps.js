@@ -506,6 +506,29 @@ async function handleRepoOpsCmd(subcommand, parts, chatId, topicId) {
       );
       return true;
     }
+    case 'repos': {
+      if (parts[2] === 'scan') {
+        await sendTelegramMessage('🔎 Scanning GitHub for new repos...', null, topicId);
+        const { discoverAndOnboardRepos } = require('../repoDiscovery');
+        discoverAndOnboardRepos()
+          .then(result => sendTelegramMessage(
+            result.discovered > 0
+              ? `✅ Found and onboarded ${result.discovered} new repo(s): ${result.repos.join(', ')}`
+              : '✅ Scan complete — no new repos found.',
+            null, topicId
+          ))
+          .catch(err => sendTelegramMessage(`❌ Repo scan failed: ${err.message}`, null, topicId));
+        return true;
+      }
+      const { getFullRepoList } = require('../repoDiscovery');
+      const list = await getFullRepoList().catch(() => []);
+      await sendTelegramMessage(
+        [`📁 Tracked repos (${list.length}):`, ...list.map(r => `· ${r.repoName}`),
+         '', '/sentinel repos scan — scan GitHub for new repos now'].join('\n'),
+        null, topicId
+      );
+      return true;
+    }
     case 'sync-metrics': {
       await sendTelegramMessage('🔄 Syncing repo health metrics from GitHub API...', null, topicId);
       const { syncAllRepoMetrics } = require('../githubMetricsSyncer');

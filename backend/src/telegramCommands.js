@@ -43,7 +43,7 @@ const {
 } = require('./conflictDetector');
 
 const { handleAgentsCmd }  = require('./commands/agents');
-const { handleRepoOpsCmd } = require('./commands/repoOps');
+const { handleRepoOpsCmd, handleHelp } = require('./commands/repoOps');
 const { handleReportsCmd } = require('./commands/reports');
 const { handleSprintCmd }  = require('./commands/sprint');
 
@@ -87,8 +87,18 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
   }
 
   const parts   = text.trim().split(/\s+/);
-  const command = parts[0]?.toLowerCase();
-  const project = parts[1];
+  const command = parts[0]?.toLowerCase().split('@')[0]; // strip @BotName suffix Telegram adds in groups
+
+  // Top-level commands Telegram's native "/" menu can send directly, with no
+  // "/sentinel" prefix — these are the entry points a user actually taps.
+  if (command === '/start' || command === '/menu') {
+    const { showMainMenu } = require('./telegramMenus');
+    await showMainMenu(chatId, topicId);
+    return true;
+  }
+  if (command === '/help') {
+    return handleHelp(topicId, chatId);
+  }
 
   if (command !== '/sentinel' || !parts[1]) return false;
 
@@ -178,6 +188,8 @@ async function handleCallbackQuery(callbackQuery) {
         '/sentinel unlock <repo>    — remove lock',
         '/sentinel locked           — show all locked repos',
         '/sentinel repo <name>      — open repo control panel',
+        '/sentinel repos            — list all tracked repos',
+        '/sentinel repos scan       — scan GitHub for new repos now',
         '/sentinel dashboard        — refresh Notion dashboard',
       ].join('\n'),
       sprint: [
@@ -223,7 +235,7 @@ async function handleCallbackQuery(callbackQuery) {
         '',
         'REPORTS:  report, weekly, ceo, costs, health, velocity, patterns, business, impact, roi',
         'AGENTS:   agents, what, standup, leaderboard, bots, test-bots, setup-bots, memory',
-        'REPOS:    audit, tasks, execute, force-execute, stop, skip, lock, unlock, locked, repo, dashboard',
+        'REPOS:    audit, tasks, execute, force-execute, stop, skip, lock, unlock, locked, repo, repos, dashboard',
         'SPRINT:   propose-sprint, approve-sprint, run-sprint, sprint-status, skip-sprint, pause-sprint, resume-sprint, approve',
         'SECURITY: security, security-scan, security-patch, security-approve',
         'SYSTEM:   pause, resume, self-audit, self-approve, status, builds, performance, prompts, brain, check-builder, sync-metrics, reset-failed, menu, help',

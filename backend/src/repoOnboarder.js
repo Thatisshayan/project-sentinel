@@ -9,6 +9,51 @@ function getWatchedRepos() {
   return (process.env.WATCHED_REPOS || '').split(',').map(r => r.trim()).filter(Boolean);
 }
 
+// Onboards a single repo: Notion row, GitHub webhook, first audit, Telegram
+// announcement. Shared by the static WATCHED_REPOS sweep below and by
+// repoDiscovery.js's dynamic new-repo detection.
+async function onboardRepo(repoName) {
+  logger.info({ repoName }, 'New repo detected — onboarding');
+
+  // 1. Create Notion row (createNotionProject not yet in notionClient.js — log warning)
+  const notionClient = require('./notionClient');
+  if (typeof notionClient.createNotionProject === 'function') {
+    await notionClient.createNotionProject({
+      repoName, priority: 'medium', builderAgent: 'qwen_coder', healthScore: 0,
+    }).catch(err => logger.warn({ err: err.message, repoName }, 'Notion row creation failed'));
+  } else {
+    logger.warn({ repoName }, 'createNotionProject not available — add repo row to Notion manually');
+  }
+
+  // 2. Register GitHub webhook
+  await registerWebhook(repoName).catch(err =>
+    logger.warn({ err: err.message, repoName }, 'Webhook registration failed — register manually in GitHub')
+  );
+
+  // 3. Trigger first audit
+  await triggerAudit({
+    repoFullName:  repoFullName(repoName),
+    repoName,
+    projectName:   repoName,
+    commitSha:     `onboard-${Date.now()}`,
+    commitMessage: '[sentinel-onboard] Initial audit',
+    branchName:    'main',
+    authorName:    'Sentinel',
+    authorEmail:   '',
+    topicId:       null,
+  }).catch(err => logger.warn({ err: err.message, repoName }, 'First audit failed'));
+
+  await sendTelegramMessage([
+    `🆕 New repo onboarded: ${repoName}`,
+    `Notion row created ✅`,
+    `GitHub webhook registered ✅`,
+    `First audit triggered ✅`,
+    `Sentinel is now monitoring ${repoName}.`,
+  ].join('\n'), null, null);
+
+  logger.info({ repoName }, 'Repo onboarding complete');
+}
+
 async function checkAndOnboardNewRepos() {
   const repos = getWatchedRepos();
   if (repos.length === 0) {
@@ -20,47 +65,7 @@ async function checkAndOnboardNewRepos() {
     try {
       const existing = await findNotionProject(repoName).catch(() => null);
       if (existing) continue; // already onboarded — skip silently
-
-      logger.info({ repoName }, 'New repo detected — onboarding');
-
-      // 1. Create Notion row (createNotionProject not yet in notionClient.js — log warning)
-      const notionClient = require('./notionClient');
-      if (typeof notionClient.createNotionProject === 'function') {
-        await notionClient.createNotionProject({
-          repoName, priority: 'medium', builderAgent: 'qwen_coder', healthScore: 0,
-        }).catch(err => logger.warn({ err: err.message, repoName }, 'Notion row creation failed'));
-      } else {
-        logger.warn({ repoName }, 'createNotionProject not available — add repo row to Notion manually');
-      }
-
-      // 2. Register GitHub webhook
-      await registerWebhook(repoName).catch(err =>
-        logger.warn({ err: err.message, repoName }, 'Webhook registration failed — register manually in GitHub')
-      );
-
-      // 3. Trigger first audit
-      await triggerAudit({
-        repoFullName:  repoFullName(repoName),
-        repoName,
-        projectName:   repoName,
-        commitSha:     `onboard-${Date.now()}`,
-        commitMessage: '[sentinel-onboard] Initial audit',
-        branchName:    'main',
-        authorName:    'Sentinel',
-        authorEmail:   '',
-        topicId:       null,
-      }).catch(err => logger.warn({ err: err.message, repoName }, 'First audit failed'));
-
-      await sendTelegramMessage([
-        `🆕 New repo onboarded: ${repoName}`,
-        `Notion row created ✅`,
-        `GitHub webhook registered ✅`,
-        `First audit triggered ✅`,
-        `Sentinel is now monitoring ${repoName}.`,
-      ].join('\n'), null, null);
-
-      logger.info({ repoName }, 'Repo onboarding complete');
-
+      await onboardRepo(repoName);
     } catch (err) {
       logger.error({ err: err.message, repoName }, 'Repo onboarding failed');
     }
@@ -95,4 +100,4 @@ async function registerWebhook(repoName) {
   );
 }
 
-module.exports = { checkAndOnboardNewRepos, getWatchedRepos };
+module.exports = { checkAndOnboardNewRepos, getWatchedRepos, onboardRepo, registerWebhook };

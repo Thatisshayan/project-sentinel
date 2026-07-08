@@ -108,4 +108,63 @@ async function sendTelegramMessage(text, repoName, explicitTopicId) {
   });
 }
 
-module.exports = { sendTelegramMessage, getTopicId };
+// Registers Telegram's native "/" command menu (the button next to the
+// message box + the autocomplete popup). Without this, /start, /menu, /help
+// etc. are only reachable by a user manually typing the exact command.
+async function registerBotCommands() {
+  const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+  if (!BOT_TOKEN) {
+    logger.warn('TELEGRAM_BOT_TOKEN not set — skipping bot command menu registration');
+    return;
+  }
+
+  const commands = [
+    { command: 'start',    description: 'Open the Sentinel quick-actions menu' },
+    { command: 'menu',     description: 'Open the Sentinel quick-actions menu' },
+    { command: 'help',     description: 'Full command reference' },
+    { command: 'sentinel', description: 'Run a Sentinel command, e.g. /sentinel health' },
+  ];
+
+  const bodyJson = JSON.stringify({ commands });
+
+  return new Promise((resolve) => {
+    const options = {
+      hostname: 'api.telegram.org',
+      path:     `/bot${BOT_TOKEN}/setMyCommands`,
+      method:   'POST',
+      headers:  {
+        'Content-Type':   'application/json',
+        'Content-Length': Buffer.byteLength(bodyJson),
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (!parsed.ok) {
+            logger.warn({ desc: parsed.description }, 'setMyCommands failed');
+          } else {
+            logger.info('Telegram bot command menu registered');
+          }
+        } catch (e) {
+          logger.warn({ err: e.message }, 'setMyCommands response parse failed');
+        }
+        resolve();
+      });
+    });
+
+    req.on('error', (err) => {
+      logger.warn({ err: err.message }, 'setMyCommands request failed');
+      resolve();
+    });
+
+    req.setTimeout(10000, () => { req.destroy(); resolve(); });
+    req.write(bodyJson);
+    req.end();
+  });
+}
+
+module.exports = { sendTelegramMessage, getTopicId, registerBotCommands };

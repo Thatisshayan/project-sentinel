@@ -78,6 +78,21 @@ async function initPortfolioSchema() {
     );
   `);
 
+  // Repos discovered dynamically on GitHub (not in the static WATCHED_REPOS
+  // env var). Lets Sentinel pick up newly-created repos without a redeploy.
+  await query(`
+    CREATE TABLE IF NOT EXISTS discovered_repos (
+      id              SERIAL PRIMARY KEY,
+      repo_name       TEXT NOT NULL UNIQUE,
+      repo_full_name  TEXT NOT NULL,
+      github_id       BIGINT,
+      is_private      BOOLEAN DEFAULT true,
+      discovered_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      onboarded_at    TIMESTAMPTZ,
+      onboard_error   TEXT
+    );
+  `);
+
   logger.info('Portfolio schema initialised');
 }
 
@@ -210,6 +225,39 @@ async function getOpenPatterns() {
   return r.rows;
 }
 
+// ── Discovered repos helpers ─────────────────────────────────────────────────
+
+async function getDiscoveredRepoNames() {
+  const r = await query(`SELECT repo_name FROM discovered_repos`);
+  return r.rows.map(row => row.repo_name);
+}
+
+async function getOnboardedDiscoveredRepos() {
+  const r = await query(`
+    SELECT repo_name, repo_full_name FROM discovered_repos
+    WHERE onboarded_at IS NOT NULL
+    ORDER BY discovered_at ASC
+  `);
+  return r.rows.map(row => ({ repoName: row.repo_name, repoFullName: row.repo_full_name }));
+}
+
+async function insertDiscoveredRepo({ repoName, repoFullName, githubId, isPrivate }) {
+  await query(`
+    INSERT INTO discovered_repos (repo_name, repo_full_name, github_id, is_private)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (repo_name) DO NOTHING
+  `, [repoName, repoFullName, githubId ?? null, isPrivate ?? true]);
+}
+
+async function markDiscoveredRepoOnboarded(repoName, error = null) {
+  await query(`
+    UPDATE discovered_repos
+    SET onboarded_at = CASE WHEN $2::text IS NULL THEN NOW() ELSE onboarded_at END,
+        onboard_error = $2
+    WHERE repo_name = $1
+  `, [repoName, error]);
+}
+
 module.exports = {
   initPortfolioSchema,
   upsertRepoMetrics,
@@ -222,4 +270,8 @@ module.exports = {
   getCostByRepo,
   upsertPattern,
   getOpenPatterns,
+  getDiscoveredRepoNames,
+  getOnboardedDiscoveredRepos,
+  insertDiscoveredRepo,
+  markDiscoveredRepoOnboarded,
 };

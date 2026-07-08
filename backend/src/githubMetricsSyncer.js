@@ -82,10 +82,13 @@ async function syncAllRepoMetrics() {
     return;
   }
 
-  logger.info({ repoCount: REPO_LIST.length }, 'Starting GitHub metrics sync');
+  const { getFullRepoList } = require('./repoDiscovery');
+  const repoList = await getFullRepoList().catch(() => REPO_LIST);
+
+  logger.info({ repoCount: repoList.length }, 'Starting GitHub metrics sync');
   let synced = 0;
 
-  for (const repo of REPO_LIST) {
+  for (const repo of repoList) {
     try {
       const ghStats = await fetchRepoGitHubStats(repo.repoFullName, repo.repoName);
       if (!ghStats) continue;
@@ -142,8 +145,8 @@ async function syncAllRepoMetrics() {
     }
   }
 
-  logger.info({ synced, total: REPO_LIST.length }, 'GitHub metrics sync complete');
-  return { synced, total: REPO_LIST.length };
+  logger.info({ synced, total: repoList.length }, 'GitHub metrics sync complete');
+  return { synced, total: repoList.length };
 }
 
 module.exports = { syncAllRepoMetrics };
