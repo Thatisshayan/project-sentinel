@@ -3,7 +3,9 @@ import { motion } from "framer-motion";
 import { CheckCircle2, Clock, AlertCircle } from "lucide-react";
 import { AGENTS } from "@/lib/data";
 import { approveSprint, skipSprint } from "@/lib/api";
+import { callAction } from "@/lib/actions";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 interface DisplayTask {
   title: string;
@@ -34,6 +36,7 @@ export function SprintView({
 }) {
   const router = useRouter();
   const maxV   = Math.max(...velocity.map(v => v.value), 1);
+  const [pausing, setPausing] = useState(false);
 
   const handleApprove = async () => {
     if (!sprint.id) return;
@@ -45,6 +48,16 @@ export function SprintView({
     if (!sprint.id) return;
     await skipSprint(sprint.id).catch(() => {});
     router.refresh();
+  };
+
+  const handlePause = async () => {
+    if (!sprint.id) return;
+    setPausing(true);
+    try {
+      await callAction("/api/command", { text: "/sentinel pause-sprint", fromName: "Dashboard" });
+      router.refresh();
+    } catch {}
+    setPausing(false);
   };
 
   return (
@@ -64,7 +77,13 @@ export function SprintView({
           <div className="flex gap-2">
             <button onClick={handleApprove} className="px-3 py-1.5 text-[11px] rounded border transition-all border-s-green/40 text-s-green hover:bg-s-green/10">Approve</button>
             <button onClick={handleSkip}    className="px-3 py-1.5 text-[11px] rounded border transition-all border-s-amber/40 text-s-amber hover:bg-s-amber/10">Skip</button>
-            <button className="px-3 py-1.5 text-[11px] rounded border transition-all border-s-border text-s-muted hover:text-s-text">Pause</button>
+            <button
+              onClick={handlePause}
+              disabled={pausing || !sprint.id}
+              className="px-3 py-1.5 text-[11px] rounded border transition-all border-s-border text-s-muted hover:text-s-text disabled:opacity-40"
+            >
+              {pausing ? "Pausing…" : "Pause"}
+            </button>
           </div>
         </div>
         <div className="px-4 py-3 bg-white/[0.01]">
@@ -112,8 +131,20 @@ export function SprintView({
                   </div>
                 )}
                 <div className="flex gap-1.5">
-                  <button className="text-[10px] px-2 py-0.5 rounded border border-s-border text-s-muted hover:text-s-text transition-colors">Execute</button>
-                  <button className="text-[10px] px-2 py-0.5 rounded border border-s-border text-s-dim hover:text-s-muted transition-colors">Skip</button>
+                  <button
+                    disabled
+                    title="Not yet wired — approve individual tasks via Telegram (/sentinel tasks)"
+                    className="text-[10px] px-2 py-0.5 rounded border border-s-border text-s-muted opacity-40 cursor-not-allowed"
+                  >
+                    Execute
+                  </button>
+                  <button
+                    disabled
+                    title="Not yet wired — approve individual tasks via Telegram (/sentinel tasks)"
+                    className="text-[10px] px-2 py-0.5 rounded border border-s-border text-s-dim opacity-40 cursor-not-allowed"
+                  >
+                    Skip
+                  </button>
                 </div>
               </motion.div>
             );
