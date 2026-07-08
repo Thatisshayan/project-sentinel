@@ -120,6 +120,40 @@ The Dockerfile installs Node.js 20, Python 3, Git, and aider. The app starts on 
 
 ---
 
+## Dashboard (UI)
+
+`ui/` is a Next.js 14 (App Router) dashboard — portfolio overview, per-repo detail,
+agent status, sprint board, security scores, and a live agent-room terminal. It
+never talks to the backend directly from the browser; all data flows through
+Next.js's own server-side routes, which proxy to the backend's `/api/*` routes.
+
+### Running it locally
+
+```bash
+cd ui
+cp .env.example .env.local   # fill in SENTINEL_API_URL + SENTINEL_UI_KEY
+npm install
+npm run dev                  # http://localhost:3000 (backend must be running separately)
+```
+
+Or via `docker-compose up` from the repo root, which starts Postgres, Redis, the
+backend, and the UI together (UI reachable at `http://localhost:3001`).
+
+### Environment Variables
+
+```
+SENTINEL_API_URL   Base URL of the backend, no trailing slash (e.g. http://localhost:3000)
+SENTINEL_UI_KEY    Must match the backend's SENTINEL_UI_KEY exactly
+```
+
+### Deployment (Railway)
+
+Deploys the same way as the backend — connect `ui/` as a separate Railway service
+(root directory `ui/`), set `SENTINEL_API_URL` to the backend service's public URL
+and `SENTINEL_UI_KEY` to match the backend's value.
+
+---
+
 ## Telegram Commands
 
 ### Core

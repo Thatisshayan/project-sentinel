@@ -53,5 +53,18 @@ services:
       redis:
         condition: service_healthy
 
+  ui:
+    build:
+      context: ./ui
+    environment:
+      NODE_ENV: production
+      # Copy from ui/.env.example and fill in your values:
+      SENTINEL_API_URL: http://backend:3000
+      SENTINEL_UI_KEY: ${SENTINEL_UI_KEY:-}
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:
