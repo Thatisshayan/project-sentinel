@@ -2,7 +2,7 @@ const logger              = require('../logger');
 const { repoFullName }    = require('../repoResolver');
 const { sendTelegramMessage } = require('../telegramClient');
 const { findNotionProject }   = require('../notionClient');
-const { stopDebugAttempts }   = require('../dbClient');
+const { stopDebugAttempts, query: dbQuery } = require('../dbClient');
 const {
   executeApprovedTasks,
   triggerAudit,
@@ -476,14 +476,24 @@ async function handleRepoOpsCmd(subcommand, parts, chatId, topicId) {
         const { cancelAutoApprove } = require('../autoApprover');
         await cancelAutoApprove().catch(() => {});
       } catch {}
+      try {
+        await dbQuery(`UPDATE agent_registry SET status='paused' WHERE status='idle'`);
+      } catch (err) {
+        logger.error({ err: err.message }, 'Telegram pause failed to update agent_registry');
+      }
       await sendTelegramMessage(
-        '⏸ All automation paused.\nSprints, audits, and builds will not auto-execute.\nSend /sentinel resume to restart.',
+        '⏸ All automation paused.\nSprints, audits, and builds will not auto-execute. All idle agents have been paused.\nSend /sentinel resume to restart.',
         null, topicId
       );
       return true;
     }
     case 'resume': {
-      await sendTelegramMessage('▶️ Automation resumed.', null, topicId);
+      try {
+        await dbQuery(`UPDATE agent_registry SET status='idle' WHERE status='paused'`);
+      } catch (err) {
+        logger.error({ err: err.message }, 'Telegram resume failed to update agent_registry');
+      }
+      await sendTelegramMessage('▶️ Automation resumed. Paused agents are idle again.', null, topicId);
       return true;
     }
     case 'reset-failed': {
