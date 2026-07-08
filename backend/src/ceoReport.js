@@ -13,7 +13,7 @@ async function callAI(prompt) {
     const res = await axios.post(
       'https://integrate.api.nvidia.com/v1/chat/completions',
       {
-        model:       'nvidia/llama-3.1-nemotron-70b-instruct',
+        model:       'mistralai/mistral-nemotron',
         messages:    [{ role: 'user', content: prompt }],
         max_tokens:  600,
         temperature: 0.4,

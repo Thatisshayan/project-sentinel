@@ -10,7 +10,7 @@ const TIMEOUT_MS = () =>
   parseInt(process.env.DEBUG_TIMEOUT_MINUTES || '30') * 60 * 1000;
 
 const AIDER_MODEL = () =>
-  process.env.AIDER_MODEL || 'gemini/gemini-2.5-pro';
+  process.env.AIDER_MODEL || 'openai/meta/llama-3.1-70b-instruct';
 
 // ── Build the message Aider receives ────────────────────────────────────────
 
@@ -85,6 +85,12 @@ async function runAider(repoPath, context) {
     let stdout = '';
     let stderr = '';
 
+    // NVIDIA NIM is OpenAI-compatible — Aider talks to it via the 'openai/' model
+    // prefix, so we point the OpenAI client at NIM's base URL and hand it the
+    // NVIDIA key. Falls back to a real OPENAI_API_KEY/base if someone points
+    // AIDER_MODEL at an actual OpenAI model instead.
+    const usingNvidia = model.startsWith('openai/') && !!process.env.NVIDIA_API_KEY;
+
     const proc = spawn('aider', args, {
       cwd: repoPath,
       env: {
@@ -92,7 +98,11 @@ async function runAider(repoPath, context) {
         // Pass API keys Aider needs based on model
         GEMINI_API_KEY:  process.env.GEMINI_API_KEY  || '',
         ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
-        OPENAI_API_KEY:  process.env.OPENAI_API_KEY  || '',
+        OPENAI_API_KEY:  usingNvidia ? process.env.NVIDIA_API_KEY : (process.env.OPENAI_API_KEY || ''),
+        ...(usingNvidia ? {
+          OPENAI_API_BASE: 'https://integrate.api.nvidia.com/v1',
+          OPENAI_BASE_URL: 'https://integrate.api.nvidia.com/v1',
+        } : {}),
       },
     });
 

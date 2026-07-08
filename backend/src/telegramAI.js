@@ -27,7 +27,7 @@ const { saveMessage,
         getHistory,
         formatHistoryForPrompt } = require('./conversationMemory');
 
-const CHAT_MODEL = process.env.CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct';
+const CHAT_MODEL = process.env.CHAT_MODEL || 'mistralai/mistral-nemotron';
 
 async function storeRedisContext(topicId, sender, message) {
   try {

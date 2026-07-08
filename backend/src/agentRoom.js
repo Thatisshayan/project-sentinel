@@ -92,7 +92,7 @@ async function generatePersonalityMessage(agentId, baseMessage) {
   if (!personality || !process.env.NVIDIA_API_KEY) return baseMessage;
 
   try {
-    const model    = process.env.CHAT_MODEL || 'meta/llama-3.3-70b-instruct';
+    const model    = process.env.CHAT_MODEL || 'meta/llama-3.1-70b-instruct';
     const bodyJson = JSON.stringify({
       model,
       messages: [

@@ -8,7 +8,7 @@ const logger     = require('./logger');
 const { validateAuditOutput } = require('./aiOutputValidator');
 
 const AUDIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
-const AUDIT_MODEL = process.env.AUDIT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct';
+const AUDIT_MODEL = process.env.AUDIT_MODEL || 'mistralai/mistral-nemotron';
 
 const CONTEXT_FILE_BUDGET  = 30;
 const CONTEXT_CHAR_BUDGET  = 20000;

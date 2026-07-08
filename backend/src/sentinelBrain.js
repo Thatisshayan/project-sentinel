@@ -9,7 +9,7 @@ const { executeApprovedTasks }  = require('./auditOrchestrator');
 const { isRepoLocked }          = require('./repoLock');
 const { query }                 = require('./dbClient');
 
-const BRAIN_MODEL = process.env.CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct';
+const BRAIN_MODEL = process.env.CHAT_MODEL || 'mistralai/mistral-nemotron';
 
 const BRAIN_SYSTEM = `You are the strategic brain of Project Sentinel — an autonomous DevOps AI managing 12 GitHub repos for a solo founder named Shayan.
 

@@ -31,16 +31,19 @@ const BUILDERS = {
   },
   qwen_coder: {
     id:          'qwen_coder',
-    label:       'Codestral 22B (NVIDIA NIM)',
+    label:       'Llama 3.1 70B (NVIDIA NIM)',
     type:        'openai_compatible',
     // qwen/qwen2.5-coder-32b-instruct reached EOL 2026-05-12 on NVIDIA NIM (HTTP 410).
-    // Codestral 22B is Mistral AI's code-specialist model — purpose-built for code
-    // editing and reliably produces aider SEARCH/REPLACE diff blocks.
-    aiderModel:  'openai/mistralai/codestral-22b-v0.1',
+    // Codestral (mistralai/codestral-22b-instruct-v0.1) and every other NIM
+    // code-specialist model (deepseek-coder, granite-code, starcoder2) return
+    // HTTP 404 "Function not found for account" on this key's entitlement tier
+    // — verified directly against the NIM API, not just a naming issue.
+    // Falling back to llama-3.1-70b-instruct, which this account can call.
+    aiderModel:  'openai/meta/llama-3.1-70b-instruct',
     editFormat:  'diff',
     apiBase:     'https://integrate.api.nvidia.com/v1',
     envKey:      'NVIDIA_API_KEY',
-    description: 'Mistral Codestral 22B on NVIDIA NIM — primary code builder',
+    description: 'Llama 3.1 70B on NVIDIA NIM — primary code builder (Codestral not entitled on this key)',
   },
   llama_fast: {
     id:          'llama_fast',

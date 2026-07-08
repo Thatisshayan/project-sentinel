@@ -21,7 +21,7 @@ async function callNvidiaForSecurity(prompt) {
   const response = await axios.post(
     'https://integrate.api.nvidia.com/v1/chat/completions',
     {
-      model:       process.env.OWASP_MODEL || 'meta/llama-3.3-70b-instruct',
+      model:       process.env.OWASP_MODEL || 'meta/llama-3.1-70b-instruct',
       messages:    [{ role: 'user', content: prompt }],
       max_tokens:  1000,
       temperature: 0.1,

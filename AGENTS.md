@@ -6,12 +6,30 @@ Project Sentinel uses a pool of AI agents to perform code audits, fixes, and por
 
 | Agent ID | Provider | Model | Role |
 |----------|----------|-------|------|
-| `nvidia` | NVIDIA NIM | `nvidia/llama-3.1-nemotron-70b-instruct` | Primary auditor + builder |
+| `nvidia` | NVIDIA NIM | `meta/llama-3.1-70b-instruct` | Primary auditor + builder |
 | `gemini` | Google Gemini | `gemini-2.0-flash` | Sprint planning + reports |
 | `qwen_max` | DashScope (Alibaba) | `qwen-max` | Sprint planning fallback |
-| `qwen_coder` | DashScope | `qwen/qwen2.5-coder-32b-instruct` | Code-focused builds |
+| `qwen_coder` | NVIDIA NIM | `meta/llama-3.1-70b-instruct` | Code-focused builds (primary builder) |
+| `qwen_coder_dash` | DashScope | `qwen2.5-coder-32b-instruct` | Code-focused builds (DashScope fallback) |
 | `deepseek` | DeepSeek | `deepseek-chat` | Strategy (brain) |
-| `llama_fast` | NVIDIA NIM | `meta/llama-3.3-70b-instruct` | Fast audit tasks |
+| `llama_fast` | NVIDIA NIM | `meta/llama-3.1-8b-instruct` | Fast audit tasks |
+
+> **NVIDIA NIM model note:** this project's NIM key is only entitled to a
+> narrow set of models. Confirmed working: `meta/llama-3.1-70b-instruct`,
+> `meta/llama-3.1-8b-instruct`, `mistralai/mistral-nemotron`. Confirmed
+> **not** available on this key (HTTP 404, or hangs until timeout):
+> `nvidia/llama-3.1-nemotron-70b-instruct`, `meta/llama-3.3-70b-instruct`,
+> `mistralai/codestral-22b-instruct-v0.1`, `deepseek-ai/deepseek-coder-6.7b-instruct`,
+> `ibm/granite-*-code-instruct`, `bigcode/starcoder2-15b`, and
+> `qwen/qwen2.5-coder-32b-instruct` (EOL'd by NVIDIA 2026-05-12, HTTP 410).
+> Before changing any NIM model default, verify with a direct curl to
+> `https://integrate.api.nvidia.com/v1/chat/completions` first — a model
+> being in NIM's public catalog does not mean this key can call it. Also
+> avoid Nemotron reasoning models with Aider: they return `content: null`
+> and put output in `reasoning_content`/`<think>` blocks instead, which
+> breaks both Aider's diff parsing and this codebase's `message.content`
+> parsing (`ceoReport.js`, `sentinelBrain.js`, `sprintPlanner.js`,
+> `telegramAI.js`, `claudeCodeAudit.js`).
 
 ## Configuration
 
@@ -34,10 +52,10 @@ Each agent can send Telegram messages under its own bot identity. Configure with
 
 | Operation | Primary | Fallbacks |
 |-----------|---------|-----------|
-| Audit | NVIDIA NIM | Claude Code (aider) |
-| Sprint planning | NVIDIA NIM | Gemini → DashScope → DeepSeek |
-| Strategic brain | NVIDIA NIM | DeepSeek |
-| Code execution (builder) | Configured by `AIDER_MODEL` | — |
+| Audit | NVIDIA NIM (`mistralai/mistral-nemotron`) | Claude Code (aider) |
+| Sprint planning | NVIDIA NIM (`mistralai/mistral-nemotron`) | Gemini → DashScope → DeepSeek |
+| Strategic brain | NVIDIA NIM (`mistralai/mistral-nemotron`) | DeepSeek |
+| Build repair (aider) | NVIDIA NIM (`meta/llama-3.1-70b-instruct`, via `AIDER_MODEL`) | Gemini → DashScope → DeepSeek (see `builderRouter.js` `FALLBACK_CHAIN`) |
 
 ## Status monitoring
 
