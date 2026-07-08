@@ -27,8 +27,11 @@ function StatusIcon({ s }: { s: string }) {
 }
 
 export function SprintView({
-  sprint, tasks, velocity,
-}: { sprint: DisplaySprint; tasks: DisplayTask[]; velocity: VelocityPoint[] }) {
+  sprint, tasks, velocity, isDemoData, demoReason,
+}: {
+  sprint: DisplaySprint; tasks: DisplayTask[]; velocity: VelocityPoint[];
+  isDemoData?: boolean; demoReason?: string;
+}) {
   const router = useRouter();
   const maxV   = Math.max(...velocity.map(v => v.value), 1);
 
@@ -46,6 +49,11 @@ export function SprintView({
 
   return (
     <div className="p-5 space-y-5">
+      {isDemoData && (
+        <div className="px-4 py-2.5 rounded-lg border border-s-amber/40 bg-s-amber/10 text-[11px] text-s-amber font-mono">
+          ⚠ {demoReason || "Showing example data"}
+        </div>
+      )}
       {/* Sprint card */}
       <div className="border border-s-border rounded-lg overflow-hidden">
         <div className="flex items-start justify-between px-4 py-3.5 border-b border-s-border">

@@ -6,12 +6,19 @@ export const revalidate = 60;
 
 export default async function SprintPage() {
   let data = null;
+  let fetchFailed = false;
   try {
     data = await getCurrentSprint();
-  } catch {}
+  } catch {
+    fetchFailed = true;
+  }
 
   // Build display data — fallback to mock if no API data yet
   const sprint = data?.sprint ?? null;
+  const isDemoData = sprint === null;
+  const demoReason = fetchFailed
+    ? "Couldn't reach the sprint API — showing example data"
+    : "No active sprint this week — showing example data";
   const tasks  = data?.tasks  ?? MOCK_TASKS;
   const velocity = (data?.velocity ?? []).length > 0
     ? data!.velocity.map(v => ({ value: v.tasks_completed, label: weekLabel(v.week_start) }))
@@ -40,7 +47,15 @@ export default async function SprintPage() {
     id:       (t as any).id,
   }));
 
-  return <SprintView sprint={displaySprint} tasks={displayTasks} velocity={velocity} />;
+  return (
+    <SprintView
+      sprint={displaySprint}
+      tasks={displayTasks}
+      velocity={velocity}
+      isDemoData={isDemoData}
+      demoReason={demoReason}
+    />
+  );
 }
 
 function mapStatus(s: string): "working" | "done" | "blocked" | "todo" {

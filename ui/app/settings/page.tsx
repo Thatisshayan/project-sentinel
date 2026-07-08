@@ -1,7 +1,9 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Switch } from "@/components/ui/switch";
 import { AGENTS } from "@/lib/data";
+import { callAction } from "@/lib/actions";
 
 function Row({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
   return (
@@ -27,9 +29,30 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function SettingsPage() {
+  const router = useRouter();
   const [autoApprove, setAutoApprove] = useState(false);
   const [telegram, setTelegram]       = useState(true);
   const [email, setEmail]             = useState(false);
+  const [pausing, setPausing]         = useState(false);
+  const [resuming, setResuming]       = useState(false);
+
+  const pauseAll = async () => {
+    setPausing(true);
+    try {
+      await callAction("/api/system/pause");
+      router.refresh();
+    } catch {}
+    setPausing(false);
+  };
+
+  const resumeAll = async () => {
+    setResuming(true);
+    try {
+      await callAction("/api/system/resume");
+      router.refresh();
+    } catch {}
+    setResuming(false);
+  };
 
   return (
     <div className="p-5 max-w-2xl">
@@ -73,12 +96,29 @@ export default function SettingsPage() {
 
       <Section title="Danger Zone">
         <Row label="Pause all agents" desc="Stop all running agents immediately">
-          <button className="px-3 py-1.5 text-[11px] rounded border border-s-amber/40 text-s-amber hover:bg-s-amber/10 transition-all">
-            Pause All
+          <button
+            onClick={pauseAll}
+            disabled={pausing}
+            className="px-3 py-1.5 text-[11px] rounded border border-s-amber/40 text-s-amber hover:bg-s-amber/10 transition-all disabled:opacity-40"
+          >
+            {pausing ? "Pausing…" : "Pause All"}
           </button>
         </Row>
-        <Row label="Reset agent pool" desc="Remove all agent assignments and history">
-          <button className="px-3 py-1.5 text-[11px] rounded border border-s-red/40 text-s-red hover:bg-s-red/10 transition-all">
+        <Row label="Resume all agents" desc="Resume agents paused via the button above">
+          <button
+            onClick={resumeAll}
+            disabled={resuming}
+            className="px-3 py-1.5 text-[11px] rounded border border-s-green/40 text-s-green hover:bg-s-green/10 transition-all disabled:opacity-40"
+          >
+            {resuming ? "Resuming…" : "Resume All"}
+          </button>
+        </Row>
+        <Row label="Reset agent pool" desc="Not yet implemented — no backend endpoint exists for this action">
+          <button
+            disabled
+            title="Not yet implemented"
+            className="px-3 py-1.5 text-[11px] rounded border border-s-red/40 text-s-red opacity-40 cursor-not-allowed"
+          >
             Reset Pool
           </button>
         </Row>
