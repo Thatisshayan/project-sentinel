@@ -28,6 +28,18 @@ async function initSettingsSchema() {
   }
 }
 
+const SETTINGS_DEFAULTS = {
+  auto_approve_tasks: false,
+  audit_cooldown_h: 12,
+  max_active_agents: 4,
+  daily_report_time: '07:00:00',
+  primary_agent: 'nvidia',
+  build_agent: 'qwen_coder',
+  fallback_agent: 'gemini',
+  telegram_alerts: true,
+  email_digest: false,
+};
+
 async function getSettings() {
   const r = await query(`
     SELECT
@@ -45,23 +57,21 @@ async function getSettings() {
     LIMIT 1
   `);
 
-  if (!r.rows[0]) {
+  const row = r.rows[0];
+  if (!row) {
     // Fallback to defaults if query somehow returns nothing
-    return {
-      auto_approve_tasks: false,
-      audit_cooldown_h: 12,
-      max_active_agents: 4,
-      daily_report_time: '07:00:00',
-      primary_agent: 'nvidia',
-      build_agent: 'qwen_coder',
-      fallback_agent: 'gemini',
-      telegram_alerts: true,
-      email_digest: false,
-      updated_at: new Date().toISOString(),
-    };
+    return { ...SETTINGS_DEFAULTS, updated_at: new Date().toISOString() };
   }
 
-  return r.rows[0];
+  // Guard against individual columns being null/undefined (stale rows,
+  // schema drift, or a query result that doesn't carry every column).
+  const merged = { ...SETTINGS_DEFAULTS, updated_at: row.updated_at };
+  for (const key of Object.keys(SETTINGS_DEFAULTS)) {
+    if (row[key] !== null && row[key] !== undefined) {
+      merged[key] = row[key];
+    }
+  }
+  return merged;
 }
 
 async function updateSettings(updates) {
