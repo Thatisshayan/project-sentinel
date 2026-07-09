@@ -5,6 +5,7 @@ import "./globals.css";
 import { Sidebar } from "@/components/sentinel/sidebar";
 import { Topbar } from "@/components/sentinel/topbar";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/toaster";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -38,6 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
         </TooltipProvider>
+        <Toaster />
       </body>
     </html>
   );

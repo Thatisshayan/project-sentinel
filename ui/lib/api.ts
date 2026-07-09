@@ -169,22 +169,3 @@ export interface ConnectorStatus {
 export const getIntegrationsStatus = () =>
   api<{ connectors: ConnectorStatus[] }>('/integrations/status');
 
-// ── Actions ───────────────────────────────────────────────────────────────────
-
-export const approveSprint = (sprintId: number) =>
-  api('/sprint/approve', { method: 'POST', body: JSON.stringify({ sprintId }), next: undefined });
-
-export const skipSprint = (sprintId: number) =>
-  api('/sprint/skip', { method: 'POST', body: JSON.stringify({ sprintId }), next: undefined });
-
-export const auditRepo = (name: string) =>
-  api(`/repo/${name}/audit`, { method: 'POST', next: undefined });
-
-export const toggleAgent = (id: string) =>
-  api(`/agents/${id}/toggle`, { method: 'POST', next: undefined });
-
-export const pauseAll = () =>
-  api('/system/pause', { method: 'POST', next: undefined });
-
-export const resumeAll = () =>
-  api('/system/resume', { method: 'POST', next: undefined });

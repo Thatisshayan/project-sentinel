@@ -2,7 +2,6 @@
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, AlertCircle } from "lucide-react";
 import { AGENTS } from "@/lib/data";
-import { approveSprint, skipSprint } from "@/lib/api";
 import { callAction } from "@/lib/actions";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -40,14 +39,18 @@ export function SprintView({
 
   const handleApprove = async () => {
     if (!sprint.id) return;
-    await approveSprint(sprint.id).catch(() => {});
-    router.refresh();
+    try {
+      await callAction("/api/sprint/approve", { sprintId: sprint.id });
+      router.refresh();
+    } catch {}
   };
 
   const handleSkip = async () => {
     if (!sprint.id) return;
-    await skipSprint(sprint.id).catch(() => {});
-    router.refresh();
+    try {
+      await callAction("/api/sprint/skip", { sprintId: sprint.id });
+      router.refresh();
+    } catch {}
   };
 
   const handlePause = async () => {
