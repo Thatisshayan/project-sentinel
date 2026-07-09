@@ -65,10 +65,18 @@ async function recordCustomMetric(repoName, service, metricName, value, unit) {
 
 async function pullAllMetrics() {
   logger.info('Pulling all business metrics');
-  await Promise.allSettled([
+  const results = await Promise.allSettled([
     pullFirebaseMetrics(),
     // Add more connectors here as services are connected
   ]);
+
+  const connectors = ['Firebase'];
+  results.forEach((result, i) => {
+    if (result.status === 'rejected') {
+      logger.warn({ connector: connectors[i], err: result.reason.message }, 'Business metrics connector failed');
+    }
+  });
+
   logger.info('Business metrics pull complete');
 }
 

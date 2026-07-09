@@ -221,7 +221,7 @@ app.listen(PORT, () => {
 
     // Seed health metrics from GitHub API on startup so repos don't show 6.5 default
     const { syncAllRepoMetrics } = require('./githubMetricsSyncer');
-    syncAllRepoMetrics().catch(err =>
+    await syncAllRepoMetrics().catch(err =>
       logger.warn({ err: err.message }, 'Startup GitHub metrics sync failed — non-blocking')
     );
   } catch (err) {

@@ -79,13 +79,12 @@ function startBuildPollWorker() {
       }
 
       // Re-queue with incremented attempt count
-      const { Queue } = require('bullmq');
-      const queue = new Queue('build-poll', { connection: conn });
-      await queue.add('check', { ...data, attemptNumber: attemptNumber + 1 }, {
-        jobId: `${job.id}-${attemptNumber + 1}`,
-        delay: POLL_INTERVAL_MS,
-      });
-      await queue.close();
+      await enqueueBuildCheck({
+        ...data,
+        attemptNumber: attemptNumber + 1,
+      }).catch(err =>
+        logger.error({ err: err.message }, 'Failed to re-queue build check')
+      );
       return;
     }
 
@@ -136,7 +135,7 @@ function startBuildPollWorker() {
 
       if (isSentinelBranch) {
         // Build passed after Sentinel PR was merged — mark tasks done, start next batch
-        handleBuildPassedAfterSentinelMerge(
+        await handleBuildPassedAfterSentinelMerge(
           repoFullName,
           data.repoName,
           data.branchName,
@@ -146,7 +145,7 @@ function startBuildPollWorker() {
         );
       } else if (process.env.AUDIT_AGENT_ENABLED !== 'false') {
         // Human commit — trigger fresh audit (subject to 4 rules in auditOrchestrator)
-        triggerAudit({
+        await triggerAudit({
           repoFullName,
           repoName:      data.repoName,
           projectName:   data.projectName,
@@ -157,7 +156,7 @@ function startBuildPollWorker() {
           authorEmail:   data.authorEmail,
           topicId:       data.topicId,
         }).catch(err =>
-          logger.error({ err: err.message }, 'Audit trigger failed — non-blocking')
+          logger.error({ err: err.message }, 'Audit trigger failed')
         );
       }
 

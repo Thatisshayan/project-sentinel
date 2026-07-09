@@ -19,8 +19,10 @@ function getRedisConnection() {
         const { sendTelegramMessage } = require('./telegramClient');
         sendTelegramMessage(
           `Project Sentinel — Redis Error ⚠️\n\nBullMQ jobs (build-poll, debug) may not process until Redis recovers.\nError: ${err.message}`,
-          null, null
-        ).catch(() => {});
+          null, null, true
+        ).catch(alertErr =>
+          logger.error({ err: alertErr.message }, 'Failed to send Redis error alert')
+        );
       }
     });
   }
