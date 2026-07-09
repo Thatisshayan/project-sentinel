@@ -34,13 +34,27 @@ function escapeHtml(text) {
     .replace(/'/g, '&#39;');
 }
 
-async function sendTelegramMessage(text, repoName, explicitTopicId) {
+async function sendTelegramMessage(text, repoName, explicitTopicId, forceSend = false) {
   const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
   const CHAT_ID   = process.env.TELEGRAM_CHAT_ID;
 
   if (!BOT_TOKEN || !CHAT_ID) {
     logger.warn('Telegram credentials not configured — skipping message');
     return;
+  }
+
+  // Check if telegram alerts are enabled in settings (unless forceSend)
+  if (!forceSend) {
+    try {
+      const { loadSettings } = require('./settingsLoader');
+      const settings = await loadSettings();
+      if (!settings.telegram_alerts) {
+        logger.debug('Telegram alerts disabled in settings');
+        return;
+      }
+    } catch (err) {
+      logger.warn({ err: err.message }, 'Could not check telegram alerts setting, sending anyway');
+    }
   }
 
   const safeText = text.length > MAX_LENGTH

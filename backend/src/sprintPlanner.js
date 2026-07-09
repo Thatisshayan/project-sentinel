@@ -236,7 +236,7 @@ Respond with ONLY valid JSON:
     `${i + 1}. ${PRIORITY_EMOJI[t.priority] || '⚪'} ${t.repoName}: ${t.taskTitle}`
   ).join('\n');
 
-  const sprintText = [
+  const sprintLines = [
     `Project Sentinel — Sprint Proposal 📋`,
     `Week of ${weekStart}`,
     ``,
@@ -247,10 +247,20 @@ Respond with ONLY valid JSON:
     ``,
     `Estimated cost: $${(proposal.estimatedCost || 0).toFixed(2)}`,
     `Budget remaining: $${capacity.remaining.toFixed(2)} (${100 - capacity.usagePercent}% left)`,
-    process.env.SPRINT_AUTO_APPROVE === 'true'
-      ? `\n⏳ Auto-approves in 2h unless you skip below.`
-      : '',
-  ].filter(Boolean).join('\n');
+  ];
+
+  // Check settings for auto-approve flag (read from DB, fall back to env var)
+  try {
+    const { loadSettings } = require('./settingsLoader');
+    const settings = await loadSettings();
+    if (settings.auto_approve_tasks) {
+      sprintLines.push(`\n⏳ Auto-approves in 2h unless you skip below.`);
+    }
+  } catch (err) {
+    logger.warn({ err: err.message }, 'Could not load auto-approve setting');
+  }
+
+  const sprintText = sprintLines.filter(Boolean).join('\n');
 
   try {
     const { sendMenu } = require('./telegramMenus');

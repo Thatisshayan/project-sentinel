@@ -7,7 +7,10 @@ const AUTO_APPROVE_DELAY_MS = 2 * 60 * 60 * 1000; // 2 hours
 const REDIS_KEY = 'sentinel:sprint:pending-auto-approve';
 
 async function scheduleAutoApprove(sprintId, topicId) {
-  if (process.env.SPRINT_AUTO_APPROVE !== 'true') return;
+  const { loadSettings } = require('./settingsLoader');
+  const settings = await loadSettings();
+
+  if (!settings.auto_approve_tasks) return;
 
   const redis = getRedisConnection();
   if (!redis) { logger.warn('Redis not available — auto-approve skipped'); return; }

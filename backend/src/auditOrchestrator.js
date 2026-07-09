@@ -31,7 +31,13 @@ try {
 
 const BATCH_SIZE  = () => getEffectiveBatchSize();
 const DAILY_LIMIT = () => getEffectiveDailyLimit();
-const COOLDOWN_HOURS     = () => parseInt(process.env.AUDIT_COOLDOWN_HOURS        || '12');
+
+const { loadSettings } = require('./settingsLoader');
+
+const COOLDOWN_HOURS     = async () => {
+  const settings = await loadSettings();
+  return settings.audit_cooldown_h;
+};
 const QUEUED_THRESHOLD   = () => parseInt(process.env.MIN_QUEUED_BEFORE_SKIP_AUDIT || '3');
 const APPROVAL_TIMEOUT_H = () => parseInt(process.env.AUDIT_APPROVAL_TIMEOUT_H    || '24');
 
@@ -71,8 +77,9 @@ async function checkAuditRules(data) {
   const lastAudit = await getLastCompletedAudit(repoFullName);
   if (lastAudit) {
     const hoursSince = (Date.now() - new Date(lastAudit.created_at).getTime()) / 3600000;
-    if (hoursSince < COOLDOWN_HOURS()) {
-      logger.info({ repoName, hoursSince: Math.round(hoursSince) },
+    const cooldownHours = await COOLDOWN_HOURS();
+    if (hoursSince < cooldownHours) {
+      logger.info({ repoName, hoursSince: Math.round(hoursSince), cooldownHours },
         'Rule 3: Cooldown active — audit skipped');
       return { pass: false, reason: 'cooldown' };
     }

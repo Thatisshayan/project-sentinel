@@ -447,4 +447,28 @@ router.get('/integrations/status', async (req, res) => {
   }
 });
 
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+router.get('/settings', async (req, res) => {
+  try {
+    const { getSettings } = require('./settingsDb');
+    const settings = await getSettings();
+    res.json(settings);
+  } catch (err) {
+    logger.error({ err: err.message }, 'GET /settings error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/settings/update', async (req, res) => {
+  try {
+    const { updateSettings } = require('./settingsDb');
+    const updated = await updateSettings(req.body);
+    res.json(updated);
+  } catch (err) {
+    logger.error({ err: err.message }, 'POST /settings/update error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

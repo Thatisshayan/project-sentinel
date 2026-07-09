@@ -1,9 +1,25 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Switch } from "@/components/ui/switch";
 import { AGENTS } from "@/lib/data";
 import { callAction } from "@/lib/actions";
+
+// Map backend canonical IDs to frontend display names and vice versa
+const AGENT_ID_MAP: Record<string, string> = {
+  nvidia: "Nemotron",
+  qwen_coder: "Qwen Coder",
+  gemini: "Gemini",
+  llama_fast: "Llama",
+  deepseek: "DeepSeek",
+  qwen_max: "Qwen Max",
+  qwen_turbo: "Qwen Turbo",
+  qwen_coder_dash: "Qwen Dash",
+};
+
+const AGENT_NAME_TO_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(AGENT_ID_MAP).map(([id, name]) => [name, id])
+);
 
 function Row({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
   return (
@@ -30,11 +46,70 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export default function SettingsPage() {
   const router = useRouter();
+  const [loading, setLoading] = useState(true);
   const [autoApprove, setAutoApprove] = useState(false);
-  const [telegram, setTelegram]       = useState(true);
-  const [email, setEmail]             = useState(false);
-  const [pausing, setPausing]         = useState(false);
-  const [resuming, setResuming]       = useState(false);
+  const [auditCooldown, setAuditCooldown] = useState("12");
+  const [maxAgents, setMaxAgents] = useState("4");
+  const [dailyReportTime, setDailyReportTime] = useState("07:00");
+  const [primaryAgent, setPrimaryAgent] = useState("nvidia");
+  const [buildAgent, setBuildAgent] = useState("qwen_coder");
+  const [fallbackAgent, setFallbackAgent] = useState("gemini");
+  const [telegram, setTelegram] = useState(true);
+  const [email, setEmail] = useState(false);
+  const [pausing, setPausing] = useState(false);
+  const [resuming, setResuming] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    try {
+      const response = await fetch("/api/settings").then(r => r.json());
+      if (response) {
+        setAutoApprove(response.auto_approve_tasks ?? false);
+        setAuditCooldown(String(response.audit_cooldown_h ?? 12));
+        setMaxAgents(String(response.max_active_agents ?? 4));
+        setDailyReportTime(response.daily_report_time?.substring(0, 5) ?? "07:00");
+        setPrimaryAgent(response.primary_agent ?? "nvidia");
+        setBuildAgent(response.build_agent ?? "qwen_coder");
+        setFallbackAgent(response.fallback_agent ?? "gemini");
+        setTelegram(response.telegram_alerts ?? true);
+        setEmail(response.email_digest ?? false);
+      }
+    } catch (err) {
+      console.error("Failed to load settings:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveSettings = async () => {
+    setSaving(true);
+    try {
+      await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          auto_approve_tasks: autoApprove,
+          audit_cooldown_h: parseInt(auditCooldown),
+          max_active_agents: parseInt(maxAgents),
+          daily_report_time: `${dailyReportTime}:00`,
+          primary_agent: primaryAgent,
+          build_agent: buildAgent,
+          fallback_agent: fallbackAgent,
+          telegram_alerts: telegram,
+          email_digest: email,
+        }),
+      });
+      router.refresh();
+    } catch (err) {
+      console.error("Failed to save settings:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const pauseAll = async () => {
     setPausing(true);
@@ -54,6 +129,10 @@ export default function SettingsPage() {
     setResuming(false);
   };
 
+  if (loading) {
+    return <div className="p-5 text-s-muted">Loading settings...</div>;
+  }
+
   return (
     <div className="p-5 max-w-2xl">
       <Section title="System">
@@ -61,28 +140,46 @@ export default function SettingsPage() {
           <Switch checked={autoApprove} onCheckedChange={setAutoApprove} />
         </Row>
         <Row label="Audit cooldown" desc="Minimum time between repo audits">
-          <select className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
-            <option>6 hours</option><option>12 hours</option><option>24 hours</option>
+          <select value={auditCooldown} onChange={(e) => setAuditCooldown(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
+            <option value="6">6 hours</option>
+            <option value="12">12 hours</option>
+            <option value="24">24 hours</option>
           </select>
         </Row>
         <Row label="Max active agents" desc="Concurrent agents across all repos">
-          <select className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
-            <option>4</option><option>6</option><option>8</option>
+          <select value={maxAgents} onChange={(e) => setMaxAgents(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
+            <option value="4">4</option>
+            <option value="6">6</option>
+            <option value="8">8</option>
           </select>
         </Row>
         <Row label="Daily report time" desc="When the overnight summary is generated">
-          <input defaultValue="07:00" type="time" className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text font-mono outline-none focus:border-s-ind/50" />
+          <input value={dailyReportTime} onChange={(e) => setDailyReportTime(e.target.value)} type="time" className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text font-mono outline-none focus:border-s-ind/50" />
         </Row>
       </Section>
 
       <Section title="Agent Defaults">
-        {[["Primary agent","Nemotron"],["Build agent","Qwen Coder"],["Fallback agent","Gemini"]].map(([label, def]) => (
-          <Row key={label} label={label}>
-            <select defaultValue={def} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
-              {AGENTS.map(a => <option key={a.id}>{a.name}</option>)}
-            </select>
-          </Row>
-        ))}
+        <Row label="Primary agent">
+          <select value={primaryAgent} onChange={(e) => setPrimaryAgent(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
+            {Object.entries(AGENT_ID_MAP).map(([id, name]) => (
+              <option key={id} value={id}>{name}</option>
+            ))}
+          </select>
+        </Row>
+        <Row label="Build agent">
+          <select value={buildAgent} onChange={(e) => setBuildAgent(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
+            {Object.entries(AGENT_ID_MAP).map(([id, name]) => (
+              <option key={id} value={id}>{name}</option>
+            ))}
+          </select>
+        </Row>
+        <Row label="Fallback agent">
+          <select value={fallbackAgent} onChange={(e) => setFallbackAgent(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
+            {Object.entries(AGENT_ID_MAP).map(([id, name]) => (
+              <option key={id} value={id}>{name}</option>
+            ))}
+          </select>
+        </Row>
       </Section>
 
       <Section title="Notifications">
@@ -93,6 +190,16 @@ export default function SettingsPage() {
           <Switch checked={email} onCheckedChange={setEmail} />
         </Row>
       </Section>
+
+      <div className="mb-4">
+        <button
+          onClick={saveSettings}
+          disabled={saving}
+          className="px-4 py-2 text-sm rounded bg-s-ind text-white hover:bg-s-ind/90 transition-all disabled:opacity-40"
+        >
+          {saving ? "Saving..." : "Save Settings"}
+        </button>
+      </div>
 
       <Section title="Danger Zone">
         <Row label="Pause all agents" desc="Stop all running agents immediately">
