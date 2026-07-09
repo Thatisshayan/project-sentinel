@@ -63,7 +63,18 @@ async function selectAgent(taskComplexity, preferredBuilder) {
     }
   }
 
-  return 'claude';
+  for (const poolEntry of AGENT_POOL) {
+    const currentCount = activeCounts[poolEntry.id] || 0;
+    if (currentCount < poolEntry.maxConcurrent) {
+      const config = getBuilderConfig(poolEntry.id);
+      if (!config.envKey || process.env[config.envKey]) {
+        return poolEntry.id;
+      }
+    }
+  }
+
+  logger.warn('No available agents — all at capacity');
+  return AGENT_POOL[0].id;
 }
 
 async function assignAgent(agentId, taskData) {

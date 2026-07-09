@@ -63,8 +63,12 @@ async function healthCheck(req, res) {
   try {
     const { getBuildPollQueue } = require('./queueClient');
     const queue  = getBuildPollQueue();
-    const counts = await queue.getJobCounts();
-    health.queues.buildPoll = counts;
+    if (!queue) {
+      health.queues.buildPoll = 'not_configured';
+    } else {
+      const counts = await queue.getJobCounts();
+      health.queues.buildPoll = counts;
+    }
   } catch (err) {
     health.queues.buildPoll = 'error';
   }

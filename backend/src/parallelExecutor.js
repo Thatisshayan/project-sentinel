@@ -175,7 +175,10 @@ async function executePortfolioTasks(tasks) {
         repoName:     task.repo_name || task.repo_full_name?.split('/')[1],
       };
 
-      const promise = executeTaskParallel(task, context)
+      const promise = executeTaskParallel(task, context);
+      running.push(promise);
+
+      promise
         .then(result => {
           results.push({ task, result });
           running.splice(running.indexOf(promise), 1);
@@ -184,8 +187,6 @@ async function executePortfolioTasks(tasks) {
           results.push({ task, result: { status: 'error', reason: err.message } });
           running.splice(running.indexOf(promise), 1);
         });
-
-      running.push(promise);
     }
 
     if (running.length > 0) {
