@@ -12,6 +12,7 @@ const { initDefaultPrompts }   = require('./promptOptimizer');
 const { initBusinessSchema }   = require('./businessDb');
 const { initSecuritySchema }        = require('./securityDb');
 const { initConversationSchema }    = require('./conversationMemory');
+const { initSettingsSchema }   = require('./settingsDb');
 const { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAgentCleanupWorker } = require('./workers');
 
 let checkAndOnboardNewRepos;
@@ -180,6 +181,8 @@ app.listen(PORT, () => {
     await initSecuritySchema();
     logger.info('Security schema ready');
     await initConversationSchema();
+    await initSettingsSchema();
+    logger.info('Settings schema ready');
     await probeTools();
     const { registerBotCommands } = require('./telegramClient');
     await registerBotCommands().catch(err =>
