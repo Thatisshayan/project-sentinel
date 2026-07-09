@@ -16,6 +16,7 @@ async function loadSettings(forceRefresh = false) {
   } catch (err) {
     logger.warn({ err: err.message }, 'Failed to load settings from DB, using env fallbacks');
     settingsCache = getEnvFallbacks();
+    cacheTime = Date.now(); // Update cache time on error too, so we don't hammer DB during outages
   }
 
   return settingsCache;

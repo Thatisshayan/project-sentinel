@@ -5,6 +5,22 @@ import { Switch } from "@/components/ui/switch";
 import { AGENTS } from "@/lib/data";
 import { callAction } from "@/lib/actions";
 
+// Map backend canonical IDs to frontend display names and vice versa
+const AGENT_ID_MAP: Record<string, string> = {
+  nvidia: "Nemotron",
+  qwen_coder: "Qwen Coder",
+  gemini: "Gemini",
+  llama_fast: "Llama",
+  deepseek: "DeepSeek",
+  qwen_max: "Qwen Max",
+  qwen_turbo: "Qwen Turbo",
+  qwen_coder_dash: "Qwen Dash",
+};
+
+const AGENT_NAME_TO_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(AGENT_ID_MAP).map(([id, name]) => [name, id])
+);
+
 function Row({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between py-3 border-b border-s-border last:border-b-0">
@@ -35,9 +51,9 @@ export default function SettingsPage() {
   const [auditCooldown, setAuditCooldown] = useState("12");
   const [maxAgents, setMaxAgents] = useState("4");
   const [dailyReportTime, setDailyReportTime] = useState("07:00");
-  const [primaryAgent, setPrimaryAgent] = useState("Nemotron");
-  const [buildAgent, setBuildAgent] = useState("Qwen Coder");
-  const [fallbackAgent, setFallbackAgent] = useState("Gemini");
+  const [primaryAgent, setPrimaryAgent] = useState("nvidia");
+  const [buildAgent, setBuildAgent] = useState("qwen_coder");
+  const [fallbackAgent, setFallbackAgent] = useState("gemini");
   const [telegram, setTelegram] = useState(true);
   const [email, setEmail] = useState(false);
   const [pausing, setPausing] = useState(false);
@@ -50,15 +66,15 @@ export default function SettingsPage() {
 
   const loadSettings = async () => {
     try {
-      const response = await callAction("/api/settings");
+      const response = await fetch("/api/settings").then(r => r.json());
       if (response) {
         setAutoApprove(response.auto_approve_tasks ?? false);
         setAuditCooldown(String(response.audit_cooldown_h ?? 12));
         setMaxAgents(String(response.max_active_agents ?? 4));
         setDailyReportTime(response.daily_report_time?.substring(0, 5) ?? "07:00");
-        setPrimaryAgent(response.primary_agent ?? "Nemotron");
-        setBuildAgent(response.build_agent ?? "Qwen Coder");
-        setFallbackAgent(response.fallback_agent ?? "Gemini");
+        setPrimaryAgent(response.primary_agent ?? "nvidia");
+        setBuildAgent(response.build_agent ?? "qwen_coder");
+        setFallbackAgent(response.fallback_agent ?? "gemini");
         setTelegram(response.telegram_alerts ?? true);
         setEmail(response.email_digest ?? false);
       }
@@ -72,16 +88,20 @@ export default function SettingsPage() {
   const saveSettings = async () => {
     setSaving(true);
     try {
-      await callAction("/api/settings/update", {
-        auto_approve_tasks: autoApprove,
-        audit_cooldown_h: parseInt(auditCooldown),
-        max_active_agents: parseInt(maxAgents),
-        daily_report_time: `${dailyReportTime}:00`,
-        primary_agent: primaryAgent.toLowerCase().replace(/\s+/g, "_"),
-        build_agent: buildAgent.toLowerCase().replace(/\s+/g, "_"),
-        fallback_agent: fallbackAgent.toLowerCase().replace(/\s+/g, "_"),
-        telegram_alerts: telegram,
-        email_digest: email,
+      await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          auto_approve_tasks: autoApprove,
+          audit_cooldown_h: parseInt(auditCooldown),
+          max_active_agents: parseInt(maxAgents),
+          daily_report_time: `${dailyReportTime}:00`,
+          primary_agent: primaryAgent,
+          build_agent: buildAgent,
+          fallback_agent: fallbackAgent,
+          telegram_alerts: telegram,
+          email_digest: email,
+        }),
       });
       router.refresh();
     } catch (err) {
@@ -141,17 +161,23 @@ export default function SettingsPage() {
       <Section title="Agent Defaults">
         <Row label="Primary agent">
           <select value={primaryAgent} onChange={(e) => setPrimaryAgent(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
-            {AGENTS.map(a => <option key={a.id}>{a.name}</option>)}
+            {Object.entries(AGENT_ID_MAP).map(([id, name]) => (
+              <option key={id} value={id}>{name}</option>
+            ))}
           </select>
         </Row>
         <Row label="Build agent">
           <select value={buildAgent} onChange={(e) => setBuildAgent(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
-            {AGENTS.map(a => <option key={a.id}>{a.name}</option>)}
+            {Object.entries(AGENT_ID_MAP).map(([id, name]) => (
+              <option key={id} value={id}>{name}</option>
+            ))}
           </select>
         </Row>
         <Row label="Fallback agent">
           <select value={fallbackAgent} onChange={(e) => setFallbackAgent(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
-            {AGENTS.map(a => <option key={a.id}>{a.name}</option>)}
+            {Object.entries(AGENT_ID_MAP).map(([id, name]) => (
+              <option key={id} value={id}>{name}</option>
+            ))}
           </select>
         </Row>
       </Section>

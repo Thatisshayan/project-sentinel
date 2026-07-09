@@ -20,7 +20,7 @@ async function initSettingsSchema() {
 
   // Ensure only one row exists (singleton pattern)
   const existing = await query(`SELECT COUNT(*) as cnt FROM system_settings`);
-  if (existing.rows[0].cnt === 0) {
+  if (parseInt(existing.rows[0].cnt, 10) === 0) {
     await query(`
       INSERT INTO system_settings DEFAULT VALUES
     `);
