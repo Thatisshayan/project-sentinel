@@ -77,11 +77,17 @@ async function findNotionProject(repoName) {
     ? titleProp.title.map(t => t.plain_text).join('').trim()
     : repoName;
 
+  const topicIdProp = match.properties['Topic ID'];
+  const topicId = topicIdProp?.rich_text?.length
+    ? topicIdProp.rich_text.map(t => t.plain_text).join('').trim()
+    : null;
+
   return {
     pageId:       match.id,
     projectName,
     url:          match.url,
     builderAgent: match.properties['Builder Agent']?.select?.name || null,
+    topicId,
   };
 }
 

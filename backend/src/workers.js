@@ -79,13 +79,12 @@ function startBuildPollWorker() {
       }
 
       // Re-queue with incremented attempt count
-      const { Queue } = require('bullmq');
-      const queue = new Queue('build-poll', { connection: conn });
-      await queue.add('check', { ...data, attemptNumber: attemptNumber + 1 }, {
-        jobId: `${job.id}-${attemptNumber + 1}`,
-        delay: POLL_INTERVAL_MS,
-      });
-      await queue.close();
+      await enqueueBuildCheck({
+        ...data,
+        attemptNumber: attemptNumber + 1,
+      }).catch(err =>
+        logger.error({ err: err.message }, 'Failed to re-queue build check')
+      );
       return;
     }
 

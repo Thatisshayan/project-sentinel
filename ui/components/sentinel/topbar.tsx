@@ -1,7 +1,6 @@
 "use client";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Search } from "lucide-react";
 
 const PAGE_META: Record<string, { title: string; sub: string }> = {
   "/":           { title: "Overview",     sub: "Portfolio"       },
@@ -106,16 +105,6 @@ export function Topbar() {
         </div>
 
         <Divider />
-
-        <button
-          disabled
-          title="Command palette not yet implemented"
-          className="flex items-center gap-1.5 px-2 py-[5px] rounded border border-[#2e2e2e] bg-white/[0.03] transition-colors text-[#888888] text-[10px] opacity-40 cursor-not-allowed"
-          aria-label="Command palette (not yet implemented)"
-        >
-          <Search size={10} />
-          <span className="font-mono">⌘K</span>
-        </button>
       </div>
     </header>
   );
