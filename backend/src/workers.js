@@ -136,7 +136,7 @@ function startBuildPollWorker() {
 
       if (isSentinelBranch) {
         // Build passed after Sentinel PR was merged — mark tasks done, start next batch
-        handleBuildPassedAfterSentinelMerge(
+        await handleBuildPassedAfterSentinelMerge(
           repoFullName,
           data.repoName,
           data.branchName,
@@ -146,7 +146,7 @@ function startBuildPollWorker() {
         );
       } else if (process.env.AUDIT_AGENT_ENABLED !== 'false') {
         // Human commit — trigger fresh audit (subject to 4 rules in auditOrchestrator)
-        triggerAudit({
+        await triggerAudit({
           repoFullName,
           repoName:      data.repoName,
           projectName:   data.projectName,
@@ -157,7 +157,7 @@ function startBuildPollWorker() {
           authorEmail:   data.authorEmail,
           topicId:       data.topicId,
         }).catch(err =>
-          logger.error({ err: err.message }, 'Audit trigger failed — non-blocking')
+          logger.error({ err: err.message }, 'Audit trigger failed')
         );
       }
 

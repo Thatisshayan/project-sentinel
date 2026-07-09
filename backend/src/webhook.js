@@ -202,16 +202,17 @@ async function processWebhook(payload) {
   // Record the commit event (no health score — analytics module owns that).
   // Then immediately refresh real metrics so the score reflects current
   // build data rather than staying at the stale hardcoded 6.5 placeholder.
-  upsertRepoMetrics({
-    repoFullName: data.repoFullName,
-    repoName:     data.repoName,
-    lastCommitAt: data.commitTimestamp ? new Date(data.commitTimestamp) : new Date(),
-    buildStatus:  'unknown',
-    priority:     'medium',
-  }).catch(err => logger.warn({ err: err.message }, 'Metrics upsert failed — non-blocking'));
-
-  refreshRepoMetrics(data.repoFullName, data.repoName)
-    .catch(err => logger.warn({ err: err.message }, 'Post-push metrics refresh failed — non-blocking'));
+  await Promise.allSettled([
+    upsertRepoMetrics({
+      repoFullName: data.repoFullName,
+      repoName:     data.repoName,
+      lastCommitAt: data.commitTimestamp ? new Date(data.commitTimestamp) : new Date(),
+      buildStatus:  'unknown',
+      priority:     'medium',
+    }).catch(err => logger.warn({ err: err.message }, 'Metrics upsert failed')),
+    refreshRepoMetrics(data.repoFullName, data.repoName)
+      .catch(err => logger.warn({ err: err.message }, 'Post-push metrics refresh failed')),
+  ]);
 
   // T11 — trigger security scan immediately on high-risk pushes (don't wait for build pass)
   if (notionProject && data.riskLevel === 'High') {
