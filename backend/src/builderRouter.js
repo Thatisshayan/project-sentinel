@@ -128,23 +128,24 @@ const BUILDERS = {
 const DEFAULT_BUILDER = 'qwen_coder';
 
 // Ordered fallback chain when a builder fails.
-// Both qwen_coder and nvidia now use NVIDIA NIM; if NIM is down both will fail
-// together, so fallbacks prefer DashScope then Gemini then DeepSeek.
-// claude_code is the most reliable builder (uses real tools, not SEARCH/REPLACE diffs)
-// so it leads every chain when ANTHROPIC_API_KEY is configured.
-const FALLBACK_CHAIN = {
-  nvidia:          ['claude_code', 'qwen_coder_dash', 'gemini', 'deepseek', 'qwen_coder'],
-  qwen_coder:      ['claude_code', 'qwen_coder_dash', 'gemini', 'deepseek', 'nvidia'],
-  qwen_coder_dash: ['claude_code', 'qwen_coder',      'gemini', 'deepseek'],
-  gemini:          ['claude_code', 'qwen_coder_dash', 'qwen_coder', 'deepseek'],
-  qwen_max:        ['claude_code', 'qwen_coder_dash', 'qwen_coder', 'deepseek'],
-  qwen_plus:       ['claude_code', 'qwen_max',        'qwen_coder_dash', 'deepseek'],
-  qwen_turbo:      ['claude_code', 'qwen_coder_dash', 'qwen_coder',      'deepseek'],
-  llama_fast:      ['claude_code', 'qwen_coder',      'qwen_coder_dash',  'deepseek'],
-  deepseek:        ['claude_code', 'qwen_coder_dash', 'qwen_coder', 'gemini'],
-  opencode:        ['claude_code', 'qwen_coder'],
-  claude_code:     ['qwen_coder_dash', 'gemini', 'deepseek', 'qwen_coder'],
-};
+  // Both qwen_coder and nvidia now use NVIDIA NIM; if NIM is down both will fail
+  // together, so fallbacks prefer DashScope then Gemini then DeepSeek.
+  // claude_code is the most reliable builder (uses real tools, not SEARCH/REPLACE diffs)
+  // so it leads every chain when ANTHROPIC_API_KEY is configured.
+  // nvidia is added as fallback for claude_code since it's free and uses different API.
+  const FALLBACK_CHAIN = {
+    nvidia:          ['claude_code', 'qwen_coder_dash', 'gemini', 'deepseek', 'qwen_coder'],
+    qwen_coder:      ['claude_code', 'qwen_coder_dash', 'gemini', 'deepseek', 'nvidia'],
+    qwen_coder_dash: ['claude_code', 'qwen_coder',      'gemini', 'deepseek'],
+    gemini:          ['claude_code', 'qwen_coder_dash', 'qwen_coder', 'deepseek'],
+    qwen_max:        ['claude_code', 'qwen_coder_dash', 'qwen_coder', 'deepseek'],
+    qwen_plus:       ['claude_code', 'qwen_max',        'qwen_coder_dash', 'deepseek'],
+    qwen_turbo:      ['claude_code', 'qwen_coder_dash', 'qwen_coder',      'deepseek'],
+    llama_fast:      ['claude_code', 'qwen_coder',      'qwen_coder_dash',  'deepseek'],
+    deepseek:        ['claude_code', 'qwen_coder_dash', 'qwen_coder', 'gemini'],
+    opencode:        ['claude_code', 'qwen_coder'],
+    claude_code:     ['nvidia', 'qwen_coder_dash', 'gemini', 'deepseek', 'qwen_coder'],
+  };
 
 function getFallbackBuilder(failedBuilder) {
   const chain = FALLBACK_CHAIN[failedBuilder] || ['nvidia'];

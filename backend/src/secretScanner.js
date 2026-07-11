@@ -22,7 +22,18 @@ const IGNORED_PATHS = [
 ];
 
 function shouldIgnorePath(p) {
-  return IGNORED_PATHS.some(i => p.includes(i));
+  // Match path segments exactly, not substrings
+  // e.g. 'test/' should match 'test/file.js' but not 'contest/file.js'
+  const normalized = p.replace(/\\/g, '/');
+  const segments = normalized.split('/');
+  return IGNORED_PATHS.some(ignored => {
+    if (ignored.endsWith('/')) {
+      // Directory prefix match
+      return segments.some(seg => seg === ignored.slice(0, -1));
+    }
+    // File extension or exact name match
+    return segments.some(seg => seg === ignored || seg.endsWith(ignored));
+  });
 }
 
 function shannonEntropy(str) {
