@@ -183,7 +183,7 @@ async function checkDuplicateTask(repoFullName, title) {
     SELECT id FROM audit_tasks
     WHERE repo_full_name=$1
       AND LOWER(title)=LOWER($2)
-      AND status='queued'
+      AND status IN ('queued','in_progress','build_check')
     LIMIT 1
   `, [repoFullName, title]);
   return r.rows.length > 0;

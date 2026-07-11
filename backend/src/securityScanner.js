@@ -31,6 +31,10 @@ async function runSecurityScan(data) {
   logger.info({ repoFullName, commitSha: commitSha?.slice(0, 7) }, 'Security scan starting');
 
   const scan   = await createSecurityScan({ repoFullName, commitSha, branchName });
+  if (!scan) {
+    logger.error({ repoFullName }, 'Failed to create security scan record');
+    return null;
+  }
   let   tmpDir = null;
 
   try {
@@ -118,7 +122,9 @@ async function runSecurityScan(data) {
 
   } catch (err) {
     logger.error({ err: err.message, repoFullName }, 'Security scan failed');
-    await updateSecurityScan(scan.id, { status: 'failed' }).catch(() => {});
+    if (scan?.id) {
+      await updateSecurityScan(scan.id, { status: 'failed' }).catch(() => {});
+    }
     return null;
   } finally {
     if (tmpDir) {

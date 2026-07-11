@@ -13,6 +13,7 @@ const { initBusinessSchema }   = require('./businessDb');
 const { initSecuritySchema }        = require('./securityDb');
 const { initConversationSchema }    = require('./conversationMemory');
 const { initSettingsSchema }   = require('./settingsDb');
+const { initSelfScaler }       = require('./selfScaler');
 const { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAgentCleanupWorker } = require('./workers');
 
 let checkAndOnboardNewRepos;
@@ -183,6 +184,8 @@ app.listen(PORT, () => {
     await initConversationSchema();
     await initSettingsSchema();
     logger.info('Settings schema ready');
+    await initSelfScaler();
+    logger.info('Self-scaler initialized');
     await probeTools();
     const { registerBotCommands } = require('./telegramClient');
     await registerBotCommands().catch(err =>

@@ -144,37 +144,24 @@ async function acquireFileLocks(repoFullName, filePaths, agentId, taskId) {
   const acquired  = [];
 
   for (const filePath of filePaths) {
-    const existing = await query(`
-      SELECT * FROM file_locks
-      WHERE repo_full_name = $1 AND file_path = $2
-        AND expires_at > NOW()
-    `, [repoFullName, filePath]);
+    // Atomic insert with ON CONFLICT - no race window
+    const inserted = await query(`
+      INSERT INTO file_locks
+        (repo_full_name, file_path, locked_by, task_id, expires_at)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (repo_full_name, file_path) DO NOTHING
+      RETURNING locked_by
+    `, [repoFullName, filePath, agentId, taskId, expiresAt.toISOString()]);
 
-    if (existing.rows.length > 0) {
-      conflicts.push({ filePath, lockedBy: existing.rows[0].locked_by });
+    if (inserted.rowCount > 0) {
+      acquired.push(filePath);
     } else {
-      try {
-        const inserted = await query(`
-          INSERT INTO file_locks
-            (repo_full_name, file_path, locked_by, task_id, expires_at)
-          VALUES ($1, $2, $3, $4, $5)
-          ON CONFLICT (repo_full_name, file_path) DO NOTHING
-        `, [repoFullName, filePath, agentId, taskId, expiresAt.toISOString()]);
-        // ON CONFLICT DO NOTHING means a concurrent acquirer may have won the
-        // race between our SELECT and this INSERT — only count it as acquired
-        // if a row was actually inserted.
-        if (inserted.rowCount > 0) {
-          acquired.push(filePath);
-        } else {
-          const winner = await query(`
-            SELECT locked_by FROM file_locks
-            WHERE repo_full_name = $1 AND file_path = $2
-          `, [repoFullName, filePath]);
-          conflicts.push({ filePath, lockedBy: winner.rows[0]?.locked_by || 'unknown' });
-        }
-      } catch (e) {
-        conflicts.push({ filePath, lockedBy: 'unknown' });
-      }
+      // Lock exists - find who owns it
+      const winner = await query(`
+        SELECT locked_by FROM file_locks
+        WHERE repo_full_name = $1 AND file_path = $2 AND expires_at > NOW()
+      `, [repoFullName, filePath]);
+      conflicts.push({ filePath, lockedBy: winner.rows[0]?.locked_by || 'unknown' });
     }
   }
 

@@ -4,17 +4,19 @@ const logger    = require('./logger');
 async function initSettingsSchema() {
   await query(`
     CREATE TABLE IF NOT EXISTS system_settings (
-      id                  SERIAL PRIMARY KEY,
-      auto_approve_tasks  BOOLEAN DEFAULT false,
-      audit_cooldown_h    INTEGER DEFAULT 12,
-      max_active_agents   INTEGER DEFAULT 4,
-      daily_report_time   TIME DEFAULT '07:00:00',
-      primary_agent       TEXT DEFAULT 'nvidia',
-      build_agent         TEXT DEFAULT 'qwen_coder',
-      fallback_agent      TEXT DEFAULT 'gemini',
-      telegram_alerts     BOOLEAN DEFAULT true,
-      email_digest        BOOLEAN DEFAULT false,
-      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      id                     SERIAL PRIMARY KEY,
+      auto_approve_tasks     BOOLEAN DEFAULT false,
+      audit_cooldown_h       INTEGER DEFAULT 12,
+      max_active_agents      INTEGER DEFAULT 4,
+      daily_report_time      TIME DEFAULT '07:00:00',
+      primary_agent          TEXT DEFAULT 'nvidia',
+      build_agent            TEXT DEFAULT 'qwen_coder',
+      fallback_agent         TEXT DEFAULT 'gemini',
+      telegram_alerts        BOOLEAN DEFAULT true,
+      email_digest           BOOLEAN DEFAULT false,
+      batch_size_override    INTEGER,
+      daily_limit_override   INTEGER,
+      updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
 
@@ -38,6 +40,8 @@ const SETTINGS_DEFAULTS = {
   fallback_agent: 'gemini',
   telegram_alerts: true,
   email_digest: false,
+  batch_size_override: null,
+  daily_limit_override: null,
 };
 
 async function getSettings() {
@@ -52,6 +56,8 @@ async function getSettings() {
       fallback_agent,
       telegram_alerts,
       email_digest,
+      batch_size_override,
+      daily_limit_override,
       updated_at
     FROM system_settings
     LIMIT 1
@@ -85,6 +91,8 @@ async function updateSettings(updates) {
     'fallback_agent',
     'telegram_alerts',
     'email_digest',
+    'batch_size_override',
+    'daily_limit_override',
   ];
 
   // Build dynamic SET clause

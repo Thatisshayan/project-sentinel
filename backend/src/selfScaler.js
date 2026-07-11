@@ -2,11 +2,18 @@ const logger = require('./logger');
 const { getCapacityStatus }  = require('./capacityManager');
 const { sendTelegramMessage } = require('./telegramClient');
 const { query }              = require('./dbClient');
+const { loadSettings, updateSettings } = require('./settingsLoader');
 
-// In-memory overrides — these shadow the env vars for the running process.
-// A Railway redeploy resets them, which is fine (budget resets monthly).
+// Load persisted overrides from DB on startup
 let BATCH_SIZE_OVERRIDE   = null;
 let DAILY_LIMIT_OVERRIDE  = null;
+
+async function initSelfScaler() {
+  const settings = await loadSettings().catch(() => ({}));
+  BATCH_SIZE_OVERRIDE  = settings.batch_size_override ?? null;
+  DAILY_LIMIT_OVERRIDE = settings.daily_limit_override ?? null;
+  logger.info({ BATCH_SIZE_OVERRIDE, DAILY_LIMIT_OVERRIDE }, 'Self-scaler initialized from DB');
+}
 
 function getEffectiveBatchSize() {
   return BATCH_SIZE_OVERRIDE ?? parseInt(process.env.TASK_BATCH_SIZE || '5');
@@ -14,6 +21,13 @@ function getEffectiveBatchSize() {
 
 function getEffectiveDailyLimit() {
   return DAILY_LIMIT_OVERRIDE ?? parseInt(process.env.MAX_BUILDER_TASKS_PER_DAY || '10');
+}
+
+async function persistOverrides() {
+  await updateSettings({
+    batch_size_override: BATCH_SIZE_OVERRIDE,
+    daily_limit_override: DAILY_LIMIT_OVERRIDE,
+  }).catch(err => logger.warn({ err: err.message }, 'Failed to persist scaler overrides'));
 }
 
 async function runSelfScaler() {
@@ -63,6 +77,7 @@ async function runSelfScaler() {
     }
 
     if (decisions.length > 0) {
+      await persistOverrides();
       logger.info({ decisions, usagePct, queuedSafe }, 'Self-scaler adjusted limits');
       await sendTelegramMessage(
         `Project Sentinel — Auto-Scaled\n\n${decisions.join('\n')}\n\n` +
@@ -81,4 +96,4 @@ async function runSelfScaler() {
   }
 }
 
-module.exports = { runSelfScaler, getEffectiveBatchSize, getEffectiveDailyLimit };
+module.exports = { runSelfScaler, getEffectiveBatchSize, getEffectiveDailyLimit, initSelfScaler };

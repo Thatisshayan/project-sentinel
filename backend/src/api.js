@@ -98,6 +98,10 @@ router.get('/repo/:name', async (req, res) => {
   try {
     const name = req.params.name;
 
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
+      return res.status(400).json({ error: 'Invalid repo name' });
+    }
+
     const metrics = await query(`
       SELECT * FROM portfolio_metrics
       WHERE repo_name = $1
@@ -133,12 +137,18 @@ router.get('/repo/:name', async (req, res) => {
 
 router.get('/repo/:name/tasks', async (req, res) => {
   try {
+    const name = req.params.name;
+
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
+      return res.status(400).json({ error: 'Invalid repo name' });
+    }
+
     const r = await query(`
       SELECT at.* FROM audit_tasks at
       JOIN audit_cycles ac ON ac.id = at.audit_cycle_id
       WHERE at.repo_full_name LIKE $1
       ORDER BY at.priority ASC, at.task_number ASC
-    `, [`%/${req.params.name}`]);
+    `, [`%/${name}`]);
     res.json(r.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
