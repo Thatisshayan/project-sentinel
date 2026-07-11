@@ -158,6 +158,7 @@ async function updateNotionProject(pageId, data) {
       properties: allProperties,
     });
     logger.info({ pageId }, 'Notion bulk update succeeded');
+    bustNotionCache();
     return;
   } catch (bulkErr) {
     logger.warn({ err: bulkErr.message },
@@ -184,6 +185,7 @@ async function updateNotionProject(pageId, data) {
 
   logger.info({ pageId, successCount, total: Object.keys(allProperties).length },
     'Notion field-by-field update complete');
+  bustNotionCache();
 }
 
 async function appendChangelog(pageId, data) {
@@ -230,6 +232,7 @@ Commit URL: ${commitUrl}`;
       },
     ],
   });
+  bustNotionCache();
 }
 
 async function updateBuilderAgent(pageId, agentId) {

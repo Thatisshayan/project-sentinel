@@ -124,6 +124,20 @@ async function executeNextSprintTask(sprintId, topicId) {
       completed_at: new Date().toISOString(),
     });
 
+    // Sync with audit task if this sprint task was created from an audit task
+    if (task.audit_task_id) {
+      const { updateAuditTask, updateNotionTaskStatus } = require('./auditDb');
+      await updateAuditTask(task.audit_task_id, {
+        status: 'build_check',
+        branch_name: batchResult.taskBranch,
+        commit_sha: batchResult.commitSha,
+        commit_url: batchResult.commitUrl,
+        pr_url: prUrl,
+        pr_number: prUrl ? parseInt(prUrl.split('/').pop()) : null,
+      }).catch(err => logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task'));
+      await updateNotionTaskStatus(task.audit_task_id, 'build_check', { prUrl, commitUrl: batchResult.commitUrl }).catch(() => {});
+    }
+
     const freshSprint = await getSprintById(sprintId);
     await updateSprint(sprintId, {
       completed_tasks: (freshSprint.completed_tasks || 0) + 1,

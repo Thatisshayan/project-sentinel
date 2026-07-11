@@ -25,6 +25,15 @@ function getRedisConnection() {
         );
       }
     });
+    // Reset connection on close/end so getRedisConnection() can recreate it
+    connection.on('close', () => {
+      logger.warn('Redis connection closed — will reconnect on next use');
+      connection = null;
+    });
+    connection.on('end', () => {
+      logger.warn('Redis connection ended — will reconnect on next use');
+      connection = null;
+    });
   }
   return connection;
 }
