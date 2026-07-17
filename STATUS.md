@@ -17,7 +17,7 @@
 | 0: Foundation & Safety Net | **Complete** | 100% | None — starting point |
 | 1: TypeScript Migration | **COMPLETE** 🎉 | 100% | Needs Phase 0 |
 | 2: Error Architecture | **COMPLETE** ✅ | 100% | Needs Phase 0-1 |
-| 3: Security Hardening | **IN PROGRESS** 🔒 | 50% | Can overlap with Phases 1-2 |
+| 3: Security Hardening | **COMPLETE** 🔒 | 100% | Can overlap with Phases 1-2 |
 | 4: Test Coverage Blitz | Pending | 0% | Needs Phase 0 + 1 |
 | 5: Catch Pattern Elimination | Pending | 0% | Needs Phase 2 + 4 |
 | 6: Architecture Refactoring | Pending | 0% | Needs Phase 4 + 5 |
@@ -60,10 +60,13 @@
   - `api.ts` SENTINEL_UI_KEY, `index.ts` DEBUGGER_SHARED_SECRET
 - 3.2: SSL certificate validation (CA cert handling) ✅ commit `2a68f42`
   - `dbClient.ts` ssl config, `DATABASE_CA_CERT` in `.env.example`
-- 3.3: Rate limiting on API routes — pending (branch)
-- 3.4: Harden UI action proxy (path whitelist) — pending
-- 3.5: Scope environment for child processes — pending
-- 3.6: CSRF/origin check to UI proxy routes — pending
+- 3.3: Rate limiting on API routes ✅ commit `b0838cd` (express-rate-limit, 100/min)
+- 3.4: Harden UI action proxy (path whitelist) ✅ commit `b0838cd`
+  - `ui/app/api/action/route.ts` ALLOWED_PATHS whitelist
+- 3.5: Scope environment for child processes ✅ commit `b0838cd`
+  - New `src/utils/childEnv.ts` (buildChildEnv allowlist); wired into aiderRunner, claudeCodeRunner, claudeCodeAudit, builderRouter.getAiderEnv
+- 3.6: CSRF/origin check on all 5 UI proxy routes ✅ commit `b0838cd`
+  - `isValidOrigin` guard in action, agent-room-proxy, agents-proxy, settings, stats
 
 ## TS Files on main (76 files)
 - All files in `backend/src/` — **no .js files remain**

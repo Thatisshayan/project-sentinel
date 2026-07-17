@@ -56,10 +56,10 @@
 |---|------|----------|--------|
 | 3.1 | Timing-safe auth comparisons (SENTINEL_UI_KEY, DEBUGGER_SHARED_SECRET) | CRITICAL | ✅ Done (commit `35d6e52`) |
 | 3.2 | Fix SSL certificate validation (rejectUnauthorized: false → true) | CRITICAL | ✅ Done (commit `2a68f42`) |
-| 3.3 | Add rate limiting to all API routes | HIGH | ✅ Done (branch) |
-| 3.4 | Harden UI action proxy (path whitelist, CSRF, origin validation) | HIGH | ⏳ Pending |
-| 3.5 | Scope environment for child processes (don't spread entire process.env) | MEDIUM | ⏳ Pending |
-| 3.6 | Add origin/CSRF check to all 5 UI proxy routes | MEDIUM | ⏳ Pending |
+| 3.3 | Add rate limiting to all API routes | HIGH | ✅ Done |
+| 3.4 | Harden UI action proxy (path whitelist, CSRF, origin validation) | HIGH | ✅ Done |
+| 3.5 | Scope environment for child processes (don't spread entire process.env) | MEDIUM | ✅ Done |
+| 3.6 | Add origin/CSRF check to all 5 UI proxy routes | MEDIUM | ✅ Done |
 
 ---
 
