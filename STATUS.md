@@ -15,8 +15,8 @@
 | Phase | Status | % Complete | Dependencies |
 |-------|--------|-----------|-------------|
 | 0: Foundation & Safety Net | **Complete** | 100% | None — starting point |
-| 1: TypeScript Migration | **COMPLETE** 🎉 | 100% ✅ | Needs Phase 0 |
-| 2: Error Architecture | Pending | 0% | Needs Phase 0-1 |
+| 1: TypeScript Migration | **COMPLETE** 🎉 | 100% | Needs Phase 0 |
+| 2: Error Architecture | **COMPLETE** ✅ | 100% | Needs Phase 0-1 |
 | 3: Security Hardening | Pending | 0% | Can overlap with Phases 1-2 |
 | 4: Test Coverage Blitz | Pending | 0% | Needs Phase 0 + 1 |
 | 5: Catch Pattern Elimination | Pending | 0% | Needs Phase 2 + 4 |
