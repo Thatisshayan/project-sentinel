@@ -1,4 +1,5 @@
 import logger from './logger';
+import { buildChildEnv } from './utils/childEnv';
 
 const DASHSCOPE_BASE = process.env['DASHSCOPE_BASE_URL'] || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
@@ -201,7 +202,8 @@ function getBuilderConfig(assignment?: string): BuilderConfig {
 }
 
 function getAiderEnv(config: BuilderConfig): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = { ...process.env };
+  // Start from a scoped env (no full process.env leak) — see utils/childEnv.ts
+  const env = buildChildEnv();
   switch (config.id) {
     case 'gemini':
       env['GEMINI_API_KEY'] = process.env['GEMINI_API_KEY'] || '';

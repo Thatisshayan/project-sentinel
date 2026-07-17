@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import logger from './logger';
 import { sanitizeLogs } from './riskAssessor';
+import { buildChildEnv } from './utils/childEnv';
 
 const TIMEOUT_MS = (): number =>
   parseInt(process.env['DEBUG_TIMEOUT_MINUTES'] || '30') * 60 * 1000;
@@ -111,8 +112,7 @@ async function runAider(repoPath: string, context: AiderContext): Promise<AiderR
 
     const proc = spawn('aider', args, {
       cwd: repoPath,
-      env: {
-        ...process.env,
+      env: buildChildEnv({
         // Pass API keys Aider needs based on model
         GEMINI_API_KEY:  process.env['GEMINI_API_KEY']  || '',
         ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'] || '',
@@ -121,7 +121,7 @@ async function runAider(repoPath: string, context: AiderContext): Promise<AiderR
           OPENAI_API_BASE: 'https://integrate.api.nvidia.com/v1',
           OPENAI_BASE_URL: 'https://integrate.api.nvidia.com/v1',
         } : {}),
-      },
+      }),
     });
 
     proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });

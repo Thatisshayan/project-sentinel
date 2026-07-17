@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import logger from './logger';
 import { validateAuditOutput } from './aiOutputValidator';
+import { buildChildEnv } from './utils/childEnv';
 
 const AUDIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const AUDIT_MODEL = process.env['AUDIT_MODEL'] || 'mistralai/mistral-nemotron';
@@ -193,7 +194,7 @@ async function runClaudeCodeAudit(repoPath: string, payload: AuditPayload): Prom
 
     const proc = spawn('claude', args, {
       cwd: repoPath,
-      env: { ...process.env, ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'] },
+      env: buildChildEnv({ ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'] }),
     });
 
     proc.stdout.on('data', (c: Buffer) => { stdout += c.toString(); });

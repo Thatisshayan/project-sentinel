@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import logger from './logger';
+import { buildChildEnv } from './utils/childEnv';
 
 const BUILD_TIMEOUT_MS = (): number =>
   parseInt(process.env['DEBUG_TIMEOUT_MINUTES'] || process.env['AIDER_TIMEOUT_MINUTES'] || '30') * 60 * 1000;
@@ -82,7 +83,7 @@ async function runClaudeCodeForTask(repoPath: string, task: Task, context: TaskC
 
     const proc = spawn('claude', args, {
       cwd: repoPath,
-      env: { ...process.env, ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'] },
+      env: buildChildEnv({ ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'] }),
     });
 
     proc.stdout.on('data', (c: Buffer) => { stdout += c.toString(); });
