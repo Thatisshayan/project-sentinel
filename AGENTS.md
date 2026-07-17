@@ -1,6 +1,45 @@
-# Agents
+# Project Sentinel — Agent Rules
 
-> **⚠️ REBUILD IN PROGRESS — Phase 0/7 active.** Before making ANY changes, read `STATUS.md` and `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md` to understand current phase requirements. The codebase is being TypeScript-migrated, hardened, and tested — changes must follow the plan's conventions.
+This file is the first-stop instruction set for any agent working in this repository.
+
+## Mandatory Read Order
+
+Before planning, editing, or reporting completion, every agent must read:
+
+1. **[Baseline Rules](#baseline)** — Foundational agent rules (adapted from RemoteCliControl)
+2. [STATUS.md](./STATUS.md) — current project state
+3. [docs/superpowers/plans/2026-07-16-sentinel-rebuild.md](./docs/superpowers/plans/2026-07-16-sentinel-rebuild.md) — active rebuild plan
+4. [CONTRIBUTING.md](./CONTRIBUTING.md) (if exists)
+5. The phase-specific documentation below
+
+## Baseline
+
+All repositories follow the foundational agent rules established in the RemoteCliControl project:
+
+- Keep docs findable and current while work is in progress
+- Do not claim completion without verification
+- Do not silently skip requested steps
+- Record deferred work in appropriate documentation
+- Keep the repo stable, review existing failures, and report what was pre-existing
+- Code changes must be actually applied and tested
+- Documentation must be updated in the same pass as code changes
+- Verification must be run (or concrete blockers reported)
+
+For full details, see [RemoteCliControl/AGENTS.md](../RemoteCliControl/AGENTS.md).
+
+## Project Sentinel-Specific Context
+
+**Project Status**: ⚠️ REBUILD IN PROGRESS — Phase 0/7 active
+
+**Key Notes**:
+- TypeScript migration in progress
+- Codebase hardening and testing underway
+- Changes must follow the active rebuild plan's conventions
+- Before making ANY changes, read `STATUS.md` and the rebuild plan
+
+---
+
+# Agents
 
 Project Sentinel uses a pool of AI agents to perform code audits, fixes, and portfolio management. Each agent corresponds to a specific AI provider and model.
 
