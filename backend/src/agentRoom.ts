@@ -303,7 +303,7 @@ async function updatePinnedStatusBoard(): Promise<void> {
       disable_web_page_preview: true,
     }).catch(() => {});
   } else {
-    const result = await sendTelegramMessage(text, null, AGENT_ROOM_TOPIC_ID()).catch(() => null);
+    const result = await sendTelegramMessage(text, null, AGENT_ROOM_TOPIC_ID() ? parseInt(AGENT_ROOM_TOPIC_ID()!, 10) : null).catch(() => null);
     const messageId = result?.result?.message_id;
     if (messageId) {
       await telegramApiPost('pinChatMessage', {
@@ -385,7 +385,7 @@ async function sendMorningBriefing(): Promise<void> {
     focusLine,
   ].filter(Boolean).join('\n');
 
-  await sendTelegramMessage(msg, null, AGENT_ROOM_TOPIC_ID()).catch(() => {});
+  await sendTelegramMessage(msg, null, AGENT_ROOM_TOPIC_ID() ? parseInt(AGENT_ROOM_TOPIC_ID()!, 10) : null).catch(() => {});
 }
 
 // ── Summary for AI context ────────────────────────────────────────────────────

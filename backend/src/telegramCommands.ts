@@ -1,67 +1,64 @@
-const logger = require('./logger');
-const { repoFullName }                = require('./repoResolver');
-const { sendTelegramMessage }         = require('./telegramClient');
-const { findNotionProject }           = require('./notionClient');
-const { stopDebugAttempts,
-        getDebugAttempt }             = require('./dbClient');
-const { checkAllProviders }           = require('./buildPoller');
-const { orchestrateDebug }            = require('./debugOrchestrator');
-const {
+import logger from './logger';
+import { repoFullName } from './repoResolver';
+import { sendTelegramMessage } from './telegramClient';
+import { findNotionProject } from './notionClient';
+import { stopDebugAttempts, getDebugAttempt, query } from './dbClient';
+import { checkAllProviders } from './buildPoller';
+import { orchestrateDebug } from './debugOrchestrator';
+import {
   executeApprovedTasks,
   triggerAudit,
   processNextBatch,
-} = require('./auditOrchestrator');
-const {
+} from './auditOrchestrator';
+import {
   stopAllTasksForRepo,
   getNextBatch,
   updateAuditTask,
-} = require('./auditDb');
-const { updateNotionTaskStatus } = require('./auditTaskWriter');
-const { handleMessage }          = require('./telegramAI');
-const {
+} from './auditDb';
+import { updateNotionTaskStatus } from './auditTaskWriter';
+import { handleMessage } from './telegramAI';
+import {
   approveSprint, getSprintStatus,
   pauseSprint, resumeSprint,
-} = require('./sprintOrchestrator');
-const { getVelocityReport }      = require('./velocityTracker');
-const { getAgentRoomSummary,
-        answerCallback }         = require('./agentRoom');
-const { executePortfolioTasks }  = require('./parallelExecutor');
-const { getAllAgents }            = require('./agentDb');
-const { getPerformanceReport }   = require('./performanceTracker');
-const { getPromptReport }        = require('./promptOptimizer');
-const { runSelfAudit }           = require('./selfAuditor');
-const { generateWeeklyReport }   = require('./weeklyBusinessReport');
-const { getRepoBusinessSummary } = require('./businessMetrics');
-const { getCorrelationSummary }  = require('./correlationEngine');
-const { scoreAllQueuedTasks }    = require('./roiScorer');
-const { detectAgentReply,
-        handleAgentReply }       = require('./agentReplies');
-const {
+} from './sprintOrchestrator';
+import { getVelocityReport } from './velocityTracker';
+import { getAgentRoomSummary, answerCallback } from './agentRoom';
+import { executePortfolioTasks } from './parallelExecutor';
+import { getAllAgents } from './agentDb';
+import { getPerformanceReport } from './performanceTracker';
+import { getPromptReport } from './promptOptimizer';
+import { runSelfAudit } from './selfAuditor';
+import { generateWeeklyReport } from './weeklyBusinessReport';
+import { getRepoBusinessSummary } from './businessMetrics';
+import { getCorrelationSummary } from './correlationEngine';
+import { scoreAllQueuedTasks } from './roiScorer';
+import { detectAgentReply, handleAgentReply } from './agentReplies';
+import {
   getPendingConflict,
   resolvePendingConflict,
   releaseAllLocks,
-} = require('./conflictDetector');
+} from './conflictDetector';
 
-const { handleAgentsCmd }  = require('./commands/agents');
-const { handleRepoOpsCmd, handleHelp } = require('./commands/repoOps');
-const { handleReportsCmd } = require('./commands/reports');
-const { handleSprintCmd }  = require('./commands/sprint');
+import { handleAgentsCmd }  from './commands/agents';
+import { handleRepoOpsCmd, handleHelp } from './commands/repoOps';
+import { handleReportsCmd } from './commands/reports';
+import { handleSprintCmd }  from './commands/sprint';
 
 const KNOWN_AGENT_IDS = ['nvidia','qwen_coder','qwen_coder_dash','llama_fast','gemini','qwen_max','qwen_turbo','deepseek','qwen_plus','opencode'];
 
-async function handleCommand(text, chatId, topicId, fromName, message = null) {
+async function handleCommand(text: string, chatId: number, topicId: number | null, fromName: string, message: any = null): Promise<boolean> {
   // Phase 8.5 — if this is a reply to a specific agent bot, route directly to that agent
   if (message) {
     const targetAgent = detectAgentReply(message);
     if (targetAgent) {
-      await handleAgentReply(message, targetAgent, topicId);
+      await handleAgentReply(message, targetAgent, topicId as number);
       return true;
     }
   }
 
   // Route non-slash messages to AI agent
   if (!text.trim().startsWith('/')) {
-    const isAgentRoom = topicId != null && String(topicId) === String(process.env.AGENT_ROOM_TOPIC_ID);
+    const isAgentRoom = topicId != null && String(topicId) === String(process.env['AGENT_ROOM_TOPIC_ID']);
     if (isAgentRoom) {
       let roomContext = await getAgentRoomSummary().catch(() => '');
 
@@ -70,7 +67,7 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
       if (mentioned.length > 0) {
         const agents = await getAllAgents().catch(() => []);
         const mentionLines = mentioned.map(id => {
-          const a = agents.find(x => x.agent_id === id);
+          const a = agents.find((x: any) => x.agent_id === id);
           if (!a) return `@${id}: not registered`;
           return a.status === 'working'
             ? `@${id}: working on ${a.repo_full_name?.split('/')[1]} — ${a.task_title}`
@@ -89,11 +86,10 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
   const parts   = text.trim().split(/\s+/);
   const command = parts[0]?.toLowerCase().split('@')[0]; // strip @BotName suffix Telegram adds in groups
 
-  // Top-level commands Telegram's native "/" menu can send directly, with no
-  // "/sentinel" prefix — these are the entry points a user actually taps.
+  // Top-level commands Telegram's native "/" menu can send directly
   if (command === '/start' || command === '/menu') {
     const { showMainMenu } = require('./telegramMenus');
-    await showMainMenu(chatId, topicId);
+    await showMainMenu(chatId, topicId ?? null);
     return true;
   }
   if (command === '/help') {
@@ -104,9 +100,7 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
 
   const subcommand = parts[1].toLowerCase();
 
-  // Delegate to the modular command handlers (origin's refactor of the
-  // former inline switch). Each returns true if it handled the subcommand,
-  // false to fall through to the next module.
+  // Delegate to the modular command handlers
   if (await handleSprintCmd(subcommand, parts, chatId, topicId))  return true;
   if (await handleReportsCmd(subcommand, parts, chatId, topicId)) return true;
   if (await handleAgentsCmd(subcommand, parts, chatId, topicId))  return true;
@@ -116,8 +110,7 @@ async function handleCommand(text, chatId, topicId, fromName, message = null) {
 }
 
 // Improvement 4 — conflict resolution via inline keyboard button presses.
-// Wire in index.js: const cb = req.body.callback_query; if (cb) { await handleCallbackQuery(cb); return res.status(200).json({ok:true}); }
-async function handleCallbackQuery(callbackQuery) {
+async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
   const data     = callbackQuery.data || '';
   const queryId  = callbackQuery.id;
   const topicId  = callbackQuery.message?.message_thread_id;
@@ -147,7 +140,7 @@ async function handleCallbackQuery(callbackQuery) {
   if (data.startsWith('help:')) {
     await answerCallback(queryId).catch(() => {});
     const section = data.replace('help:', '');
-    const HELP_SECTIONS = {
+    const HELP_SECTIONS: Record<string, string> = {
       reports: [
         '📊 Reports & Data',
         '',
@@ -273,8 +266,8 @@ async function handleCallbackQuery(callbackQuery) {
       } else if (action === 'security') {
         const { getPortfolioSecuritySummary } = require('./securityDb');
         const p = await getPortfolioSecuritySummary().catch(() => []);
-        const lines = p.sort((a,b) => parseFloat(a.score)-parseFloat(b.score))
-          .map(r => `${r.repo_name}: ${r.score}/10 (${r.critical_count||0} critical)`);
+        const lines = p.sort((a: any,b: any) => parseFloat(a.score)-parseFloat(b.score))
+          .map((r: any) => `${r.repo_name}: ${r.score}/10 (${r.critical_count||0} critical)`);
         await sendTelegramMessage(`🔒 Security\n\n${lines.join('\n')||'No data yet.'}`, null, threadId);
       } else if (action === 'approvals') {
         const { showApprovalsMenu } = require('./telegramMenus');
@@ -284,7 +277,7 @@ async function handleCallbackQuery(callbackQuery) {
       } else if (action === 'last') {
         const { getRecentMessages } = require('./agentDb');
         const msgs = await getRecentMessages(5).catch(() => []);
-        const lines = msgs.map(m => `· ${m.agent_id}: ${(m.message||'').slice(0, 60)}`).join('\n');
+        const lines = msgs.map((m: any) => `· ${m.agent_id}: ${(m.message||'').slice(0, 60)}`).join('\n');
         await sendTelegramMessage(lines || 'No recent agent messages.', null, threadId);
       } else if (action === 'help') {
         await sendTelegramMessage([
@@ -295,7 +288,7 @@ async function handleCallbackQuery(callbackQuery) {
           '/sentinel pause — emergency stop all automation',
         ].join('\n'), null, threadId);
       }
-    } catch (err) {
+    } catch (err: any) {
       logger.warn({ err: err.message, action }, 'Menu callback failed');
     }
     return true;
@@ -306,7 +299,7 @@ async function handleCallbackQuery(callbackQuery) {
     const parts2     = data.split(':');
     const repoAction = parts2[1];
     const repoName   = parts2[2];
-    const repoFull   = repoFullName(repoName);  // fixed: was shadowing the import
+    const repoFull   = repoFullName(repoName);
     try {
       if (repoAction === 'audit') {
         const { triggerAudit } = require('./auditOrchestrator');
@@ -331,7 +324,7 @@ async function handleCallbackQuery(callbackQuery) {
       } else if (repoAction === 'status') {
         await sendTelegramMessage(`Use /sentinel status ${repoName} for details.`, null, threadId);
       }
-    } catch (err) {
+    } catch (err: any) {
       logger.warn({ err: err.message, repoAction, repoName }, 'Repo callback failed');
     }
     return true;
@@ -353,7 +346,7 @@ async function handleCallbackQuery(callbackQuery) {
       } else if (approveAction === 'self') {
         executeApprovedTasks(repoFullName('project-sentinel'), 'project-sentinel', threadId).catch(() => {});
       }
-    } catch (err) {
+    } catch (err: any) {
       logger.warn({ err: err.message }, 'Approve callback failed');
     }
     return true;
@@ -371,8 +364,7 @@ async function handleCallbackQuery(callbackQuery) {
   if (data.startsWith('task-approve:')) {
     await answerCallback(queryId).catch(() => {});
     const taskId = data.replace('task-approve:', '');
-    const { query: dbq } = require('./dbClient');
-    const result = await dbq(
+    const result = await query(
       `UPDATE audit_tasks SET safe_to_auto_execute = true
        WHERE id = $1 RETURNING repo_full_name, task_number, title`,
       [taskId]
@@ -391,8 +383,7 @@ async function handleCallbackQuery(callbackQuery) {
   if (data.startsWith('task-skip:')) {
     await answerCallback(queryId).catch(() => {});
     const taskId = data.replace('task-skip:', '');
-    const { query: dbq } = require('./dbClient');
-    const sel = await dbq(
+    const sel = await query(
       'SELECT task_number, title FROM audit_tasks WHERE id = $1', [taskId]
     ).catch(() => null);
     if (sel?.rows?.[0]) {
@@ -408,8 +399,7 @@ async function handleCallbackQuery(callbackQuery) {
     await answerCallback(queryId).catch(() => {});
     const repoFull  = data.replace('task-approve-all:', '');
     const repoName  = repoFull.split('/')[1];
-    const { query: dbq } = require('./dbClient');
-    await dbq(
+    await query(
       `UPDATE audit_tasks SET safe_to_auto_execute = true
        WHERE repo_full_name = $1 AND status = 'queued'`,
       [repoFull]
@@ -465,4 +455,4 @@ async function handleCallbackQuery(callbackQuery) {
   return true;
 }
 
-module.exports = { handleCommand, handleCallbackQuery };
+export = { handleCommand, handleCallbackQuery };
