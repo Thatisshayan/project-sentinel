@@ -96,7 +96,7 @@
 | # | Task | Priority | Status |
 |---|------|----------|--------|
 | 6.1 | Split workers.ts god module (596 LOC → src/workers/{buildPoll,dailyReport,sprint,agentCleanup}Worker.ts barrel) | HIGH | ✅ Done |
-| 6.2 | Split webhook.ts (extract Notion sync, Telegram notify, security scan trigger) | HIGH | ⏳ Pending |
+| 6.2 | Split webhook.ts (messages + processWebhook + processPREvent → src/webhook/) | HIGH | ✅ Done |
 | 6.3 | Centralize 4 duplicated AI provider call patterns into one ai/client.ts | HIGH | ⏳ Pending |
 | 6.4 | Eliminate inline require() calls (replace with top-level imports) | MEDIUM | ⏳ Pending |
 | 6.5 | Consolidate duplicated UI utilities (relativeTime, agentColor, mapBuild, etc.) | LOW | ⏳ Pending |
