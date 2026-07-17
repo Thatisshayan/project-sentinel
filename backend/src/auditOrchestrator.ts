@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 const { runAudit }           = require('./claudeCodeAudit');
 const { writeTasksToNotion,
@@ -65,11 +66,11 @@ async function checkAuditRules(data: any): Promise<{ pass: boolean; reason?: str
   const queuedCount = await getQueuedTaskCount(repoFullName);
   if (queuedCount >= QUEUED_THRESHOLD()) {
     logger.info({ repoName, queuedCount }, 'Rule 2: Tasks queued — audit skipped');
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       `Project Sentinel — Audit Skipped ⏭️\n\nRepo: ${repoName}\n${queuedCount} tasks still in queue.\nAudit will run when queue clears.`,
       null,
       topicId
-    ).catch(() => {});
+    ), { label: 'auditOrchestrator' })
     return { pass: false, reason: 'tasks_queued' };
   }
 
@@ -147,11 +148,11 @@ async function triggerAudit(payload: any): Promise<void> {
 
   const builderConfig = getBuilderConfig(builderAgent);
 
-  await sendTelegramMessage(
+  await safeFire(sendTelegramMessage(
     `Project Sentinel — Audit Starting 🔍\n\nRepo: ${repoName}\nAnalyst: Claude Code\nBuilder assigned: ${builderConfig.label}`,
     null,
     topicId
-  ).catch(() => {});
+  ), { label: 'auditOrchestrator' })
 
   // Run Claude Code audit — wrapped for performance tracking and self-healing
   let auditResult: any;
@@ -170,11 +171,11 @@ async function triggerAudit(payload: any): Promise<void> {
     await reportFailure('auditOrchestrator', err);
     logger.error({ err: err.stack ?? err.message, repoFullName }, 'Audit failed');
     await updateAuditCycle(cycle.id, { status: 'failed' });
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       `Project Sentinel — Audit Failed ❌\n\nRepo: ${repoName}\nError: ${err.message.substring(0, 300)}`,
       null,
       topicId
-    ).catch(() => {});
+    ), { label: 'auditOrchestrator' })
     return;
   }
 
@@ -241,7 +242,7 @@ async function triggerAudit(payload: any): Promise<void> {
       ],
     ]);
   } catch {
-    await sendTelegramMessage(auditText, null, topicId).catch(() => {});
+    await safeFire(sendTelegramMessage(auditText, null, topicId), { label: 'auditOrchestrator' })
   }
 
   scheduleApprovalTimeout(cycle.id, repoFullName, repoName, topicId);
@@ -253,10 +254,10 @@ async function triggerAudit(payload: any): Promise<void> {
 
 async function executeApprovedTasks(repoFullName: string, repoName: string, topicId: number | null): Promise<void> {
   if (!BUILDER_ENABLED()) {
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       `Builder disabled (BUILDER_AGENT_ENABLED=false). Enable in Railway.`,
       null, topicId
-    ).catch(() => {});
+    ), { label: 'auditOrchestrator' })
     return;
   }
 
@@ -273,10 +274,10 @@ async function executeApprovedTasks(repoFullName: string, repoName: string, topi
     const queuedCount = parseInt(queued?.rows?.[0]?.count || '0');
 
     if (queuedCount === 0) {
-      await sendTelegramMessage([
+      await safeFire(sendTelegramMessage([
         `No queued tasks for ${repoName}.`,
         `Run /sentinel audit ${repoName} to generate tasks first.`,
-      ].join('\n'), null, topicId).catch(() => {});
+      ].join('\n'), null, topicId), { label: 'auditOrchestrator' })
       return;
     }
 
@@ -289,10 +290,10 @@ async function executeApprovedTasks(repoFullName: string, repoName: string, topi
     }).catch(() => null);
 
     if (!active) {
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `Could not start execution cycle for ${repoName}. Try /sentinel audit ${repoName} first.`,
         null, topicId
-      ).catch(() => {});
+      ), { label: 'auditOrchestrator' })
       return;
     }
   }
@@ -308,11 +309,11 @@ async function executeApprovedTasks(repoFullName: string, repoName: string, topi
 async function processNextBatch(repoFullName: string, repoName: string, topicId: number | null): Promise<void> {
   const todayCount = await countTasksExecutedToday(repoFullName);
   if (todayCount >= DAILY_LIMIT()) {
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       `Project Sentinel — Daily Limit ⏸️\n\nRepo: ${repoName}\nTasks today: ${todayCount}/${DAILY_LIMIT()}\nContinuing tomorrow.`,
       null,
       topicId
-    ).catch(() => {});
+    ), { label: 'auditOrchestrator' })
     return;
   }
 
@@ -321,13 +322,13 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
   if (tasks.length === 0) {
     const cycle = await getActiveCycleForRepo(repoFullName);
     if (cycle) await updateAuditCycle(cycle.id, { status: 'complete' });
-    await sendTelegramMessage([
+    await safeFire(sendTelegramMessage([
       `Project Sentinel — All Safe Tasks Complete ✅`,
       ``,
       `Repo: ${repoName}`,
       `Unsafe tasks remain in Notion for manual review.`,
       `Next audit available in ${COOLDOWN_HOURS()}h after next human commit.`,
-    ].join('\n'), null, topicId).catch(() => {});
+    ].join('\n'), null, topicId), { label: 'auditOrchestrator' })
     return;
   }
 
@@ -340,7 +341,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
   const batchNum      = tasks[0].batch_number;
   const taskTitles    = tasks.map((t: any) => `${t.task_number}. ${t.title}`).join('\n');
 
-  await sendTelegramMessage([
+  await safeFire(sendTelegramMessage([
     `Project Sentinel — Executing Batch ${batchNum} 🔨`,
     ``,
     `Repo: ${repoName}`,
@@ -348,7 +349,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
     `Builder: ${builderConfig.label}`,
     ``,
     taskTitles,
-  ].join('\n'), null, topicId).catch(() => {});
+  ].join('\n'), null, topicId), { label: 'auditOrchestrator' })
 
   const notionProject = await findNotionProject(repoName).catch(() => null);
 
@@ -365,10 +366,10 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
     const fallback = getFallbackBuilder(primaryBuilder);
     if (fallback) {
       logger.info({ primaryBuilder, fallback, repoFullName }, 'Primary builder failed — retrying with fallback');
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `Builder ${primaryBuilder} failed for ${repoName}. Retrying with ${fallback}...`,
         null, topicId
-      ).catch(() => {});
+      ), { label: 'auditOrchestrator' })
       batchResult = await executeBatch(tasks, {
         repoFullName, repoName,
         projectName: notionProject?.projectName || repoName,
@@ -414,7 +415,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
       await updateNotionTaskStatus(task.notion_page_id, 'queued');
     }
 
-    await sendTelegramMessage([
+    await safeFire(sendTelegramMessage([
       `Project Sentinel — Batch ${batchNum} Ready ✅`,
       ``,
       `Repo: ${repoName}`,
@@ -426,14 +427,14 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
       batchResult.remainingTasks > 0
         ? `Merge to continue. ${batchResult.remainingTasks} tasks remain.`
         : `Merge to finish. This is the final batch.`,
-    ].filter(Boolean).join('\n'), null, topicId).catch(() => {});
+    ].filter(Boolean).join('\n'), null, topicId), { label: 'auditOrchestrator' })
 
   } else {
     // Re-queue all tasks so they can be retried — the builder failed (infra/API/aider),
     // not the tasks themselves. Marking them failed would silently destroy the queue.
     for (const task of tasks) {
       await updateAuditTask(task.id, { status: 'queued', failure_reason: null });
-      await updateNotionTaskStatus(task.notion_page_id, 'queued').catch(() => {});
+      await safeFire(updateNotionTaskStatus(task.notion_page_id, 'queued'), { label: 'auditOrchestrator' })
     }
 
     // Show stdout (aider conversation) and stderr (errors/warnings) separately
@@ -444,7 +445,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
       stderrTail ? `stderr:\n${stderrTail}` : '',
       stdoutTail ? `stdout:\n${stdoutTail}` : '',
     ].filter(Boolean).join('\n\n').slice(-1000);
-    await sendTelegramMessage([
+    await safeFire(sendTelegramMessage([
       `Project Sentinel — Batch ${batchNum} Failed ❌`,
       ``,
       `Repo: ${repoName}`,
@@ -452,15 +453,15 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
       errDetail ? `\nBuilder output:\n${errDetail}` : '',
       ``,
       `Tasks re-queued. /sentinel execute ${repoName} to retry.`,
-    ].filter(Boolean).join('\n'), null, topicId).catch(() => {});
+    ].filter(Boolean).join('\n'), null, topicId), { label: 'auditOrchestrator' })
 
     // Also log to agent_messages so it's visible in the UI without Telegram
     const { logAgentMessage } = require('./agentDb');
-    await logAgentMessage(
+    await safeFire(logAgentMessage(
       'sentinel', 'Sentinel',
       `Batch ${batchNum} failed for ${repoName}. Reason: ${batchResult.reason || 'Unknown'}${errDetail ? '\n\nBuilder output:\n' + errDetail : ''}`,
       'error', repoName
-    ).catch(() => {});
+    ), { label: 'auditOrchestrator' })
   }
 }
 
@@ -487,11 +488,11 @@ function scheduleApprovalTimeout(cycleId: string, repoFullName: string, repoName
       );
       if (r.rows.length === 0) return;
       await updateAuditCycle(cycleId, { status: 'skipped' });
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `Project Sentinel — Audit Expired ⏱️\n\nRepo: ${repoName}\nNo response in ${APPROVAL_TIMEOUT_H()}h.\nTasks remain in Notion as Queued.\n/sentinel audit ${repoName} to re-audit.`,
         null,
         topicId
-      ).catch(() => {});
+      ), { label: 'auditOrchestrator' })
     } catch (err: any) {
       logger.warn({ err: err.message }, 'Approval timeout handler error');
     }

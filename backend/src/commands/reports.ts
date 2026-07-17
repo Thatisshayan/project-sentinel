@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from '../utils/safeFire';
 import logger from '../logger';
 import { sendTelegramMessage } from '../telegramClient';
 import { getAllAgents } from '../agentDb';
@@ -70,7 +71,7 @@ async function handleReportsCmd(subcommand: string, parts: string[], chatId: str
         `Notion updated.`,
       ].filter((l: string | null) => l !== null).join('\n');
 
-      updateDashboard().catch(() => {});
+      fireAndForget(updateDashboard(), { label: 'reports' })
       await sendTelegramMessage(card, null, topicId);
       return true;
     }

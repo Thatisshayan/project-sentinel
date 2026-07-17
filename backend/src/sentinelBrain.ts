@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import axios from 'axios';
 import logger from './logger';
 import { repoFullName } from './repoResolver';
@@ -198,7 +199,7 @@ async function runStrategicBrain(topicId?: number | null): Promise<void> {
       validateBrainOutput(decision);
     } catch (parseErr: any) {
       logger.warn({ raw, err: parseErr.message }, 'Brain returned invalid output — skipping execution');
-      await sendTelegramMessage(`🧠 Brain error — ${parseErr.message}. Check logs.`, null, topicId).catch(() => {});
+      await safeFire(sendTelegramMessage(`🧠 Brain error — ${parseErr.message}. Check logs.`, null, topicId), { label: 'sentinelBrain' })
       return;
     }
 
@@ -254,14 +255,14 @@ async function runStrategicBrain(topicId?: number | null): Promise<void> {
       lines.push(``, `⏸ Auto-execute off — set BRAIN_AUTO_EXECUTE=true in Railway to enable.`);
     }
 
-    await sendTelegramMessage(lines.filter((l: string | null) => l !== null).join('\n'), null, topicId).catch(() => {});
+    await safeFire(sendTelegramMessage(lines.filter((l: string | null) => l !== null).join('\n'), null, topicId), { label: 'sentinelBrain' })
     logger.info({ focusRepos: decision.focus_repos, actionsTaken }, 'Brain strategy sent');
 
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message }, 'Strategic brain failed');
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       `🧠 Sentinel Brain — Error\n\n${err.message}`, null, topicId
-    ).catch(() => {});
+    ), { label: 'sentinelBrain' })
   }
 }
 

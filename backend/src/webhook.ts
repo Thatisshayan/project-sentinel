@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import express from 'express';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
@@ -138,10 +139,10 @@ async function processWebhook(payload: any): Promise<void> {
     notionProject = await findNotionProject(repoNameLower);
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message, repoName }, 'Notion search threw an error');
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       buildErrorMessage('Notion search failed', repoName, err.message),
       repoName
-    ).catch(() => {});
+    ), { label: 'webhook' })
     return;
   }
 
@@ -164,7 +165,7 @@ async function processWebhook(payload: any): Promise<void> {
         suggestionNote = `\n\nExisting Notion pages: ${names.join(', ')}\nAdd a "Repo Name" property with value "${repoName}" to the matching page.`;
       }
     } catch {}
-    await sendTelegramMessage(buildUnknownRepoMessage(data) + suggestionNote, repoName).catch(() => {});
+    await safeFire(sendTelegramMessage(buildUnknownRepoMessage(data) + suggestionNote, repoName), { label: 'webhook' })
     return;
   }
 
@@ -180,10 +181,10 @@ async function processWebhook(payload: any): Promise<void> {
     await updateNotionProject(notionProject.pageId, data);
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message, repoName }, 'Notion update failed');
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       buildErrorMessage('Notion update failed', repoName, err.message),
       repoName
-    ).catch(() => {});
+    ), { label: 'webhook' })
     return;
   }
 
@@ -261,7 +262,7 @@ async function processWebhook(payload: any): Promise<void> {
   // T8 — notify dependent repos that this repo changed
   try {
     const { notifyDependents } = require('./crossRepoCoordinator');
-    notifyDependents(repoName, data.commitSha, data.authorName).catch(() => {});
+    fireAndForget(notifyDependents(repoName, data.commitSha, data.authorName), { label: 'webhook' })
   } catch {}
 }
 
@@ -302,11 +303,11 @@ async function processPREvent(payload: any): Promise<void> {
     try {
       const { updateNotionTaskStatus } = require('./auditTaskWriter');
       for (const row of taskIds) {
-        await updateNotionTaskStatus(row.notion_page_id, 'done', { prUrl }).catch(() => {});
+        await safeFire(updateNotionTaskStatus(row.notion_page_id, 'done', { prUrl }), { label: 'webhook' })
       }
     } catch {}
 
-    await sendTelegramMessage([
+    await safeFire(sendTelegramMessage([
       `Project Sentinel — PR Merged ✅`,
       ``,
       `Repo: ${repoName}`,
@@ -315,7 +316,7 @@ async function processPREvent(payload: any): Promise<void> {
       taskIds.length > 0 ? `${taskIds.length} task(s) marked complete` : '',
       ``,
       `Next batch will run on next commit or /sentinel run-sprint ${repoName}`,
-    ].filter(Boolean).join('\n'), null, null).catch(() => {});
+    ].filter(Boolean).join('\n'), null, null), { label: 'webhook' })
 
   } else {
     // PR closed without merge — requeue tasks for retry
@@ -332,14 +333,14 @@ async function processPREvent(payload: any): Promise<void> {
     const count = updated?.rows?.length || 0;
     logger.info({ count, repoFullName }, 'Tasks requeued after PR rejection');
 
-    await sendTelegramMessage([
+    await safeFire(sendTelegramMessage([
       `Project Sentinel — PR Rejected ⚠️`,
       ``,
       `Repo: ${repoName}`,
       `PR #${prNumber} closed without merging`,
       `Branch: ${branchName}`,
       count > 0 ? `${count} task(s) requeued — /sentinel run-sprint ${repoName} to retry` : '',
-    ].filter(Boolean).join('\n'), null, null).catch(() => {});
+    ].filter(Boolean).join('\n'), null, null), { label: 'webhook' })
   }
 }
 

@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 const simpleGit  = require('simple-git');
 const tmp        = require('tmp');
 const { spawn } = require('child_process');
@@ -60,10 +61,10 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
         ? setInterval(() => {
             const elapsed = Math.round((Date.now() - heartbeatStart) / 60000);
             const { sendTelegramMessage } = require('./telegramClient');
-            sendTelegramMessage(
+            fireAndForget(sendTelegramMessage(
               `Agent working on task ${task.task_number}/${tasks.length} — ${task.title}\nElapsed: ${elapsed}m | Builder: ${builderConfig.label}`,
               null, topicId
-            ).catch(() => {});
+            ), { label: 'taskBuilder' })
           }, 2 * 60 * 1000)
         : null;
 
@@ -120,11 +121,11 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
         }, 'No new commit found — task may have been skipped by the builder');
         // Log to agent_messages for UI visibility
         const { logAgentMessage } = require('./agentDb');
-        await logAgentMessage(
+        await safeFire(logAgentMessage(
           'sentinel', 'Sentinel',
           `Task ${task.task_number} "${task.title}" produced no commit (${gitStatus}).\nStdout:\n${(taskResult.stdout||'').slice(-600)}\nStderr:\n${(taskResult.stderr||'').slice(-200)}`,
           'error', context.repoName
-        ).catch(() => {});
+        ), { label: 'taskBuilder' })
       }
     }
 
@@ -146,10 +147,10 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
       if (initialBaseSha && currentBaseSha && initialBaseSha !== currentBaseSha) {
         logger.warn({ repoFullName, initialBaseSha, currentBaseSha }, 'Base branch moved during batch — PR may have merge conflicts');
         const { sendTelegramMessage } = require('./telegramClient');
-        sendTelegramMessage(
+        fireAndForget(sendTelegramMessage(
           `Project Sentinel — Merge Conflict Risk ⚠️\n\nRepo: ${repoName}\nBase branch moved while the batch was running.\nThe PR may have conflicts — review before merging.`,
           null, topicId
-        ).catch(() => {});
+        ), { label: 'taskBuilder' })
       }
     } catch (e: any) {
       logger.warn({ err: e.message }, 'Could not check for base branch changes');
@@ -269,10 +270,10 @@ async function runAiderForTask(repoPath: string, task: any, context: any, builde
 
     const timer = setTimeout(() => {
       const { sendTelegramMessage } = require('./telegramClient');
-      sendTelegramMessage(
+      fireAndForget(sendTelegramMessage(
         `Project Sentinel — Aider Timeout ⏱️\n\nTask ${task.task_number}: ${task.title}\nRepo: ${context.repoName}\nAider killed after ${process.env['AIDER_TIMEOUT_MINUTES'] || 20}m — task skipped.`,
         null, context.topicId
-      ).catch(() => {});
+      ), { label: 'taskBuilder' })
       proc.kill('SIGTERM');
       resolve({ success: false, reason: 'Aider timed out' });
     }, AIDER_TIMEOUT_MS);

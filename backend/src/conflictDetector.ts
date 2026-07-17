@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { acquireFileLocks, releaseFileLocks, releaseExpiredLocks } from './agentDb';
 import { announceConflict, sendConflictKeyboard } from './agentRoom';
@@ -10,7 +11,7 @@ const DEPENDENT_REPOS: string[][] = [
 const pendingConflicts = new Map<string, any>();
 
 async function checkAndLockFiles(repoFullName: string, filePaths: string[], agentId: string, agentLabel: string, taskId: string | number): Promise<{ canProceed: boolean; conflicts: any[]; acquired: any[] }> {
-  await releaseExpiredLocks().catch(() => {});
+  await safeFire(releaseExpiredLocks(), { label: 'conflictDetector' })
 
   if (!filePaths || filePaths.length === 0) {
     return { canProceed: true, conflicts: [], acquired: [] };

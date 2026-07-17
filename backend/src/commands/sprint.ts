@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from '../utils/safeFire';
 import logger from '../logger';
 import { sendTelegramMessage } from '../telegramClient';
 import { approveSprint, getSprintStatus, pauseSprint, resumeSprint } from '../sprintOrchestrator';
@@ -21,15 +22,15 @@ async function handleSprintCmd(subcommand: string, parts: string[], chatId: stri
       return true;
     }
     case 'sprint-status': {
-      getSprintStatus(topicId).catch(() => {});
+      fireAndForget(getSprintStatus(topicId), { label: 'sprint' })
       return true;
     }
     case 'pause-sprint': {
-      pauseSprint(topicId).catch(() => {});
+      fireAndForget(pauseSprint(topicId), { label: 'sprint' })
       return true;
     }
     case 'resume-sprint': {
-      resumeSprint(topicId).catch(() => {});
+      fireAndForget(resumeSprint(topicId), { label: 'sprint' })
       return true;
     }
     case 'propose-sprint': {
@@ -57,7 +58,7 @@ async function handleSprintCmd(subcommand: string, parts: string[], chatId: stri
       if (sprint.status === 'executing') {
         const { executeNextSprintTask } = require('../sprintOrchestrator') as { executeNextSprintTask: (...args: any[]) => Promise<any> };
         await sendTelegramMessage(`Resuming sprint execution (${sprint.total_tasks} tasks)...`, null, topicId);
-        executeNextSprintTask(sprint.id, topicId).catch(() => {});
+        fireAndForget(executeNextSprintTask(sprint.id, topicId), { label: 'sprint' })
         return true;
       }
       await sendTelegramMessage(`Sprint status: ${sprint.status}. Nothing to run.`, null, topicId);

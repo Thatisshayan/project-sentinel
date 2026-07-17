@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 /**
  * Sentinel UI — REST API routes
  * Auth: x-sentinel-key header (SENTINEL_UI_KEY env var)
@@ -219,7 +220,7 @@ router.post('/command', async (req: any, res: any) => {
 
   // Log the user's message into agent_messages so the UI sees it
   const { logAgentMessage } = require('./agentDb');
-  await logAgentMessage('dashboard_user', fromName, text, 'info', null).catch(() => {});
+  await safeFire(logAgentMessage('dashboard_user', fromName, text, 'info', null), { label: 'api' })
 
   // Fire command through the real handler (non-blocking — response arrives via agent_messages poll)
   const { handleCommand } = require('./telegramCommands');

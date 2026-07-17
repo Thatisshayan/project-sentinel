@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import axios from 'axios';
 import { repoFullName } from './repoResolver';
@@ -28,12 +29,12 @@ async function runSelfAudit(): Promise<void> {
     );
     const commitSha = commitRes.data.sha;
 
-    await sendTelegramMessage([
+    await safeFire(sendTelegramMessage([
       `🛡️ Sentinel Self-Audit Starting`,
       ``,
       `Nemotron is auditing Sentinel's own codebase.`,
       `This is Phase 7 — Sentinel improves itself.`,
-    ].join('\n'), null, null).catch(() => {});
+    ].join('\n'), null, null), { label: 'selfAuditor' })
 
     const auditResult = await runAudit({
       repoFullName:  SENTINEL_REPO,
@@ -89,7 +90,7 @@ async function runSelfAudit(): Promise<void> {
       `${i + 1}. [${t.priority}] ${t.title}`
     ).join('\n');
 
-    await sendTelegramMessage([
+    await safeFire(sendTelegramMessage([
       `🛡️ Sentinel Self-Audit Complete`,
       ``,
       `Health Score: ${auditResult.overallHealthScore}/10`,
@@ -106,7 +107,7 @@ async function runSelfAudit(): Promise<void> {
       ``,
       `/sentinel self-approve — execute safe tasks`,
       `/sentinel skip project-sentinel — skip this cycle`,
-    ].join('\n'), null, null).catch(() => {});
+    ].join('\n'), null, null), { label: 'selfAuditor' })
 
     logger.info(
       { cycleId: selfCycle.id, tasks: auditResult.tasks.length, score: auditResult.overallHealthScore },
@@ -115,11 +116,11 @@ async function runSelfAudit(): Promise<void> {
 
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message }, 'Self-audit failed');
-    await updateSelfAuditCycle(selfCycle.id, { status: 'failed' }).catch(() => {});
-    await sendTelegramMessage(
+    await safeFire(updateSelfAuditCycle(selfCycle.id, { status: 'failed' }), { label: 'selfAuditor' })
+    await safeFire(sendTelegramMessage(
       `🛡️ Sentinel Self-Audit Failed\n\nError: ${err.message.substring(0, 200)}`,
       null, null
-    ).catch(() => {});
+    ), { label: 'selfAuditor' })
   }
 }
 

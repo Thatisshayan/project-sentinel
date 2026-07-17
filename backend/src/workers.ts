@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import { Worker, Queue } from 'bullmq';
 import { getRedisConnection } from './queueClient';
 import { releaseExpiredLocks } from './agentDb';
@@ -75,11 +76,11 @@ function startBuildPollWorker(): Worker | null {
       // Still building — re-queue after interval if under max attempts
       if (attemptNumber >= MAX_POLL_ATTEMPTS) {
         logger.warn({ repoFullName }, 'Build poll timeout');
-        await sendTelegramMessage(
+        await safeFire(sendTelegramMessage(
           `Project Sentinel — Build Timeout ⏱️\n\nRepo: ${repoName}\nBuild still pending after 10 minutes.\nCheck manually: ${result.buildUrl || 'N/A'}`,
           null,
           topicId
-        ).catch(() => {});
+        ), { label: 'workers' })
         return;
       }
 
@@ -119,7 +120,7 @@ function startBuildPollWorker(): Worker | null {
     if (result.overall === 'success') {
       logger.info({ repoFullName }, 'Build passed');
 
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         [
           `Project Sentinel — Build Passed ✅`,
           ``,
@@ -131,7 +132,7 @@ function startBuildPollWorker(): Worker | null {
         ].filter(Boolean).join('\n'),
         null,
         topicId
-      ).catch(() => {});
+      ), { label: 'workers' })
 
       // Phase 3 — route based on whether this is a Sentinel PR or human commit
       const isSentinelBranch = (data.branchName || '').startsWith('sentinel/');
@@ -176,7 +177,7 @@ function startBuildPollWorker(): Worker | null {
         .catch((err: any) => logger.warn({ err: err.message }, 'Post-build metrics refresh failed'));
 
       // Phase 4 — update dashboard on every build result
-      updateDashboard().catch(() => {});
+      fireAndForget(updateDashboard(), { label: 'workers' })
       return;
     }
 
@@ -185,7 +186,7 @@ function startBuildPollWorker(): Worker | null {
 
       const isSentinelBranchFailed = (data.branchName || '').startsWith('sentinel/');
 
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         [
           `Project Sentinel — Build Failed ❌`,
           ``,
@@ -202,7 +203,7 @@ function startBuildPollWorker(): Worker | null {
         ].filter(Boolean).join('\n'),
         null,
         topicId
-      ).catch(() => {});
+      ), { label: 'workers' })
 
       if (isSentinelBranchFailed) {
         // A Sentinel-created PR was merged but the post-merge build failed.
@@ -220,10 +221,10 @@ function startBuildPollWorker(): Worker | null {
         const count = requeued?.rows?.length || 0;
         if (count > 0) {
           logger.info({ count, repoFullName }, 'Tasks re-queued after post-merge build failure');
-          await sendTelegramMessage(
+          await safeFire(sendTelegramMessage(
             `🔁 ${count} task(s) re-queued for ${repoName} — use /sentinel tasks ${repoName} to review, then /sentinel force-execute ${repoName} to retry.`,
             null, topicId
-          ).catch(() => {});
+          ), { label: 'workers' })
         }
       } else {
         // Human commit failure — trigger debug orchestrator
@@ -250,7 +251,7 @@ function startBuildPollWorker(): Worker | null {
         .catch((err: any) => logger.warn({ err: err.message }, 'Post-build metrics refresh failed'));
 
       // Phase 4 — update dashboard on build failure too
-      updateDashboard().catch(() => {});
+      fireAndForget(updateDashboard(), { label: 'workers' })
     }
 
   }, {
@@ -386,7 +387,7 @@ function startDailyReportWorker(): Worker | null {
       await pullAllMetrics();
       if (fetchAllMetrics) await fetchAllMetrics().catch((e: any) => logger.warn({ err: e.message }, 'metricsFetcher failed'));
       await scoreAllQueuedTasks();
-      if (runSelfScaler) await runSelfScaler().catch(() => {});
+      if (runSelfScaler) await safeFire(runSelfScaler(), { label: 'workers' })
       return;
     }
     if (job.name === 'weekly-report') {
@@ -439,10 +440,10 @@ function startDailyReportWorker(): Worker | null {
           logger.warn({ err: e.message, repo: repo.repoName }, 'Weekly audit failed for repo');
         }
       }
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `🔍 Weekly audit sweep — ${audited}/${REPO_LIST.length} repos queued for audit.`,
         null, null
-      ).catch(() => {});
+      ), { label: 'workers' })
       return;
     }
     if (job.name === 'stale-tasks') {
@@ -462,11 +463,11 @@ function startDailyReportWorker(): Worker | null {
       const lines = rows.map((r: any) =>
         `  · ${r.repo_full_name.split('/')[1]}: ${r.count} task(s)`
       ).join('\n');
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `🕰️ Stale Task Report — tasks queued >7 days:\n\n${lines}\n\n` +
         `Run: /sentinel force-execute <repo> to execute, or /sentinel skip <repo> to clear.`,
         null, null
-      ).catch(() => {});
+      ), { label: 'workers' })
       return;
     }
     if (job.name === 'provider-health') {
@@ -500,11 +501,11 @@ function startDailyReportWorker(): Worker | null {
       const dailyCost      = await getDailyCost();
       const alertThreshold = parseFloat(process.env['DAILY_COST_ALERT_USD'] || '5');
       if (dailyCost > alertThreshold) {
-        await sendTelegramMessage(
+        await safeFire(sendTelegramMessage(
           `💸 Cost Alert — $${dailyCost.toFixed(2)} spent today (limit: $${alertThreshold})\n` +
           `Use /sentinel costs for a full breakdown.`,
           null, null
-        ).catch(() => {});
+        ), { label: 'workers' })
       }
     } catch (e: any) { logger.warn({ err: e.message }, 'Cost alert check failed'); }
     await sendDailyReport();
@@ -577,16 +578,16 @@ function startSprintWorker(): Worker | null {
 function startAgentCleanupWorker(): void {
   // Release expired file locks every hour
   setInterval(() => {
-    releaseExpiredLocks().catch(() => {});
+    fireAndForget(releaseExpiredLocks(), { label: 'workers' })
   }, 60 * 60 * 1000);
 
   // Improvement 1 — update pinned status board every 30 minutes
   setInterval(() => {
-    updatePinnedStatusBoard().catch(() => {});
+    fireAndForget(updatePinnedStatusBoard(), { label: 'workers' })
   }, 30 * 60 * 1000);
 
   // Send initial status board on startup (non-blocking)
-  updatePinnedStatusBoard().catch(() => {});
+  fireAndForget(updatePinnedStatusBoard(), { label: 'workers' })
 
   logger.info('Agent cleanup worker started (locks every 1h, status board every 30m)');
 }

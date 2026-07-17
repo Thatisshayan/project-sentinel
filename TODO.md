@@ -1,6 +1,6 @@
 # Sentinel — Master Task List
 
-> **REBUILD IN PROGRESS — Phase 4/7 active.**
+> **REBUILD IN PROGRESS — Phase 5/7 active.**
 > Canonical plan: `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md`
 > Current status: `STATUS.md`
 > Tasks are prefixed `[PhaseN]` to indicate which phase they belong to.
@@ -79,13 +79,15 @@
 
 ---
 
-## 🧹 Phase 5 — Catch Pattern Elimination
+## 🧹 Phase 5 — Catch Pattern Elimination (IN PROGRESS)
 
 | # | Task | Priority | Status |
 |---|------|----------|--------|
-| 5.1 | Create fire-and-forget helper (safeFire with Sentry + logging) | HIGH | ⏳ Pending |
-| 5.2 | Replace all 37 `.catch(() => {})` patterns across 30+ files | HIGH | ⏳ Pending |
-| 5.3 | Add dead-letter queue for retryable fire-and-forget ops | MEDIUM | ⏳ Pending |
+| 5.1 | Create fire-and-forget helper (safeFire with Sentry + logging) | HIGH | ✅ Done (`src/utils/safeFire.ts` + tests) |
+| 5.2 | Replace all ~100 `.catch(() => {})` silent-swallow patterns across 39 files | HIGH | ✅ Done (via @swc AST transform; tsc clean, 156 tests pass) |
+| 5.3 | Add dead-letter queue for retryable fire-and-forget ops | MEDIUM | ✅ Done (BullMQ `dead-letter` queue + `index.ts` wiring; unverified — needs Redis/Docker D-002) |
+
+> Note: 5.2 eliminated the *silent* swallows only. Pre-existing `.catch((err) => logger.error(...))` sites already observe errors and were left intact. DLQ retry worker (5.3) is wired but not runtime-exercised (no Redis in this env — D-002).
 
 ---
 

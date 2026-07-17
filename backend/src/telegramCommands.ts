@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { repoFullName } from './repoResolver';
 import { sendTelegramMessage } from './telegramClient';
@@ -121,24 +122,24 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
 
   // Inline approval buttons from audit completion message
   if (data.startsWith('execute:')) {
-    await answerCallback(queryId).catch(() => {});
+    await safeFire(answerCallback(queryId), { label: 'telegramCommands' })
     const repoName = data.replace('execute:', '');
-    await sendTelegramMessage(`Starting execution for ${repoName}...`, null, threadId).catch(() => {});
-    executeApprovedTasks(repoFullName(repoName), repoName, threadId).catch(() => {});
+    await safeFire(sendTelegramMessage(`Starting execution for ${repoName}...`, null, threadId), { label: 'telegramCommands' })
+    fireAndForget(executeApprovedTasks(repoFullName(repoName), repoName, threadId), { label: 'telegramCommands' })
     return true;
   }
 
   if (data.startsWith('skip:')) {
-    await answerCallback(queryId).catch(() => {});
+    await safeFire(answerCallback(queryId), { label: 'telegramCommands' })
     const repoName = data.replace('skip:', '');
     const { stopAllTasksForRepo: stopRepo } = require('./auditDb');
     await stopRepo(repoFullName(repoName));
-    await sendTelegramMessage(`Audit skipped for ${repoName}.`, null, threadId).catch(() => {});
+    await safeFire(sendTelegramMessage(`Audit skipped for ${repoName}.`, null, threadId), { label: 'telegramCommands' })
     return true;
   }
 
   if (data.startsWith('help:')) {
-    await answerCallback(queryId).catch(() => {});
+    await safeFire(answerCallback(queryId), { label: 'telegramCommands' })
     const section = data.replace('help:', '');
     const HELP_SECTIONS: Record<string, string> = {
       reports: [
@@ -237,12 +238,12 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
       ].join('\n'),
     };
     const helpText = HELP_SECTIONS[section] || 'Unknown section.';
-    await sendTelegramMessage(helpText, null, threadId).catch(() => {});
+    await safeFire(sendTelegramMessage(helpText, null, threadId), { label: 'telegramCommands' })
     return true;
   }
 
   if (data.startsWith('menu:')) {
-    await answerCallback(queryId).catch(() => {});
+    await safeFire(answerCallback(queryId), { label: 'telegramCommands' })
     const action = data.replace('menu:', '');
     try {
       if (action === 'report') {
@@ -262,7 +263,7 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
       } else if (action === 'selfaudit') {
         const { runSelfAudit } = require('./selfAuditor');
         await sendTelegramMessage('Triggering self-audit...', null, threadId);
-        runSelfAudit().catch(() => {});
+        fireAndForget(runSelfAudit(), { label: 'telegramCommands' })
       } else if (action === 'security') {
         const { getPortfolioSecuritySummary } = require('./securityDb');
         const p = await getPortfolioSecuritySummary().catch(() => []);
@@ -295,7 +296,7 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
   }
 
   if (data.startsWith('repo:')) {
-    await answerCallback(queryId).catch(() => {});
+    await safeFire(answerCallback(queryId), { label: 'telegramCommands' })
     const parts2     = data.split(':');
     const repoAction = parts2[1];
     const repoName   = parts2[2];
@@ -303,12 +304,11 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
     try {
       if (repoAction === 'audit') {
         const { triggerAudit } = require('./auditOrchestrator');
-        triggerAudit({ repoFullName: repoFull, repoName, commitSha: `manual-${Date.now()}`,
-          commitMessage: '[manual]', branchName: 'main', authorName: 'Human', authorEmail: '', topicId: threadId })
-          .catch(() => {});
+        fireAndForget(triggerAudit({ repoFullName: repoFull, repoName, commitSha: `manual-${Date.now()}`,
+          commitMessage: '[manual]', branchName: 'main', authorName: 'Human', authorEmail: '', topicId: threadId }), { label: 'telegramCommands' })
         await sendTelegramMessage(`Audit triggered for ${repoName}.`, null, threadId);
       } else if (repoAction === 'execute') {
-        executeApprovedTasks(repoFull, repoName, threadId).catch(() => {});
+        fireAndForget(executeApprovedTasks(repoFull, repoName, threadId), { label: 'telegramCommands' })
         await sendTelegramMessage(`Executing tasks for ${repoName}...`, null, threadId);
       } else if (repoAction === 'stop') {
         await stopAllTasksForRepo(repoFull);
@@ -319,7 +319,7 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
         await sendTelegramMessage(`🔐 ${repoName} locked.`, null, threadId);
       } else if (repoAction === 'security') {
         const { runSecurityScan } = require('./securityScanner');
-        runSecurityScan({ repoFullName: repoFull, repoName, commitSha: 'HEAD', topicId: threadId }).catch(() => {});
+        fireAndForget(runSecurityScan({ repoFullName: repoFull, repoName, commitSha: 'HEAD', topicId: threadId }), { label: 'telegramCommands' })
         await sendTelegramMessage(`Security scan started for ${repoName}.`, null, threadId);
       } else if (repoAction === 'status') {
         await sendTelegramMessage(`Use /sentinel status ${repoName} for details.`, null, threadId);
@@ -331,12 +331,12 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
   }
 
   if (data.startsWith('approve:')) {
-    await answerCallback(queryId).catch(() => {});
+    await safeFire(answerCallback(queryId), { label: 'telegramCommands' })
     const approveAction = data.replace('approve:', '');
     try {
       if (approveAction === 'sprint') {
         const { approveSprint } = require('./sprintOrchestrator');
-        approveSprint(threadId).catch(() => {});
+        fireAndForget(approveSprint(threadId), { label: 'telegramCommands' })
       } else if (approveAction === 'skip-sprint') {
         try { const { cancelAutoApprove } = require('./autoApprover'); await cancelAutoApprove(); } catch {}
         const { getCurrentSprint, updateSprint } = require('./sprintDb');
@@ -344,7 +344,7 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
         if (sprint) await updateSprint(sprint.id, { status: 'skipped' });
         await sendTelegramMessage('Sprint skipped. Next proposal Sunday 8pm.', null, threadId);
       } else if (approveAction === 'self') {
-        executeApprovedTasks(repoFullName('project-sentinel'), 'project-sentinel', threadId).catch(() => {});
+        fireAndForget(executeApprovedTasks(repoFullName('project-sentinel'), 'project-sentinel', threadId), { label: 'telegramCommands' })
       }
     } catch (err: any) {
       logger.warn({ err: err.message }, 'Approve callback failed');
@@ -353,16 +353,16 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
   }
 
   if (data.startsWith('dym:')) {
-    await answerCallback(queryId).catch(() => {});
+    await safeFire(answerCallback(queryId), { label: 'telegramCommands' })
     const dymAction = data.replace('dym:', '');
     if (dymAction === 'cancel') {
-      await sendTelegramMessage('OK — nothing done.', null, threadId).catch(() => {});
+      await safeFire(sendTelegramMessage('OK — nothing done.', null, threadId), { label: 'telegramCommands' })
     }
     return true;
   }
 
   if (data.startsWith('task-approve:')) {
-    await answerCallback(queryId).catch(() => {});
+    await safeFire(answerCallback(queryId), { label: 'telegramCommands' })
     const taskId = data.replace('task-approve:', '');
     const result = await query(
       `UPDATE audit_tasks SET safe_to_auto_execute = true
@@ -372,42 +372,42 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
     if (result?.rows?.[0]) {
       const { repo_full_name, task_number, title } = result.rows[0];
       const repoName = repo_full_name.split('/')[1];
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `✅ Task #${task_number} approved: ${title}\nExecuting now...`, null, threadId
-      ).catch(() => {});
-      executeApprovedTasks(repo_full_name, repoName, threadId).catch(() => {});
+      ), { label: 'telegramCommands' })
+      fireAndForget(executeApprovedTasks(repo_full_name, repoName, threadId), { label: 'telegramCommands' })
     }
     return true;
   }
 
   if (data.startsWith('task-skip:')) {
-    await answerCallback(queryId).catch(() => {});
+    await safeFire(answerCallback(queryId), { label: 'telegramCommands' })
     const taskId = data.replace('task-skip:', '');
     const sel = await query(
       'SELECT task_number, title FROM audit_tasks WHERE id = $1', [taskId]
     ).catch(() => null);
     if (sel?.rows?.[0]) {
       await updateAuditTask(taskId, { status: 'skipped' });
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `⏭️ Task #${sel.rows[0].task_number} skipped: ${sel.rows[0].title}`, null, threadId
-      ).catch(() => {});
+      ), { label: 'telegramCommands' })
     }
     return true;
   }
 
   if (data.startsWith('task-approve-all:')) {
-    await answerCallback(queryId).catch(() => {});
+    await safeFire(answerCallback(queryId), { label: 'telegramCommands' })
     const repoFull  = data.replace('task-approve-all:', '');
     const repoName  = repoFull.split('/')[1];
-    await query(
+    await safeFire(query(
       `UPDATE audit_tasks SET safe_to_auto_execute = true
        WHERE repo_full_name = $1 AND status = 'queued'`,
       [repoFull]
-    ).catch(() => {});
-    await sendTelegramMessage(
+    ), { label: 'telegramCommands' })
+    await safeFire(sendTelegramMessage(
       `✅ All tasks approved for ${repoName}. Executing...`, null, threadId
-    ).catch(() => {});
-    executeApprovedTasks(repoFull, repoName, threadId).catch(() => {});
+    ), { label: 'telegramCommands' })
+    fireAndForget(executeApprovedTasks(repoFull, repoName, threadId), { label: 'telegramCommands' })
     return true;
   }
 
@@ -417,11 +417,11 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
   const action        = conflictParts[1];
   const conflictId    = conflictParts.slice(2).join(':');
 
-  await answerCallback(queryId).catch(() => {});
+  await safeFire(answerCallback(queryId), { label: 'telegramCommands' })
 
   const conflict = getPendingConflict(conflictId);
   if (!conflict) {
-    await sendTelegramMessage('Conflict already resolved or expired.', null, topicId).catch(() => {});
+    await safeFire(sendTelegramMessage('Conflict already resolved or expired.', null, topicId), { label: 'telegramCommands' })
     return true;
   }
 
@@ -429,25 +429,25 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
 
   switch (action) {
     case 'wait':
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `⏳ ${conflict.agentId} will wait. Conflict locks held — agent will retry.`,
         null, topicId
-      ).catch(() => {});
+      ), { label: 'telegramCommands' })
       break;
 
     case 'skip':
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `⏭️ ${conflict.agentId} skipping conflicted files on ${repoName} and proceeding with the rest.`,
         null, topicId
-      ).catch(() => {});
+      ), { label: 'telegramCommands' })
       break;
 
     case 'reassign':
-      await releaseAllLocks(conflict.repoFullName, conflict.lockedBy || conflict.agentId).catch(() => {});
-      await sendTelegramMessage(
+      await safeFire(releaseAllLocks(conflict.repoFullName, conflict.lockedBy || conflict.agentId), { label: 'telegramCommands' })
+      await safeFire(sendTelegramMessage(
         `🔄 Locks released for ${repoName}. ${conflict.agentId} can now acquire the files or be reassigned.`,
         null, topicId
-      ).catch(() => {});
+      ), { label: 'telegramCommands' })
       break;
   }
 

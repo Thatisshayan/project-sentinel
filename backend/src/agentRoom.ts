@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import https from 'https';
 import { sendTelegramMessage } from './telegramClient';
 import { logAgentMessage, getConfig, setConfig } from './agentDb';
@@ -79,10 +80,10 @@ function telegramApiPost(method: string, body: any): Promise<any> {
 
 async function answerCallback(queryId: string, text = ''): Promise<void> {
   if (!BOT_TOKEN()) return;
-  await telegramApiPost('answerCallbackQuery', {
+  await safeFire(telegramApiPost('answerCallbackQuery', {
     callback_query_id: queryId,
     text,
-  }).catch(() => {});
+  }), { label: 'agentRoom' })
 }
 
 // ── Task 2 — AI personality message generation ────────────────────────────────
@@ -143,9 +144,9 @@ async function announce(agentId: string, agentLabel: string, message: string, ty
 
   // Phase 8.5 — send via the agent's own bot; falls back to Sentinel bot if token missing
   const { sendAsAgent } = require('./agentBots');
-  await sendAsAgent(agentId, fullMessage).catch(() => {});
+  await safeFire(sendAsAgent(agentId, fullMessage), { label: 'agentRoom' })
 
-  await logAgentMessage(agentId, agentLabel, message, type, repoName ?? undefined).catch(() => {});
+  await safeFire(logAgentMessage(agentId, agentLabel, message, type, repoName ?? undefined), { label: 'agentRoom' })
   logger.info({ agentId, type, repoName }, message);
 }
 
@@ -227,7 +228,7 @@ async function sendConflictKeyboard(agentId: string, agentLabel: string, repoNam
     },
   };
 
-  await telegramApiPost('sendMessage', body).catch(() => {});
+  await safeFire(telegramApiPost('sendMessage', body), { label: 'agentRoom' })
 }
 
 // ── Improvement 1 — pinned status board ──────────────────────────────────────
@@ -295,22 +296,22 @@ async function updatePinnedStatusBoard(): Promise<void> {
   const pinnedId = await getConfig('pinned_status_message_id').catch(() => null);
 
   if (pinnedId) {
-    await telegramApiPost('editMessageText', {
+    await safeFire(telegramApiPost('editMessageText', {
       chat_id:                  CHAT_ID(),
       message_id:               parseInt(pinnedId, 10),
       text:                     text.substring(0, 4000),
       parse_mode:               'HTML',
       disable_web_page_preview: true,
-    }).catch(() => {});
+    }), { label: 'agentRoom' })
   } else {
     const result = await sendTelegramMessage(text, null, AGENT_ROOM_TOPIC_ID() ? parseInt(AGENT_ROOM_TOPIC_ID()!, 10) : null).catch(() => null);
     const messageId = result?.result?.message_id;
     if (messageId) {
-      await telegramApiPost('pinChatMessage', {
+      await safeFire(telegramApiPost('pinChatMessage', {
         chat_id:    CHAT_ID(),
         message_id: messageId,
-      }).catch(() => {});
-      await setConfig('pinned_status_message_id', String(messageId)).catch(() => {});
+      }), { label: 'agentRoom' })
+      await safeFire(setConfig('pinned_status_message_id', String(messageId)), { label: 'agentRoom' })
     }
   }
 }
@@ -385,7 +386,7 @@ async function sendMorningBriefing(): Promise<void> {
     focusLine,
   ].filter(Boolean).join('\n');
 
-  await sendTelegramMessage(msg, null, AGENT_ROOM_TOPIC_ID() ? parseInt(AGENT_ROOM_TOPIC_ID()!, 10) : null).catch(() => {});
+  await safeFire(sendTelegramMessage(msg, null, AGENT_ROOM_TOPIC_ID() ? parseInt(AGENT_ROOM_TOPIC_ID()!, 10) : null), { label: 'agentRoom' })
 }
 
 // ── Summary for AI context ────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import axios from 'axios';
 import logger from './logger';
 import { getGithubOrg } from './repoResolver';
@@ -96,7 +97,7 @@ async function discoverAndOnboardRepos(): Promise<{ discovered: number; repos?: 
       await markDiscoveredRepoOnboarded(repo.name);
     } catch (err: any) {
       logger.error({ err: err.stack ?? err.message, repoName: repo.name }, 'Repo discovery: onboarding failed');
-      await markDiscoveredRepoOnboarded(repo.name, err.message).catch(() => {});
+      await safeFire(markDiscoveredRepoOnboarded(repo.name, err.message), { label: 'repoDiscovery' })
     }
   }
 

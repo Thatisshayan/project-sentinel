@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { getLatestMetrics, recordPRImpact, updatePRImpact } from './businessDb';
 
@@ -44,13 +45,13 @@ async function checkPostMergeImpact(impactId: any, repoName: string): Promise<vo
         `  ${key}: ${d.before} → ${d.after} (${parseFloat(d.changePercent) > 0 ? '+' : ''}${d.changePercent}%)`
       ).join('\n');
 
-      await sendTelegramMessage([
+      await safeFire(sendTelegramMessage([
         `📊 PR Impact Analysis — ${repoName}`,
         ``,
         `Impact: ${direction} (score: ${score})`,
         `48h after merge:`,
         deltaLines,
-      ].join('\n'), null, null).catch(() => {});
+      ].join('\n'), null, null), { label: 'correlationEngine' })
     }
   } catch (err: any) {
     logger.warn({ err: err.message, impactId }, 'Post-merge impact check failed');

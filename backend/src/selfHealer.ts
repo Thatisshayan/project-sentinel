@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { getDegradedComponents, recordComponentFailure, recordComponentSuccess } from './selfAuditDb';
 import { sendTelegramMessage } from './telegramClient';
@@ -12,7 +13,7 @@ async function checkAndHeal(): Promise<void> {
     `· ${c.component_name}: ${c.failure_count} failures — ${(c.last_error || '').substring(0, 80)}`
   ).join('\n');
 
-  await sendTelegramMessage([
+  await safeFire(sendTelegramMessage([
     `🛡️ Sentinel Self-Healing Alert ⚠️`,
     ``,
     `${degraded.length} component(s) degraded:`,
@@ -22,16 +23,16 @@ async function checkAndHeal(): Promise<void> {
     `Sentinel has generated fix tasks — review in Notion.`,
     ``,
     `/sentinel self-approve — approve fix execution`,
-  ].join('\n'), null, null).catch(() => {});
+  ].join('\n'), null, null), { label: 'selfHealer' })
 }
 
 async function reportFailure(componentName: string, error: any): Promise<void> {
-  await recordComponentFailure(componentName, error?.message || String(error)).catch(() => {});
-  await checkAndHeal().catch(() => {});
+  await safeFire(recordComponentFailure(componentName, error?.message || String(error)), { label: 'selfHealer' })
+  await safeFire(checkAndHeal(), { label: 'selfHealer' })
 }
 
 async function reportSuccess(componentName: string): Promise<void> {
-  await recordComponentSuccess(componentName).catch(() => {});
+  await safeFire(recordComponentSuccess(componentName), { label: 'selfHealer' })
 }
 
 export = { reportFailure, reportSuccess, checkAndHeal };

@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import 'dotenv/config';
 import express from 'express';
 import {
@@ -84,16 +85,16 @@ async function probeTools(): Promise<void> {
     const { stdout } = await execAsync('aider --version 2>&1', { timeout: 8000 });
     const v = stdout.trim();
     logger.info({ version: v }, 'Aider is available');
-    await logAgentMessage('sentinel', 'Sentinel', `Builder ready: ${v}`, 'info', null).catch(() => {});
+    await safeFire(logAgentMessage('sentinel', 'Sentinel', `Builder ready: ${v}`, 'info', null), { label: 'index' })
   } catch {
     logger.warn('Aider not found in PATH — builder tasks will fail');
-    await logAgentMessage('sentinel', 'Sentinel', 'WARNING: aider not found in PATH — builder tasks will fail. Check Railway deploy logs.', 'error', null).catch(() => {});
+    await safeFire(logAgentMessage('sentinel', 'Sentinel', 'WARNING: aider not found in PATH — builder tasks will fail. Check Railway deploy logs.', 'error', null), { label: 'index' })
     const { sendTelegramMessage } = require('./telegramClient');
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       'Project Sentinel WARNING: `aider` not found in PATH on this instance.\n' +
       'Builder tasks will fail until fixed. Run /sentinel check-builder for details.',
       null, null
-    ).catch(() => {});
+    ), { label: 'index' })
   }
 
   const { probeAIProviders } = require('./providerHealthCheck');
@@ -173,7 +174,7 @@ app.post('/webhook/telegram', async (req: express.Request, res: express.Response
 
   const cb = (req.body as any).callback_query;
   if (cb) {
-    await handleCallbackQuery(cb).catch(() => {});
+    await safeFire(handleCallbackQuery(cb), { label: 'index' })
     return res.status(200).json({ ok: true });
   }
 

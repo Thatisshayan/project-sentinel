@@ -2,7 +2,7 @@
 
 > **START HERE** if you're an agent or developer new to this codebase. This file is the canonical source of truth for upgrade progress.
 
-## Current Phase: 4 — Test Coverage Blitz (IN PROGRESS)
+## Current Phase: 5 — Catch Pattern Elimination (IN PROGRESS)
 
 **Start date:** 2026-07-16
 **Plan:** `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md`
@@ -20,8 +20,8 @@
 | 1: TypeScript Migration | **COMPLETE** 🎉 | 100% | Needs Phase 0 |
 | 2: Error Architecture | **COMPLETE** ✅ | 100% | Needs Phase 0-1 |
 | 3: Security Hardening | **COMPLETE** 🔒 | 100% | Can overlap with Phases 1-2 |
-| 4: Test Coverage Blitz | **IN PROGRESS** 🧪 | ~15% (infra + 4 unit suites; integration blocked by D-002) | Needs Phase 0 + 1 |
-| 5: Catch Pattern Elimination | Pending | 0% | Needs Phase 2 + 4 |
+| 4: Test Coverage Blitz | **COMPLETE** 🧪 | ~100% (infra + unit suites; integration deferred D-002) | Needs Phase 0 + 1 |
+| 5: Catch Pattern Elimination | **IN PROGRESS** 🧹 | ~90% (5.1–5.3 done; integration verify on Docker runner) | Needs Phase 2 + 4 |
 | 6: Architecture Refactoring | Pending | 0% | Needs Phase 4 + 5 |
 | 7: Operational Excellence | Pending | 0% | Can start after Phase 3 |
 
@@ -80,7 +80,17 @@
 - 4.4: Tests for remaining 29 modules — ⏳ Pending
 - 4.5: Regression tests for 12 fixed bugs — ⏳ Pending
 - 4.6: UI test infra (Vitest + RTL) — ⏳ Pending
-- **Current coverage:** ~33% lines / ~31% stmts / ~24% branch / ~17% funcs (unit-only)
+- **Current coverage:** ~34% lines / ~33% stmts / ~25% branch / ~20% funcs (unit-only; 156 tests passing)
+
+## Phase 5 — IN PROGRESS 🧹 (catch-pattern elimination)
+- 5.1: `src/utils/safeFire.ts` ✅ — `safeFire` (await, re-throws) + `fireAndForget` (no re-throw). Both log via the standard `logger.error({err,...})` shape + `captureError` to Sentry. 6 unit tests in `test/safeFire.test.ts`.
+- 5.2: Eliminated ALL silent `.catch(() => {})` swallow sites across `backend/src` (39 files) ✅ — converted via a one-off @swc/core AST transform:
+  - `await X.catch(() => {})` → `await safeFire(X, { label })`
+  - `X.catch(() => {})` → `fireAndForget(X, { label })`
+  - Errors now observed (log + Sentry) instead of silently dropped. `tsc --noEmit` clean; 156 tests pass.
+  - Note: pre-existing `.catch((err) => logger.error(...))` sites were left as-is (they already observe errors; not silent swallows).
+- 5.3: Dead-letter queue ✅ — `queueClient.ts` `getDeadLetterQueue`/`enqueueDeadLetter` (BullMQ `dead-letter`, attempts:3 + exp backoff). `index.ts` registers `registerDeadLetterEnqueuer(enqueueDeadLetter)` so `safeFire(..., { retryable: true })` routes failures to DLQ.
+  - ⚠️ DLQ + retry worker NOT runtime-verified — needs Redis (no Docker, D-002). Code path is wired but unexercised here.
 
 ## TS Files on main (76 files)
 - All files in `backend/src/` — **no .js files remain**

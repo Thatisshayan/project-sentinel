@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import { execAsync } from './utils/execAsync';
 import path from 'path';
 import os from 'os';
@@ -112,14 +113,14 @@ async function applySecurityPatches(repoFullName: string, repoName: string, issu
       ].join('\n'),
     });
 
-    await sendTelegramMessage([
+    await safeFire(sendTelegramMessage([
       `🔒 Security Patch PR — ${repoName}`,
       ``,
       `${autoFixable.length} vulnerabilities patched.`,
       `Only package.json updated — no app code touched.`,
       ``,
       prUrl || 'PR created on GitHub',
-    ].join('\n'), null, topicId).catch(() => {});
+    ].join('\n'), null, topicId), { label: 'securityPatcher' })
 
     logger.info({ repoFullName, branchName, prUrl }, 'Security patch PR created');
 

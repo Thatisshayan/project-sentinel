@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import axios from 'axios';
 import logger from './logger';
 
@@ -66,13 +67,13 @@ async function probeAIProviders(): Promise<string[]> {
   const invalidProviders = results.filter(r => r.includes('✗'));
   if (invalidProviders.length > 0) {
     const { sendTelegramMessage } = require('./telegramClient');
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       `🔴 Sentinel AI Provider Alert\n\n` +
       `${invalidProviders.length} provider(s) have invalid API keys:\n` +
       `${invalidProviders.join('\n')}\n\n` +
       `Go to Railway → Variables and update the key(s) to restore those agents.`,
       null, null
-    ).catch(() => {});
+    ), { label: 'providerHealthCheck' })
 
     // Mark affected agents as error so the UI shows truth instead of idle
     const { markAgentError } = require('./agentDb');
@@ -85,7 +86,7 @@ async function probeAIProviders(): Promise<string[]> {
     for (const line of invalidProviders) {
       const provider = line.match(/✗ (.+?):/)?.[1];
       for (const agentId of (PROVIDER_AGENT_MAP[provider || ''] || [])) {
-        await markAgentError(agentId, 'invalid_api_key').catch(() => {});
+        await safeFire(markAgentError(agentId, 'invalid_api_key'), { label: 'providerHealthCheck' })
       }
     }
   }

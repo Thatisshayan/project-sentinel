@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { insertSecurityIssue } from './securityDb';
 
@@ -83,7 +84,7 @@ async function scanDiff(diffText: string, repoFullName: string, scanId: any, com
           fixDescription: 'Remove the secret, rotate it immediately, use environment variables instead.',
           autoFixable: false,
         };
-        await insertSecurityIssue(issue).catch(() => {});
+        await safeFire(insertSecurityIssue(issue), { label: 'secretScanner' })
         issues.push(issue);
       }
     }
@@ -99,7 +100,7 @@ async function scanDiff(diffText: string, repoFullName: string, scanId: any, com
         filePath: currentFile, lineNumber: i,
         fixAvailable: false, autoFixable: false,
       };
-      await insertSecurityIssue(issue).catch(() => {});
+      await safeFire(insertSecurityIssue(issue), { label: 'secretScanner' })
       issues.push(issue);
     }
   }

@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import axios from 'axios';
 import logger from './logger';
 
@@ -11,7 +12,7 @@ function isConfigured(): boolean {
 async function logCost(data: any): Promise<void> {
   if (!isConfigured()) {
     const { logApiCost } = require('./portfolioDb') as { logApiCost: (d: any) => Promise<void> };
-    await logApiCost(data).catch(() => {});
+    await safeFire(logApiCost(data), { label: 'costpilotClient' })
     return;
   }
 
@@ -42,7 +43,7 @@ async function logCost(data: any): Promise<void> {
   } catch (err: any) {
     logger.warn({ err: err.message }, 'CostPilot unavailable — using local tracker');
     const { logApiCost } = require('./portfolioDb') as { logApiCost: (d: any) => Promise<void> };
-    await logApiCost(data).catch(() => {});
+    await safeFire(logApiCost(data), { label: 'costpilotClient' })
   }
 }
 

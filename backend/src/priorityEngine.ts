@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { query } from './dbClient';
 import { sendTelegramMessage } from './telegramClient';
@@ -70,9 +71,9 @@ async function runPriorityEngine(): Promise<void> {
         if (triggered) {
           logger.warn({ repoName, metric: rule.metric, reason: rule.reason }, 'Priority escalation triggered');
 
-          await updateNotionPriority(repoName, rule.newPriority).catch(() => {});
+          await safeFire(updateNotionPriority(repoName, rule.newPriority), { label: 'priorityEngine' })
 
-          await sendTelegramMessage([
+          await safeFire(sendTelegramMessage([
             `⚠️ Priority Escalation — ${repoName}`,
             ``,
             `Reason: ${rule.reason}`,
@@ -81,7 +82,7 @@ async function runPriorityEngine(): Promise<void> {
             `New priority: ${rule.newPriority.toUpperCase()}`,
             ``,
             `Sprint will prioritise ${repoName} tasks at next cycle.`,
-          ].join('\n'), null, null).catch(() => {});
+          ].join('\n'), null, null), { label: 'priorityEngine' })
         }
       }
     }

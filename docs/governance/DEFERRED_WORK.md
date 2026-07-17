@@ -53,6 +53,7 @@
 - ✅ Structured error responses via Express middleware (Phase 2 Task 2.5)
 - ✅ Phase 3 all tasks 3.1–3.6 completed (timing-safe auth, SSL CA, rate limit, action-proxy whitelist, child-env scoping, origin/CSRF guard) on `feat/phase3-security-hardening`
 - ✅ Phase 4 Task 4.0 infra: `jest.config.js` with `coverageThreshold` gate + 4 new unit-test suites (errors, timingSafeCompare, childEnv, execAsync) — 150 tests passing, ~33% line coverage
+- ✅ Phase 5 Tasks 5.1–5.3: `safeFire`/`fireAndForget` helper + tests; all ~100 silent `.catch(() => {})` swallows across 39 files converted to observable (log + Sentry) calls; BullMQ dead-letter queue wired in `queueClient.ts` + `index.ts`. 156 tests passing. (DLQ retry worker not runtime-verified — needs Redis/Docker, see D-002.)
 
 ---
 

@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from '../utils/safeFire';
 import logger from '../logger';
 import { sendTelegramMessage } from '../telegramClient';
 import { repoFullName } from '../repoResolver';
@@ -28,11 +29,11 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
     }
     case 'self-approve': {
       await sendTelegramMessage('Approving Sentinel self-improvement tasks...', null, topicId);
-      executeApprovedTasks(
+      fireAndForget(executeApprovedTasks(
         repoFullName('project-sentinel'),
         'project-sentinel',
         topicId
-      ).catch(() => {});
+      ), { label: 'agents' })
       return true;
     }
     case 'bots': {
