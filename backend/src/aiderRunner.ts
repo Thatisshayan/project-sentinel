@@ -35,7 +35,7 @@ Attempt: ${attemptNumber}/5
 Failure reason: ${failureReason || 'See logs below'}
 
 BUILD LOGS:
-${sanitizeLogs(failureLogs) || 'No logs available'}
+${sanitizeLogs(failureLogs ?? null) || 'No logs available'}
 
 RECENTLY CHANGED FILES:
 ${(changedFiles || []).join('\n') || 'Unknown'}

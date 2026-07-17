@@ -93,7 +93,7 @@ async function handleCommand(text: string, chatId: number, topicId: number | nul
     return true;
   }
   if (command === '/help') {
-    return handleHelp(topicId, chatId);
+    return handleHelp(topicId, String(chatId));
   }
 
   if (command !== '/sentinel' || !parts[1]) return false;
@@ -101,10 +101,10 @@ async function handleCommand(text: string, chatId: number, topicId: number | nul
   const subcommand = parts[1].toLowerCase();
 
   // Delegate to the modular command handlers
-  if (await handleSprintCmd(subcommand, parts, chatId, topicId))  return true;
-  if (await handleReportsCmd(subcommand, parts, chatId, topicId)) return true;
-  if (await handleAgentsCmd(subcommand, parts, chatId, topicId))  return true;
-  if (await handleRepoOpsCmd(subcommand, parts, chatId, topicId)) return true;
+  if (await handleSprintCmd(subcommand, parts, String(chatId), topicId))  return true;
+  if (await handleReportsCmd(subcommand, parts, String(chatId), topicId)) return true;
+  if (await handleAgentsCmd(subcommand, parts, String(chatId), topicId))  return true;
+  if (await handleRepoOpsCmd(subcommand, parts, String(chatId), topicId)) return true;
 
   return false;
 }

@@ -277,7 +277,7 @@ async function handleMessage(messageText: string, fromName: string, topicId: num
   try {
     const [context, history, recentActivity] = await Promise.all([
       buildContext(),
-      getHistory(topicId, 15).catch(() => []),
+      getHistory(topicId ?? 0, 15).catch(() => []),
       getRedisContext(topicId),
     ]);
 
@@ -343,7 +343,7 @@ async function handleMessage(messageText: string, fromName: string, topicId: num
     const responseText: string | null = parsed.action === 'answer' ? parsed.message : null;
 
     // Save to memory (non-blocking)
-    saveMessage(topicId, fromName, messageText, responseText, speakingAgent as any).catch(() => {});
+    saveMessage(topicId ?? 0, fromName, messageText, responseText, speakingAgent as any).catch(() => {});
 
     // Store Sentinel's response in the Redis context window too
     if (responseText) {
