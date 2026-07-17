@@ -1,17 +1,38 @@
-const path      = require('path');
-const os        = require('os');
-const fs        = require('fs');
-const simpleGit = require('simple-git');
-const logger    = require('./logger');
+import path from 'path';
+import os from 'os';
+import fs from 'fs';
+import simpleGit from 'simple-git';
+import logger from './logger';
 
-const { sendTelegramMessage }                = require('./telegramClient');
-const { createSecurityScan, updateSecurityScan,
-        upsertSecurityScore }                = require('./securityDb');
-const { scanDependencies }                   = require('./dependencyScanner');
-const { scanDiff }                           = require('./secretScanner');
-const { evaluateOwasp }                      = require('./owaspChecker');
+import { sendTelegramMessage } from './telegramClient';
+import { createSecurityScan, updateSecurityScan, upsertSecurityScore } from './securityDb';
+import { scanDependencies } from './dependencyScanner';
+import { scanDiff } from './secretScanner';
+import { evaluateOwasp } from './owaspChecker';
 
-function calculateSecurityScore(issues) {
+interface ScanData {
+  repoFullName: string;
+  repoName: string;
+  commitSha: string;
+  branchName: string;
+  topicId?: any;
+}
+
+interface SecurityIssue {
+  severity: string;
+  issueType: string;
+  title: string;
+  [key: string]: any;
+}
+
+interface ScanCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+}
+
+function calculateSecurityScore(issues: SecurityIssue[]): number {
   let score = 10.0;
   for (const i of issues) {
     if (i.severity === 'critical')    score -= 2.5;
@@ -22,7 +43,7 @@ function calculateSecurityScore(issues) {
   return Math.max(0, parseFloat(score.toFixed(1)));
 }
 
-async function runSecurityScan(data) {
+async function runSecurityScan(data: ScanData) {
   const {
     repoFullName, repoName, commitSha,
     branchName, topicId,
@@ -35,13 +56,13 @@ async function runSecurityScan(data) {
     logger.error({ repoFullName }, 'Failed to create security scan record');
     return null;
   }
-  let   tmpDir = null;
+  let   tmpDir: string | null = null;
 
   try {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sentinel-sec-'));
     const git = simpleGit();
     await git.clone(
-      `https://${process.env.GITHUB_TOKEN}@github.com/${repoFullName}.git`,
+      `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`,
       tmpDir, ['--depth', '2']
     );
 
@@ -61,7 +82,7 @@ async function runSecurityScan(data) {
       evaluateOwasp(repoName, tmpDir, fileList),
     ]);
 
-    const allIssues = [
+    const allIssues: SecurityIssue[] = [
       ...(depResult.status    === 'fulfilled' ? depResult.value    : []),
       ...(secretResult.status === 'fulfilled' ? secretResult.value : []),
     ];
@@ -71,7 +92,7 @@ async function runSecurityScan(data) {
 
     const securityScore = calculateSecurityScore(allIssues);
 
-    const counts = {
+    const counts: ScanCounts = {
       critical: allIssues.filter(i => i.severity === 'critical').length,
       high:     allIssues.filter(i => i.severity === 'high').length,
       medium:   allIssues.filter(i => i.severity === 'medium').length,
@@ -120,7 +141,7 @@ async function runSecurityScan(data) {
     logger.info({ repoFullName, securityScore, ...counts }, 'Security scan complete');
     return { securityScore, issues: allIssues, counts };
 
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message, repoFullName }, 'Security scan failed');
     if (scan?.id) {
       await updateSecurityScan(scan.id, { status: 'failed' }).catch(() => {});
@@ -133,4 +154,4 @@ async function runSecurityScan(data) {
   }
 }
 
-module.exports = { runSecurityScan };
+export = { runSecurityScan };

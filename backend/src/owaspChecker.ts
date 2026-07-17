@@ -1,8 +1,20 @@
-const axios  = require('axios');
-const logger = require('./logger');
-const { upsertOwaspItem } = require('./securityDb');
+import axios from 'axios';
+import logger from './logger';
+import { upsertOwaspItem } from './securityDb';
 
-const OWASP_ITEMS = [
+interface OwaspItemDef {
+  id: string;
+  name: string;
+  weight: number;
+}
+
+interface OwaspEvaluation {
+  id: string;
+  status: string;
+  notes: string;
+}
+
+const OWASP_ITEMS: OwaspItemDef[] = [
   { id: 'A01:injection',     name: 'Injection (SQL, NoSQL, Command)',    weight: 2.0 },
   { id: 'A02:cryptographic', name: 'Cryptographic Failures',             weight: 1.8 },
   { id: 'A03:xss',           name: 'Cross-Site Scripting (XSS)',         weight: 1.5 },
@@ -16,19 +28,19 @@ const OWASP_ITEMS = [
 ];
 
 // Calls NVIDIA NIM directly — no exported callNvidia in claudeCodeAudit.js
-async function callNvidiaForSecurity(prompt) {
-  if (!process.env.NVIDIA_API_KEY) throw new Error('NVIDIA_API_KEY not set');
+async function callNvidiaForSecurity(prompt: string): Promise<string> {
+  if (!process.env['NVIDIA_API_KEY']) throw new Error('NVIDIA_API_KEY not set');
   const response = await axios.post(
     'https://integrate.api.nvidia.com/v1/chat/completions',
     {
-      model:       process.env.OWASP_MODEL || 'meta/llama-3.1-70b-instruct',
+      model:       process.env['OWASP_MODEL'] || 'meta/llama-3.1-70b-instruct',
       messages:    [{ role: 'user', content: prompt }],
       max_tokens:  1000,
       temperature: 0.1,
     },
     {
       headers: {
-        Authorization:  `Bearer ${process.env.NVIDIA_API_KEY}`,
+        Authorization:  `Bearer ${process.env['NVIDIA_API_KEY']}`,
         'Content-Type': 'application/json',
       },
       timeout: 60000,
@@ -37,7 +49,7 @@ async function callNvidiaForSecurity(prompt) {
   return response.data.choices[0]?.message?.content || '';
 }
 
-async function evaluateOwasp(repoName, repoPath, fileList) {
+async function evaluateOwasp(repoName: string, repoPath: string, fileList: string[]) {
   const fileSummary = fileList.slice(0, 100).join('\n');
 
   const prompt = `You are a security expert evaluating a repository against OWASP Top 10 2021.
@@ -64,7 +76,7 @@ Base your evaluation on file names and patterns only.
 Use "unknown" when you cannot determine from file structure alone.
 Be conservative. Do not invent issues.`;
 
-  let evaluation = [];
+  let evaluation: OwaspEvaluation[] = [];
 
   try {
     const response = await callNvidiaForSecurity(prompt);
@@ -74,7 +86,7 @@ Be conservative. Do not invent issues.`;
       .trim();
     const arrMatch = clean.match(/\[[\s\S]*\]/);
     evaluation     = JSON.parse(arrMatch ? arrMatch[0] : clean);
-  } catch (err) {
+  } catch (err: any) {
     logger.warn({ err: err.message, repoName }, 'OWASP parse failed — using unknowns');
     evaluation = OWASP_ITEMS.map(item => ({
       id: item.id, status: 'unknown', notes: 'Evaluation failed',
@@ -100,4 +112,4 @@ Be conservative. Do not invent issues.`;
   return { results: evaluation, owaspScore };
 }
 
-module.exports = { evaluateOwasp, OWASP_ITEMS };
+export = { evaluateOwasp, OWASP_ITEMS };
