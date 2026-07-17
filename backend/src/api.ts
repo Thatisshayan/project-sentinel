@@ -10,8 +10,21 @@ const { query } = dbClient;
 import logger from './logger';
 import { repoFullName } from './repoResolver';
 import { timingSafeEqual } from './utils/timingSafeCompare';
+import rateLimit from 'express-rate-limit';
 
 const router = express.Router();
+
+// ── Rate limiting ───────────────────────────────────────────────────────────
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+router.use(apiLimiter);
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
