@@ -29,6 +29,8 @@
     "tmp": "^0.2.7"
   },
   "devDependencies": {
+    "@swc/core": "^1.15.43",
+    "@swc/jest": "^0.2.39",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.1.1",
@@ -46,10 +48,17 @@
   "jest": {
     "testEnvironment": "node",
     "testMatch": [
-      "**/test/**/*.test.js"
+      "**/test/**/*.test.js",
+      "**/test/**/*.test.ts"
     ],
+    "transform": {
+      "^.+\\.ts$": "@swc/jest"
+    },
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
     "collectCoverageFrom": [
-      "src/**/*.js"
+      "src/**/*.{js,ts}"
     ]
   },
   "engines": {
