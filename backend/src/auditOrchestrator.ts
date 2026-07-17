@@ -1,4 +1,4 @@
-const logger = require('./logger');
+import logger from './logger';
 const { runAudit }           = require('./claudeCodeAudit');
 const { writeTasksToNotion,
         updateNotionTaskStatus } = require('./auditTaskWriter');
@@ -18,32 +18,32 @@ const { reportFailure, reportSuccess } = require('./selfHealer');
 const { trackModelCall }               = require('./performanceTracker');
 const { isRepoLocked }                 = require('./repoLock');
 
-const AUDIT_ENABLED      = () => process.env.AUDIT_AGENT_ENABLED   !== 'false';
-const BUILDER_ENABLED    = () => process.env.BUILDER_AGENT_ENABLED !== 'false';
+const AUDIT_ENABLED      = (): boolean => process.env['AUDIT_AGENT_ENABLED']   !== 'false';
+const BUILDER_ENABLED    = (): boolean => process.env['BUILDER_AGENT_ENABLED'] !== 'false';
 
-let getEffectiveBatchSize, getEffectiveDailyLimit;
+let getEffectiveBatchSize: () => number, getEffectiveDailyLimit: () => number;
 try {
   ({ getEffectiveBatchSize, getEffectiveDailyLimit } = require('./selfScaler'));
 } catch {
-  getEffectiveBatchSize  = () => parseInt(process.env.TASK_BATCH_SIZE           || '5');
-  getEffectiveDailyLimit = () => parseInt(process.env.MAX_BUILDER_TASKS_PER_DAY || '10');
+  getEffectiveBatchSize  = (): number => parseInt(process.env['TASK_BATCH_SIZE']           || '5');
+  getEffectiveDailyLimit = (): number => parseInt(process.env['MAX_BUILDER_TASKS_PER_DAY'] || '10');
 }
 
-const BATCH_SIZE  = () => getEffectiveBatchSize();
-const DAILY_LIMIT = () => getEffectiveDailyLimit();
+const BATCH_SIZE  = (): number => getEffectiveBatchSize();
+const DAILY_LIMIT = (): number => getEffectiveDailyLimit();
 
 const { loadSettings } = require('./settingsLoader');
 
-const COOLDOWN_HOURS     = async () => {
+const COOLDOWN_HOURS     = async (): Promise<number> => {
   const settings = await loadSettings();
   return settings.audit_cooldown_h;
 };
-const QUEUED_THRESHOLD   = () => parseInt(process.env.MIN_QUEUED_BEFORE_SKIP_AUDIT || '3');
-const APPROVAL_TIMEOUT_H = () => parseInt(process.env.AUDIT_APPROVAL_TIMEOUT_H    || '24');
+const QUEUED_THRESHOLD   = (): number => parseInt(process.env['MIN_QUEUED_BEFORE_SKIP_AUDIT'] || '3');
+const APPROVAL_TIMEOUT_H = (): number => parseInt(process.env['AUDIT_APPROVAL_TIMEOUT_H']    || '24');
 
 // ── THE 4 LOOP-PREVENTION RULES ───────────────────────────────────────────────
 
-async function checkAuditRules(data) {
+async function checkAuditRules(data: any): Promise<{ pass: boolean; reason?: string }> {
   const { repoFullName, repoName, authorName, authorEmail,
           branchName, commitMessage, topicId } = data;
 
@@ -90,7 +90,7 @@ async function checkAuditRules(data) {
 
 // ── MAIN AUDIT TRIGGER ────────────────────────────────────────────────────────
 
-async function triggerAudit(payload) {
+async function triggerAudit(payload: any): Promise<void> {
   if (!AUDIT_ENABLED()) {
     logger.info('Audit disabled via AUDIT_AGENT_ENABLED=false');
     return;
@@ -141,7 +141,7 @@ async function triggerAudit(payload) {
   try {
     const project = await findNotionProject(repoName);
     builderAgent = project?.builderAgent || 'qwen_coder';
-  } catch (e) {
+  } catch (e: any) {
     logger.warn({ err: e.message }, 'Could not read builder from Notion — using qwen_coder');
   }
 
@@ -154,10 +154,10 @@ async function triggerAudit(payload) {
   ).catch(() => {});
 
   // Run Claude Code audit — wrapped for performance tracking and self-healing
-  let auditResult;
+  let auditResult: any;
   try {
     auditResult = await trackModelCall(
-      process.env.AUDIT_MODEL || 'nvidia',
+      process.env['AUDIT_MODEL'] || 'nvidia',
       'audit',
       'medium',
       () => runAudit({
@@ -166,7 +166,7 @@ async function triggerAudit(payload) {
       })
     );
     await reportSuccess('auditOrchestrator');
-  } catch (err) {
+  } catch (err: any) {
     await reportFailure('auditOrchestrator', err);
     logger.error({ err: err.message, repoFullName }, 'Audit failed');
     await updateAuditCycle(cycle.id, { status: 'failed' });
@@ -187,7 +187,7 @@ async function triggerAudit(payload) {
     builderAgent,
   });
 
-  const safeCount  = auditResult.tasks.filter(t => t.safeToAutoExecute).length;
+  const safeCount  = auditResult.tasks.filter((t: any) => t.safeToAutoExecute).length;
   const totalCount = auditResult.tasks.length;
   const batchCount = Math.ceil(safeCount / BATCH_SIZE());
 
@@ -200,8 +200,8 @@ async function triggerAudit(payload) {
     approval_sent_at: new Date().toISOString(),
   });
 
-  const EMOJI = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' };
-  const taskLines = auditResult.tasks.map(t =>
+  const EMOJI: Record<string, string> = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' };
+  const taskLines = auditResult.tasks.map((t: any) =>
     `${t.taskNumber}. ${EMOJI[t.priority]||'⚪'} ${t.title}${t.safeToAutoExecute?'':' 🔒'}`
   ).join('\n');
 
@@ -233,7 +233,7 @@ async function triggerAudit(payload) {
   // Send with inline approval buttons
   try {
     const { sendMenu } = require('./telegramMenus');
-    const chatId = process.env.TELEGRAM_CHAT_ID;
+    const chatId = process.env['TELEGRAM_CHAT_ID'];
     await sendMenu(chatId, topicId, auditText, [
       [
         { text: `✅ Execute ${safeCount} safe tasks`, callback_data: `execute:${repoName}` },
@@ -251,7 +251,7 @@ async function triggerAudit(payload) {
 
 // ── EXECUTE APPROVED TASKS ────────────────────────────────────────────────────
 
-async function executeApprovedTasks(repoFullName, repoName, topicId) {
+async function executeApprovedTasks(repoFullName: string, repoName: string, topicId: number | null): Promise<void> {
   if (!BUILDER_ENABLED()) {
     await sendTelegramMessage(
       `Builder disabled (BUILDER_AGENT_ENABLED=false). Enable in Railway.`,
@@ -305,7 +305,7 @@ async function executeApprovedTasks(repoFullName, repoName, topicId) {
   await processNextBatch(repoFullName, repoName, topicId);
 }
 
-async function processNextBatch(repoFullName, repoName, topicId) {
+async function processNextBatch(repoFullName: string, repoName: string, topicId: number | null): Promise<void> {
   const todayCount = await countTasksExecutedToday(repoFullName);
   if (todayCount >= DAILY_LIMIT()) {
     await sendTelegramMessage(
@@ -338,7 +338,7 @@ async function processNextBatch(repoFullName, repoName, topicId) {
 
   const builderConfig = getBuilderConfig(tasks[0].builder_agent || 'qwen_coder');
   const batchNum      = tasks[0].batch_number;
-  const taskTitles    = tasks.map(t => `${t.task_number}. ${t.title}`).join('\n');
+  const taskTitles    = tasks.map((t: any) => `${t.task_number}. ${t.title}`).join('\n');
 
   await sendTelegramMessage([
     `Project Sentinel — Executing Batch ${batchNum} 🔨`,
@@ -379,7 +379,7 @@ async function processNextBatch(repoFullName, repoName, topicId) {
   }
 
   if (batchResult.status === 'completed') {
-    const completedNums = batchResult.completedTasks.map(t => t.task_number).join(', ');
+    const completedNums = batchResult.completedTasks.map((t: any) => t.task_number).join(', ');
 
     const { prUrl, prNumber } = await createPullRequest({
       repoFullName,
@@ -407,7 +407,7 @@ async function processNextBatch(repoFullName, repoName, topicId) {
     }
 
     const skipped = tasks.filter(
-      t => !batchResult.completedTasks.find(ct => ct.id === t.id)
+      (t: any) => !batchResult.completedTasks.find((ct: any) => ct.id === t.id)
     );
     for (const task of skipped) {
       await updateAuditTask(task.id, { status: 'queued' });
@@ -466,8 +466,8 @@ async function processNextBatch(repoFullName, repoName, topicId) {
 
 // ── CALLED WHEN BUILD PASSES AFTER SENTINEL PR IS MERGED ─────────────────────
 
-async function handleBuildPassedAfterSentinelMerge(repoFullName, repoName,
-                                                    branchName, topicId) {
+async function handleBuildPassedAfterSentinelMerge(repoFullName: string, repoName: string,
+                                                    branchName: string, topicId: number | null): Promise<void> {
   await markTasksDoneForBranch(repoFullName, branchName);
 
   // Always delegate to processNextBatch — it correctly marks the cycle
@@ -477,7 +477,7 @@ async function handleBuildPassedAfterSentinelMerge(repoFullName, repoName,
 
 // ── APPROVAL TIMEOUT ──────────────────────────────────────────────────────────
 
-function scheduleApprovalTimeout(cycleId, repoFullName, repoName, topicId) {
+function scheduleApprovalTimeout(cycleId: string, repoFullName: string, repoName: string, topicId: number | null): void {
   setTimeout(async () => {
     try {
       const { query } = require('./dbClient');
@@ -492,13 +492,13 @@ function scheduleApprovalTimeout(cycleId, repoFullName, repoName, topicId) {
         null,
         topicId
       ).catch(() => {});
-    } catch (err) {
+    } catch (err: any) {
       logger.warn({ err: err.message }, 'Approval timeout handler error');
     }
   }, APPROVAL_TIMEOUT_H() * 60 * 60 * 1000);
 }
 
-module.exports = {
+export = {
   triggerAudit,
   executeApprovedTasks,
   processNextBatch,
