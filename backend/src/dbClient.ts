@@ -1,13 +1,13 @@
-const { Pool } = require('pg');
-const logger   = require('./logger');
+import { Pool, QueryResult, QueryResultRow } from 'pg';
+import logger from './logger';
 
-let pool = null;
+let pool: Pool | null = null;
 
-function getPool() {
-  if (!pool && process.env.DATABASE_URL) {
+function getPool(): Pool | null {
+  if (!pool && process.env['DATABASE_URL']) {
     pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === 'production'
+      connectionString: process.env['DATABASE_URL'],
+      ssl: process.env['NODE_ENV'] === 'production'
         ? { rejectUnauthorized: false }
         : false,
       max: 10,
@@ -15,33 +15,33 @@ function getPool() {
       connectionTimeoutMillis: 5000,
     });
 
-    pool.on('error', (err) => {
+    pool.on('error', (err: Error) => {
       logger.error({ err: err.message }, 'PostgreSQL pool error');
     });
   }
   return pool;
 }
 
-async function query(text, params) {
+async function query<T extends QueryResultRow = any>(text: string, params?: any[]): Promise<QueryResult<T>> {
   const p = getPool();
   if (!p) {
     throw new Error('DATABASE_URL not configured');
   }
   const start = Date.now();
   try {
-    const result = await p.query(text, params);
+    const result = await p.query<T>(text, params);
     logger.debug(
       { duration: Date.now() - start, rows: result.rowCount },
       'DB query executed'
     );
     return result;
   } catch (err) {
-    logger.error({ err: err.message, query: text }, 'DB query failed');
+    logger.error({ err: (err as Error).message, query: text }, 'DB query failed');
     throw err;
   }
 }
 
-async function initSchema() {
+async function initSchema(): Promise<void> {
   const p = getPool();
   if (!p) {
     logger.warn('DATABASE_URL not set — skipping schema init');
@@ -96,7 +96,7 @@ async function initSchema() {
 
 // ── Debug attempt helpers ────────────────────────────────────────────────────
 
-async function getDebugAttempt(repoFullName, commitSha) {
+async function getDebugAttempt(repoFullName: string, commitSha: string): Promise<any | null> {
   const r = await query(
     'SELECT * FROM debug_attempts WHERE repo_full_name = $1 AND commit_sha = $2',
     [repoFullName, commitSha]
@@ -104,7 +104,15 @@ async function getDebugAttempt(repoFullName, commitSha) {
   return r.rows[0] || null;
 }
 
-async function createDebugAttempt(data) {
+interface DebugAttemptData {
+  repoFullName: string;
+  commitSha: string;
+  buildProvider?: string;
+  buildUrl?: string;
+  failureReason?: string;
+}
+
+async function createDebugAttempt(data: DebugAttemptData): Promise<any | null> {
   const r = await query(`
     INSERT INTO debug_attempts
       (repo_full_name, commit_sha, attempt_number, build_provider, build_url, failure_reason)
@@ -115,7 +123,7 @@ async function createDebugAttempt(data) {
   return r.rows[0] || null;
 }
 
-async function incrementAttempt(repoFullName, commitSha, debuggerUsed) {
+async function incrementAttempt(repoFullName: string, commitSha: string, debuggerUsed: string): Promise<any | null> {
   const r = await query(`
     UPDATE debug_attempts
     SET attempt_number = attempt_number + 1,
@@ -128,7 +136,11 @@ async function incrementAttempt(repoFullName, commitSha, debuggerUsed) {
   return r.rows[0] || null;
 }
 
-async function updateDebugAttempt(repoFullName, commitSha, updates) {
+async function updateDebugAttempt(
+  repoFullName: string,
+  commitSha: string,
+  updates: Record<string, any>
+): Promise<any | null> {
   const fields = Object.keys(updates)
     .map((k, i) => `${k} = $${i + 3}`)
     .join(', ');
@@ -144,7 +156,7 @@ async function updateDebugAttempt(repoFullName, commitSha, updates) {
   return r.rows[0] || null;
 }
 
-async function stopDebugAttempts(repoFullName) {
+async function stopDebugAttempts(repoFullName: string): Promise<void> {
   await query(
     `UPDATE debug_attempts
      SET status = 'stopped', updated_at = NOW()
@@ -153,7 +165,7 @@ async function stopDebugAttempts(repoFullName) {
   );
 }
 
-module.exports = {
+export = {
   query,
   initSchema,
   getDebugAttempt,
