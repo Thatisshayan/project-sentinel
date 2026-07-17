@@ -1,16 +1,16 @@
-const express                                              = require('express');
-const crypto                                               = require('crypto');
-const rateLimit                                            = require('express-rate-limit');
-const logger                                               = require('./logger');
-const { extractPayload }                                   = require('./extractPayload');
-const { findNotionProject, updateNotionProject,
-        appendChangelog }                                  = require('./notionClient');
-const { sendTelegramMessage }                              = require('./telegramClient');
-const { isAlreadyProcessed, markAsProcessed }              = require('./deduplication');
-const { enqueueBuildCheck }                                = require('./queueClient');
-const { query }                                            = require('./dbClient');
-const { upsertRepoMetrics }                                = require('./portfolioDb');
-const { refreshRepoMetrics }                               = require('./portfolioAnalytics');
+import express from 'express';
+import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
+import logger from './logger';
+import { extractPayload } from './extractPayload';
+import { findNotionProject, updateNotionProject, appendChangelog } from './notionClient';
+import { sendTelegramMessage } from './telegramClient';
+import { isAlreadyProcessed, markAsProcessed } from './deduplication';
+import { enqueueBuildCheck } from './queueClient';
+import dbClient from './dbClient';
+const { query } = dbClient;
+import { upsertRepoMetrics } from './portfolioDb';
+import { refreshRepoMetrics } from './portfolioAnalytics';
 
 const router = express.Router();
 
@@ -22,12 +22,13 @@ const limiter = rateLimit({
   message:         { error: 'Too many requests — slow down' },
 });
 
-function verifySignature(req, res, next) {
+function verifySignature(req: any, res: any, next: any): void {
   const signature = req.headers['x-hub-signature-256'];
 
   if (!signature) {
     logger.warn({ ip: req.ip }, 'Webhook received without x-hub-signature-256 header');
-    return res.status(401).json({ error: 'Missing signature header' });
+    res.status(401).json({ error: 'Missing signature header' });
+    return;
   }
 
   // Use the raw request bytes (captured by express.json's verify hook in
@@ -37,7 +38,7 @@ function verifySignature(req, res, next) {
   // intermittently fail signature verification.
   const body     = req.rawBody || Buffer.from(JSON.stringify(req.body));
   const expected = 'sha256=' + crypto
-    .createHmac('sha256', process.env.GITHUB_WEBHOOK_SECRET)
+    .createHmac('sha256', process.env['GITHUB_WEBHOOK_SECRET'] || '')
     .update(body)
     .digest('hex');
 
@@ -49,13 +50,14 @@ function verifySignature(req, res, next) {
 
   if (!validHmac) {
     logger.warn({ ip: req.ip }, 'Webhook signature verification failed');
-    return res.status(401).json({ error: 'Invalid signature' });
+    res.status(401).json({ error: 'Invalid signature' });
+    return;
   }
 
   next();
 }
 
-function buildSuccessMessage(data, changelogAppended) {
+function buildSuccessMessage(data: any, changelogAppended: boolean): string {
   const {
     projectName, repoName, branchName, commitMessage,
     authorName, filesChangedCount, isMarketingOnlyUpdate,
@@ -82,7 +84,7 @@ function buildSuccessMessage(data, changelogAppended) {
   ].join('\n');
 }
 
-function buildUnknownRepoMessage(data) {
+function buildUnknownRepoMessage(data: any): string {
   const { repoName, branchName, repoUrl, commitMessage } = data;
 
   return [
@@ -98,7 +100,7 @@ function buildUnknownRepoMessage(data) {
   ].join('\n');
 }
 
-function buildErrorMessage(context, repoName, detail) {
+function buildErrorMessage(context: string, repoName: string, detail: any): string {
   return [
     `Project Sentinel error ❌`,
     ``,
@@ -108,11 +110,11 @@ function buildErrorMessage(context, repoName, detail) {
   ].join('\n');
 }
 
-async function processWebhook(payload) {
-  let data;
+async function processWebhook(payload: any): Promise<void> {
+  let data: any;
   try {
     data = extractPayload(payload);
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message }, 'Payload extraction failed — cannot process');
     return;
   }
@@ -131,10 +133,10 @@ async function processWebhook(payload) {
   }
   await markAsProcessed(repoName, commitSha);
 
-  let notionProject;
+  let notionProject: any;
   try {
     notionProject = await findNotionProject(repoNameLower);
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message, repoName }, 'Notion search threw an error');
     await sendTelegramMessage(
       buildErrorMessage('Notion search failed', repoName, err.message),
@@ -149,13 +151,13 @@ async function processWebhook(payload) {
     let suggestionNote = '';
     try {
       const { Client } = require('@notionhq/client');
-      const nc = new Client({ auth: process.env.NOTION_API_KEY });
+      const nc = new Client({ auth: process.env['NOTION_API_KEY'] });
       const resp = await nc.databases.query({
-        database_id: process.env.NOTION_DATABASE_ID,
+        database_id: process.env['NOTION_DATABASE_ID'],
         page_size: 20,
       }).catch(() => null);
       if (resp?.results?.length) {
-        const names = resp.results.map(p => {
+        const names = resp.results.map((p: any) => {
           const t = p.properties['Name'] || p.properties['Project'] || p.properties['Title'];
           return t?.title?.[0]?.plain_text || '(untitled)';
         }).filter(Boolean);
@@ -176,7 +178,7 @@ async function processWebhook(payload) {
 
   try {
     await updateNotionProject(notionProject.pageId, data);
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message, repoName }, 'Notion update failed');
     await sendTelegramMessage(
       buildErrorMessage('Notion update failed', repoName, err.message),
@@ -189,13 +191,13 @@ async function processWebhook(payload) {
   try {
     await appendChangelog(notionProject.pageId, data);
     changelogAppended = true;
-  } catch (err) {
+  } catch (err: any) {
     logger.warn({ err: err.message, repoName }, 'Changelog append failed — continuing');
   }
 
   try {
     await sendTelegramMessage(buildSuccessMessage(data, changelogAppended), repoName);
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message, repoName }, 'Telegram send failed');
   }
 
@@ -209,9 +211,9 @@ async function processWebhook(payload) {
       lastCommitAt: data.commitTimestamp ? new Date(data.commitTimestamp) : new Date(),
       buildStatus:  'unknown',
       priority:     'medium',
-    }).catch(err => logger.warn({ err: err.message }, 'Metrics upsert failed')),
+    }).catch((err: any) => logger.warn({ err: err.message }, 'Metrics upsert failed')),
     refreshRepoMetrics(data.repoFullName, data.repoName)
-      .catch(err => logger.warn({ err: err.message }, 'Post-push metrics refresh failed')),
+      .catch((err: any) => logger.warn({ err: err.message }, 'Post-push metrics refresh failed')),
   ]);
 
   // T11 — trigger security scan immediately on high-risk pushes (don't wait for build pass)
@@ -224,7 +226,7 @@ async function processWebhook(payload) {
         commitSha:     data.commitSha,
         branchName:    data.branchName,
         topicId:       notionProject.topicId || null,
-      }).catch(err => logger.warn({ err: err.message }, 'High-risk security scan failed — non-blocking'));
+      }).catch((err: any) => logger.warn({ err: err.message }, 'High-risk security scan failed — non-blocking'));
       logger.info({ repoName: data.repoName, risk: 'High' }, 'Security scan triggered for high-risk push');
     } catch {}
   }
@@ -246,7 +248,7 @@ async function processWebhook(payload) {
         topicId:       notionProject.topicId || null,
       });
       logger.info({ repoName: data.repoName }, 'Build check job queued');
-    } catch (err) {
+    } catch (err: any) {
       logger.warn({ err: err.message }, 'Failed to queue build check — non-blocking');
     }
   }
@@ -265,7 +267,7 @@ async function processWebhook(payload) {
 
 // ── PR event handler ─────────────────────────────────────────────────────────
 
-async function processPREvent(payload) {
+async function processPREvent(payload: any): Promise<void> {
   const { action, pull_request: pr, repository } = payload;
   if (!pr || !repository) return;
 
@@ -341,21 +343,21 @@ async function processPREvent(payload) {
   }
 }
 
-router.post('/github', limiter, verifySignature, (req, res) => {
+router.post('/github', limiter, verifySignature, (req: any, res: any) => {
   res.status(200).json({ received: true });
 
   const event = req.headers['x-github-event'] || 'push';
 
   if (event === 'pull_request') {
-    processPREvent(req.body).catch(err => {
+    processPREvent(req.body).catch((err: any) => {
       logger.error({ err: err.message }, 'Unhandled error in processPREvent');
     });
     return;
   }
 
-  processWebhook(req.body).catch(err => {
+  processWebhook(req.body).catch((err: any) => {
     logger.error({ err: err.message }, 'Unhandled error in processWebhook');
   });
 });
 
-module.exports = router;
+export = router;

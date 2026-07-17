@@ -104,7 +104,7 @@ async function upsertRepoMetrics(data: {
   repoFullName: string; repoName: string; healthScore?: number;
   buildStatus?: string; priority?: string; buildsPassedToday?: number;
   buildsFailedToday?: number; tasksDoneToday?: number; tasksQueued?: number;
-  debuggerRunsToday?: number; lastBuildAt?: string; lastCommitAt?: string;
+  debuggerRunsToday?: number; lastBuildAt?: string; lastCommitAt?: string | Date;
 }): Promise<void> {
   await query(`
     INSERT INTO portfolio_metrics
