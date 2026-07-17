@@ -1,11 +1,26 @@
-const { spawn } = require('child_process');
-const logger    = require('./logger');
+import { spawn } from 'child_process';
+import logger from './logger';
 
-const BUILD_TIMEOUT_MS = () =>
-  parseInt(process.env.DEBUG_TIMEOUT_MINUTES || process.env.AIDER_TIMEOUT_MINUTES || '30') * 60 * 1000;
-const BUILD_MODEL = process.env.BUILD_MODEL || 'claude-sonnet-4-6';
+const BUILD_TIMEOUT_MS = (): number =>
+  parseInt(process.env['DEBUG_TIMEOUT_MINUTES'] || process.env['AIDER_TIMEOUT_MINUTES'] || '30') * 60 * 1000;
+const BUILD_MODEL = process.env['BUILD_MODEL'] || 'claude-sonnet-4-6';
 
-function buildTaskPrompt(task, context) {
+interface Task {
+  task_number: number;
+  title: string;
+  priority: string;
+  category: string;
+  description: string;
+  affected_files?: string[];
+  acceptance_criteria?: string;
+}
+
+interface TaskContext {
+  projectName?: string;
+  repoName?: string;
+}
+
+function buildTaskPrompt(task: Task, context: TaskContext): string {
   const { projectName, repoName } = context;
 
   return `You are an autonomous code improvement agent on the ${projectName || repoName} repo.
@@ -40,7 +55,15 @@ RULES — follow every one exactly:
 Conservative and precise. This is a live production codebase.`;
 }
 
-async function runClaudeCodeForTask(repoPath, task, context) {
+interface ClaudeCodeResult {
+  success: boolean;
+  exitCode?: number | null;
+  stdout?: string;
+  stderr?: string;
+  reason?: string | null;
+}
+
+async function runClaudeCodeForTask(repoPath: string, task: Task, context: TaskContext): Promise<ClaudeCodeResult> {
   const prompt = buildTaskPrompt(task, context);
 
   return new Promise((resolve) => {
@@ -59,18 +82,18 @@ async function runClaudeCodeForTask(repoPath, task, context) {
 
     const proc = spawn('claude', args, {
       cwd: repoPath,
-      env: { ...process.env, ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY },
+      env: { ...process.env, ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'] },
     });
 
-    proc.stdout.on('data', c => { stdout += c.toString(); });
-    proc.stderr.on('data', c => { stderr += c.toString(); });
+    proc.stdout.on('data', (c: Buffer) => { stdout += c.toString(); });
+    proc.stderr.on('data', (c: Buffer) => { stderr += c.toString(); });
 
     const timer = setTimeout(() => {
       proc.kill('SIGTERM');
       resolve({ success: false, reason: `Timed out on task ${task.task_number}` });
     }, BUILD_TIMEOUT_MS());
 
-    proc.on('close', (code) => {
+    proc.on('close', (code: number | null) => {
       clearTimeout(timer);
       resolve({
         success:  code === 0,
@@ -81,11 +104,11 @@ async function runClaudeCodeForTask(repoPath, task, context) {
       });
     });
 
-    proc.on('error', (err) => {
+    proc.on('error', (err: Error) => {
       clearTimeout(timer);
       resolve({ success: false, reason: `spawn failed: ${err.message}` });
     });
   });
 }
 
-module.exports = { runClaudeCodeForTask };
+export = { runClaudeCodeForTask };

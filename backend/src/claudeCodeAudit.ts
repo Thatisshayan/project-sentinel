@@ -1,14 +1,14 @@
-const { spawn }  = require('child_process');
-const axios      = require('axios');
-const simpleGit  = require('simple-git');
-const tmp        = require('tmp');
-const fs         = require('fs');
-const path       = require('path');
-const logger     = require('./logger');
-const { validateAuditOutput } = require('./aiOutputValidator');
+import { spawn } from 'child_process';
+import axios from 'axios';
+import simpleGit from 'simple-git';
+import tmp from 'tmp';
+import fs from 'fs';
+import path from 'path';
+import logger from './logger';
+import { validateAuditOutput } from './aiOutputValidator';
 
 const AUDIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
-const AUDIT_MODEL = process.env.AUDIT_MODEL || 'mistralai/mistral-nemotron';
+const AUDIT_MODEL = process.env['AUDIT_MODEL'] || 'mistralai/mistral-nemotron';
 
 const CONTEXT_FILE_BUDGET  = 30;
 const CONTEXT_CHAR_BUDGET  = 20000;
@@ -24,18 +24,18 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', 
 // Builds a lightweight text snapshot of the repo for AI providers that have
 // no file-read tool (e.g. NVIDIA NIM chat-completions path).
 // Handles both flat repos and monorepos (backend/src, ui/src, etc.).
-function buildRepoContext(repoPath) {
-  const sections = [];
+function buildRepoContext(repoPath: string): string {
+  const sections: string[] = [];
   let charsUsed  = 0;
 
-  function addSection(label, content) {
+  function addSection(label: string, content: string | null): void {
     if (!content || charsUsed >= CONTEXT_CHAR_BUDGET) return;
     const trimmed = content.slice(0, 2000);
     sections.push(`--- ${label} ---\n${trimmed}`);
     charsUsed += trimmed.length;
   }
 
-  function readSafe(relPath) {
+  function readSafe(relPath: string): string | null {
     try { return fs.readFileSync(path.join(repoPath, relPath), 'utf8'); }
     catch { return null; }
   }
@@ -63,8 +63,8 @@ function buildRepoContext(repoPath) {
     }
   }
 
-  const files = [];
-  function walk(dir) {
+  const files: string[] = [];
+  function walk(dir: string): void {
     if (files.length >= CONTEXT_FILE_BUDGET) return;
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
@@ -94,7 +94,15 @@ function buildRepoContext(repoPath) {
   return sections.join('\n\n');
 }
 
-function buildAuditPrompt(payload, repoContext) {
+interface AuditPayload {
+  repoFullName: string;
+  repoName?: string;
+  projectName?: string;
+  commitSha?: string;
+  branchName?: string;
+}
+
+function buildAuditPrompt(payload: AuditPayload, repoContext?: string): string {
   const { repoFullName, repoName, projectName, commitSha } = payload;
 
   const taskInstructions = repoContext
@@ -159,7 +167,15 @@ Priority order: critical → high → medium → low
 Exactly 10 tasks. No more, no less.`;
 }
 
-async function runClaudeCodeAudit(repoPath, payload) {
+interface ClaudeResult {
+  success: boolean;
+  exitCode?: number | null;
+  stdout?: string;
+  stderr?: string;
+  reason?: string | null;
+}
+
+async function runClaudeCodeAudit(repoPath: string, payload: AuditPayload): Promise<ClaudeResult> {
   const prompt = buildAuditPrompt(payload);
 
   return new Promise((resolve) => {
@@ -177,11 +193,11 @@ async function runClaudeCodeAudit(repoPath, payload) {
 
     const proc = spawn('claude', args, {
       cwd: repoPath,
-      env: { ...process.env, ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY },
+      env: { ...process.env, ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'] },
     });
 
-    proc.stdout.on('data', c => { stdout += c.toString(); });
-    proc.stderr.on('data', c => { stderr += c.toString(); });
+    proc.stdout.on('data', (c: Buffer) => { stdout += c.toString(); });
+    proc.stderr.on('data', (c: Buffer) => { stderr += c.toString(); });
 
     const timer = setTimeout(() => {
       proc.kill('SIGTERM');
@@ -189,7 +205,7 @@ async function runClaudeCodeAudit(repoPath, payload) {
       resolve({ success: false, reason: 'Audit timed out after 10 minutes', stdout });
     }, AUDIT_TIMEOUT_MS);
 
-    proc.on('close', (code) => {
+    proc.on('close', (code: number | null) => {
       clearTimeout(timer);
       resolve({
         success: code === 0,
@@ -200,7 +216,7 @@ async function runClaudeCodeAudit(repoPath, payload) {
       });
     });
 
-    proc.on('error', (err) => {
+    proc.on('error', (err: Error) => {
       clearTimeout(timer);
       resolve({ success: false, reason: `spawn failed: ${err.message}` });
     });
@@ -211,7 +227,7 @@ async function runClaudeCodeAudit(repoPath, payload) {
 // Sends the same audit prompt directly to the NVIDIA NIM chat completions endpoint.
 // Unlike the Claude Code CLI path, this model has no Read tool, so repoContext
 // (built from a real clone of the repo) is embedded directly in the prompt.
-async function runNvidiaAudit(payload, repoContext) {
+async function runNvidiaAudit(payload: AuditPayload, repoContext: string): Promise<any> {
   const prompt = buildAuditPrompt(payload, repoContext);
 
   logger.info({ repo: payload.repoFullName, model: AUDIT_MODEL }, 'NVIDIA NIM audit starting');
@@ -226,7 +242,7 @@ async function runNvidiaAudit(payload, repoContext) {
     },
     {
       headers: {
-        Authorization:  `Bearer ${process.env.NVIDIA_API_KEY}`,
+        Authorization:  `Bearer ${process.env['NVIDIA_API_KEY']}`,
         'Content-Type': 'application/json',
       },
       timeout: AUDIT_TIMEOUT_MS,
@@ -237,7 +253,7 @@ async function runNvidiaAudit(payload, repoContext) {
   return parseAuditOutput(text);
 }
 
-function parseAuditOutput(stdout) {
+function parseAuditOutput(stdout: string): any {
   if (!stdout || stdout.trim() === '') {
     throw new Error('Claude Code returned empty audit output');
   }
@@ -252,16 +268,16 @@ function parseAuditOutput(stdout) {
     throw new Error('No JSON object found in Claude Code audit output');
   }
 
-  let parsed;
+  let parsed: any;
   try {
     parsed = JSON.parse(jsonMatch[0]);
-  } catch (err) {
+  } catch (err: any) {
     throw new Error(`Failed to parse audit JSON: ${err.message} — raw tail: ${stripped.slice(-200)}`);
   }
 
   validateAuditOutput(parsed);
 
-  parsed.tasks = parsed.tasks.slice(0, 10).map((t, i) => ({
+  parsed.tasks = parsed.tasks.slice(0, 10).map((t: any, i: number) => ({
     taskNumber:          t.taskNumber          || i + 1,
     priority:            t.priority            || 'medium',
     category:            t.category            || 'code-quality',
@@ -277,7 +293,7 @@ function parseAuditOutput(stdout) {
   return parsed;
 }
 
-async function runAudit(payload) {
+async function runAudit(payload: AuditPayload): Promise<any> {
   const { repoFullName } = payload;
 
   const tmpDir = tmp.dirSync({ unsafeCleanup: true, prefix: 'sentinel-audit-' });
@@ -285,7 +301,7 @@ async function runAudit(payload) {
   try {
     logger.info({ repoFullName }, 'Cloning repo for audit');
 
-    const cloneUrl = `https://${process.env.GITHUB_TOKEN}@github.com/${repoFullName}.git`;
+    const cloneUrl = `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`;
     await simpleGit().clone(cloneUrl, tmpDir.name, [
       '--depth', '1',
       '--branch', payload.branchName || 'main',
@@ -293,13 +309,13 @@ async function runAudit(payload) {
 
     // NVIDIA NIM is the primary audit path — no ANTHROPIC_API_KEY required.
     // It has no Read tool, so it gets a text snapshot of the cloned repo instead.
-    if (process.env.NVIDIA_API_KEY) {
+    if (process.env['NVIDIA_API_KEY']) {
       const auditResult = await runNvidiaAudit(payload, buildRepoContext(tmpDir.name));
       logger.info({
         repoFullName,
         tasks: auditResult.tasks.length,
         score: auditResult.overallHealthScore,
-        safe:  auditResult.tasks.filter(t => t.safeToAutoExecute).length,
+        safe:  auditResult.tasks.filter((t: any) => t.safeToAutoExecute).length,
       }, 'Audit complete');
       return auditResult;
     }
@@ -310,13 +326,13 @@ async function runAudit(payload) {
       throw new Error(result.reason || 'Claude Code audit failed');
     }
 
-    const auditResult = parseAuditOutput(result.stdout);
+    const auditResult = parseAuditOutput(result.stdout!);
 
     logger.info({
       repoFullName,
       tasks: auditResult.tasks.length,
       score: auditResult.overallHealthScore,
-      safe:  auditResult.tasks.filter(t => t.safeToAutoExecute).length,
+      safe:  auditResult.tasks.filter((t: any) => t.safeToAutoExecute).length,
     }, 'Audit complete');
 
     return auditResult;
@@ -326,4 +342,4 @@ async function runAudit(payload) {
   }
 }
 
-module.exports = { runAudit };
+export = { runAudit };
