@@ -15,7 +15,7 @@
 | Phase | Status | % Complete | Dependencies |
 |-------|--------|-----------|-------------|
 | 0: Foundation & Safety Net | **Complete** | 100% | None — starting point |
-| 1: TypeScript Migration | **IN PROGRESS** | 50% | Needs Phase 0 |
+| 1: TypeScript Migration | **COMPLETE** 🎉 | 100% ✅ | Needs Phase 0 |
 | 2: Error Architecture | Pending | 0% | Needs Phase 0-1 |
 | 3: Security Hardening | Pending | 0% | Can overlap with Phases 1-2 |
 | 4: Test Coverage Blitz | Pending | 0% | Needs Phase 0 + 1 |
@@ -31,7 +31,7 @@
 - 0.5: Security audit CI (npm audit, gitleaks, weekly OWASP dependency check)
 - 0.6: Branch protection (enabled via GitHub UI)
 
-## Phase 1 — Completed Tasks
+## Phase 1 — COMPLETE 🎉
 - 1a: TypeScript config (`tsconfig.json`, `package.json`, typecheck scripts) ✅ PR #11
 - 1b: CI typecheck step added to workflow ✅ PR #11
 - 1c: Convert logger + dbClient to TypeScript ✅ PR #12
@@ -43,11 +43,12 @@
   - agentDb, auditDb, businessDb, portfolioDb, securityDb, settingsDb, sprintDb, selfAuditDb
 - 1e: Convert security cluster to TypeScript ✅ PR #14
   - securityScanner, securityPatcher, dependencyScanner, secretScanner, owaspChecker
+- 1f: Convert all remaining files to TypeScript ✅ PR #20–#21
+  - Agent (8 files), Telegram (4), Orchestration (4), Runner (5), God modules (5), Commands/utilities (41 files)
+  - `index.ts` entry point — final merge, all `.js` -> `.ts` complete
 
-## Phase 1 — Remaining Tasks
-- 1f: Convert remaining core files (health, webhook, api, workers, index, etc.)
-
-## TS Files on main (21 files)
+## TS Files on main (76 files)
+- All files in `backend/src/` — **no .js files remain**
 - `src/errors/codes.ts`
 - `src/errors/errorClasses.ts`
 - `src/errors/sentry.ts`
