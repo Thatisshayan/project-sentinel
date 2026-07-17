@@ -1,9 +1,9 @@
 import * as Sentry from '@sentry/node';
-import { SentinelError, toSentinelError } from './errors';
+import { SentinelError, toSentinelError } from './errorClasses';
 
 export function initSentry(): void {
-  const dsn = process.env.SENTRY_DSN;
-  const environment = process.env.NODE_ENV || 'development';
+  const dsn = process.env['SENTRY_DSN'];
+  const environment = process.env['NODE_ENV'] || 'development';
 
   if (!dsn) {
     console.warn('[Sentry] SENTRY_DSN not set — Sentry disabled');
@@ -47,20 +47,21 @@ export function captureError(err: unknown, context?: Record<string, unknown>): s
 }
 
 export function captureMessage(message: string, level: Sentry.SeverityLevel = 'info', context?: Record<string, unknown>): string {
-  return Sentry.captureMessage(message, level, { extra: context });
+  return Sentry.captureMessage(message, { level, extra: context });
 }
 
 export function setUserContext(user: { id: string; email?: string; username?: string } | null): void {
-  Sentry.setUser(user || undefined);
+  Sentry.setUser(user ?? null);
 }
 
 export function addBreadcrumb(breadcrumb: Sentry.Breadcrumb): void {
   Sentry.addBreadcrumb(breadcrumb);
 }
 
-export function startTransaction(name: string, op: string): Sentry.Transaction {
-  return Sentry.startTransaction({ name, op });
+export function startTransaction(name: string, op: string): void {
+  Sentry.startSpan({ name, op }, () => {});
 }
 
-export const SentryMiddleware = Sentry.Handlers.requestHandler();
-export const SentryErrorMiddleware = Sentry.Handlers.errorHandler();
+// Note: Express middleware removed in Sentry v8 - use expressIntegration instead if needed
+// export const SentryMiddleware = Sentry.requestHandler();
+// export const SentryErrorMiddleware = Sentry.errorHandler();
