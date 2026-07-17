@@ -1,4 +1,4 @@
-const logger = require('./logger');
+import logger from './logger';
 const { sendTelegramMessage }  = require('./telegramClient');
 const { executeBatch }         = require('./taskBuilder');
 const { createPullRequest }    = require('./prCreator');
@@ -12,7 +12,7 @@ const {
 
 // ── Approve ───────────────────────────────────────────────────────────────────
 
-async function approveSprint(topicId) {
+async function approveSprint(topicId: number | null): Promise<void> {
   const sprint = await getCurrentSprint();
 
   if (!sprint) {
@@ -47,14 +47,14 @@ async function approveSprint(topicId) {
   ].join('\n'), null, topicId).catch(() => {});
 
   logger.info({ sprintId: sprint.id }, 'Sprint approved — starting execution');
-  executeNextSprintTask(sprint.id, topicId).catch(err =>
+  executeNextSprintTask(sprint.id, topicId).catch((err: any) =>
     logger.error({ err: err.message }, 'Initial sprint task failed')
   );
 }
 
 // ── Task execution loop ───────────────────────────────────────────────────────
 
-async function executeNextSprintTask(sprintId, topicId) {
+async function executeNextSprintTask(sprintId: string, topicId: number | null): Promise<void> {
   const sprint = await getSprintById(sprintId);
   if (!sprint || sprint.status !== 'executing') return;
 
@@ -133,8 +133,8 @@ async function executeNextSprintTask(sprintId, topicId) {
         commit_sha: batchResult.commitSha,
         commit_url: batchResult.commitUrl,
         pr_url: prUrl,
-        pr_number: prUrl ? parseInt(prUrl.split('/').pop()) : null,
-      }).catch(err => logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task'));
+        pr_number: prUrl ? parseInt(prUrl.split('/').pop() as string) : null,
+      }).catch((err: any) => logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task'));
       await updateNotionTaskStatus(task.audit_task_id, 'build_check', { prUrl, commitUrl: batchResult.commitUrl }).catch(() => {});
     }
 
@@ -155,7 +155,7 @@ async function executeNextSprintTask(sprintId, topicId) {
 
     // Continue to next task after a brief pause
     setTimeout(() => {
-      executeNextSprintTask(sprintId, topicId).catch(err =>
+      executeNextSprintTask(sprintId, topicId).catch((err: any) =>
         logger.error({ err: err.message }, 'Sprint continuation failed')
       );
     }, 10000);
@@ -189,13 +189,13 @@ async function executeNextSprintTask(sprintId, topicId) {
 
 // ── Complete ──────────────────────────────────────────────────────────────────
 
-async function completeSprint(sprintId, topicId) {
+async function completeSprint(sprintId: string, topicId: number | null): Promise<void> {
   const sprint = await getSprintById(sprintId);
   const tasks  = await getSprintTasks(sprintId);
 
-  const done    = tasks.filter(t => t.status === 'done').length;
-  const failed  = tasks.filter(t => t.status === 'failed').length;
-  const skipped = tasks.filter(t => t.status === 'skipped').length;
+  const done    = tasks.filter((t: any) => t.status === 'done').length;
+  const failed  = tasks.filter((t: any) => t.status === 'failed').length;
+  const skipped = tasks.filter((t: any) => t.status === 'skipped').length;
 
   await updateSprint(sprintId, {
     status:          'complete',
@@ -205,7 +205,7 @@ async function completeSprint(sprintId, topicId) {
     completed_at:    new Date().toISOString(),
   });
 
-  await recordWeeklyVelocity().catch(err =>
+  await recordWeeklyVelocity().catch((err: any) =>
     logger.warn({ err: err.message }, 'Velocity record failed — non-blocking')
   );
   const velocityReport = await getVelocityReport().catch(() => '');
@@ -226,7 +226,7 @@ async function completeSprint(sprintId, topicId) {
 
 // ── Status ────────────────────────────────────────────────────────────────────
 
-async function getSprintStatus(topicId) {
+async function getSprintStatus(topicId: number | null): Promise<void> {
   const sprint = await getCurrentSprint();
 
   if (!sprint) {
@@ -238,12 +238,12 @@ async function getSprintStatus(topicId) {
   }
 
   const tasks   = await getSprintTasks(sprint.id);
-  const done    = tasks.filter(t => t.status === 'done').length;
-  const pending = tasks.filter(t => t.status === 'queued').length;
-  const inProg  = tasks.filter(t => t.status === 'in_progress').length;
+  const done    = tasks.filter((t: any) => t.status === 'done').length;
+  const pending = tasks.filter((t: any) => t.status === 'queued').length;
+  const inProg  = tasks.filter((t: any) => t.status === 'in_progress').length;
 
-  const STATUS_EMOJI = { done: '✅', in_progress: '🔄', queued: '⏳', failed: '❌', skipped: '⏭️' };
-  const taskLines = tasks.slice(0, 10).map(t =>
+  const STATUS_EMOJI: Record<string, string> = { done: '✅', in_progress: '🔄', queued: '⏳', failed: '❌', skipped: '⏭️' };
+  const taskLines = tasks.slice(0, 10).map((t: any) =>
     `${STATUS_EMOJI[t.status] || '⚪'} ${t.repo_name}: ${t.task_title}`
   ).join('\n');
 
@@ -260,7 +260,7 @@ async function getSprintStatus(topicId) {
 
 // ── Pause / Resume ────────────────────────────────────────────────────────────
 
-async function pauseSprint(topicId) {
+async function pauseSprint(topicId: number | null): Promise<void> {
   const sprint = await getCurrentSprint();
   if (!sprint || sprint.status !== 'executing') {
     await sendTelegramMessage('No executing sprint to pause.', null, topicId).catch(() => {});
@@ -273,7 +273,7 @@ async function pauseSprint(topicId) {
   ).catch(() => {});
 }
 
-async function resumeSprint(topicId) {
+async function resumeSprint(topicId: number | null): Promise<void> {
   const sprint = await getCurrentSprint();
   if (!sprint || sprint.status !== 'paused') {
     await sendTelegramMessage('No paused sprint to resume.', null, topicId).catch(() => {});
@@ -282,7 +282,7 @@ async function resumeSprint(topicId) {
 
   // Skip any failed task so we don't retry it
   const tasks  = await getSprintTasks(sprint.id);
-  const failed = tasks.find(t => t.status === 'failed');
+  const failed = tasks.find((t: any) => t.status === 'failed');
   if (failed) {
     await updateSprintTask(failed.id, { status: 'skipped' });
   }
@@ -293,12 +293,12 @@ async function resumeSprint(topicId) {
     null, topicId
   ).catch(() => {});
 
-  executeNextSprintTask(sprint.id, topicId).catch(err =>
+  executeNextSprintTask(sprint.id, topicId).catch((err: any) =>
     logger.error({ err: err.message }, 'Sprint resume failed')
   );
 }
 
-module.exports = {
+export = {
   approveSprint,
   executeNextSprintTask,
   getSprintStatus,

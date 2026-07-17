@@ -3,16 +3,16 @@ const tmp        = require('tmp');
 const { spawn } = require('child_process');
 const fs         = require('fs');
 const path       = require('path');
-const logger     = require('./logger');
+import logger from './logger';
 const { runClaudeCodeForTask } = require('./claudeCodeRunner');
 const { getBuilderConfig, getAiderEnv } = require('./builderRouter');
 const { updateAuditTask }    = require('./auditDb');
 const { updateNotionTaskStatus } = require('./auditTaskWriter');
 const { execAsync } = require('./utils/execAsync');
 
-const AIDER_TIMEOUT_MS = parseInt(process.env.AIDER_TIMEOUT_MINUTES || '20', 10) * 60 * 1000;
+const AIDER_TIMEOUT_MS: number = parseInt(process.env['AIDER_TIMEOUT_MINUTES'] || '20', 10) * 60 * 1000;
 
-async function executeBatch(tasks, context, builderAssignment) {
+async function executeBatch(tasks: any[], context: any, builderAssignment: string): Promise<any> {
   const { repoFullName, branchName, projectName, repoName, topicId } = context;
   const builderConfig = getBuilderConfig(builderAssignment);
   const batchNum      = tasks[0].batch_number;
@@ -29,7 +29,7 @@ async function executeBatch(tasks, context, builderAssignment) {
   });
 
   try {
-    const cloneUrl = `https://${process.env.GITHUB_TOKEN}@github.com/${repoFullName}.git`;
+    const cloneUrl = `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`;
     await simpleGit().clone(cloneUrl, tmpDir.name, [
       '--depth', '1', '--branch', branchName || 'main',
     ]);
@@ -45,8 +45,8 @@ async function executeBatch(tasks, context, builderAssignment) {
     const taskBranch = `sentinel/batch-${batchNum}-tasks-${batchNums}`;
     await repoGit.checkoutLocalBranch(taskBranch);
 
-    const completedTasks = [];
-    let   lastCommitSha  = null;
+    const completedTasks: any[] = [];
+    let   lastCommitSha: string | null  = null;
     let   lastTaskStdout = '';
     let   lastTaskStderr = '';
 
@@ -67,7 +67,7 @@ async function executeBatch(tasks, context, builderAssignment) {
           }, 2 * 60 * 1000)
         : null;
 
-      let taskResult;
+      let taskResult: any;
 
       try {
         if (builderConfig.type === 'claude_code') {
@@ -103,7 +103,7 @@ async function executeBatch(tasks, context, builderAssignment) {
       if (headSha && headSha !== (lastCommitSha || initialBaseSha)) {
         lastCommitSha = headSha;
         completedTasks.push(task);
-        logger.info({ taskNumber: task.task_number, sha: lastCommitSha.slice(0, 7) },
+        logger.info({ taskNumber: task.task_number, sha: lastCommitSha!.slice(0, 7) },
           'Task committed');
       } else {
         // No commit — check if files were changed but not committed (aider bug or hook failure)
@@ -111,7 +111,7 @@ async function executeBatch(tasks, context, builderAssignment) {
         try {
           const st = await repoGit.status();
           gitStatus = `modified:${st.modified.length} new:${st.created.length} staged:${(st.staged||[]).length}`;
-        } catch (_) {}
+        } catch (_e) {}
         logger.warn({
           taskNumber: task.task_number,
           stdoutTail: lastTaskStdout,
@@ -151,7 +151,7 @@ async function executeBatch(tasks, context, builderAssignment) {
           null, topicId
         ).catch(() => {});
       }
-    } catch (e) {
+    } catch (e: any) {
       logger.warn({ err: e.message }, 'Could not check for base branch changes');
     }
 
@@ -181,7 +181,7 @@ async function executeBatch(tasks, context, builderAssignment) {
       builderUsed:    builderConfig.label,
     };
 
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message, repoFullName }, 'executeBatch threw an error');
     return { status: 'error', reason: err.message };
   } finally {
@@ -189,7 +189,7 @@ async function executeBatch(tasks, context, builderAssignment) {
   }
 }
 
-async function installDependencies(repoPath) {
+async function installDependencies(repoPath: string): Promise<void> {
   try {
     if (fs.existsSync(path.join(repoPath, 'package-lock.json'))) {
       await execAsync('npm ci --prefer-offline --no-audit', { cwd: repoPath, timeout: 180000 });
@@ -204,12 +204,12 @@ async function installDependencies(repoPath) {
       await execAsync('go mod download', { cwd: repoPath, timeout: 120000 });
       logger.info({ repoPath }, 'go mod download complete');
     }
-  } catch (err) {
+  } catch (err: any) {
     logger.warn({ err: err.message.slice(0, 300) }, 'Dependency install failed — aider will proceed without pre-installed deps');
   }
 }
 
-async function runAiderForTask(repoPath, task, context, builderConfig) {
+async function runAiderForTask(repoPath: string, task: any, context: any, builderConfig: any): Promise<any> {
   installDependencies(repoPath);
 
   // Resolve affected_files against the actual repo layout BEFORE building the
@@ -222,7 +222,7 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
     'ui/src', 'ui', 'server/src', 'server',
     'src', 'app', 'lib',
   ];
-  const existing = (task.affected_files || []).flatMap(f => {
+  const existing: string[] = (task.affected_files || []).flatMap((f: string) => {
     for (const dir of SEARCH_DIRS) {
       const candidate = dir ? path.join(dir, f) : f;
       if (fs.existsSync(path.join(repoPath, candidate))) return [candidate];
@@ -264,33 +264,33 @@ async function runAiderForTask(repoPath, task, context, builderConfig) {
       env: getAiderEnv(builderConfig),
     });
 
-    proc.stdout.on('data', c => { stdout += c.toString(); });
-    proc.stderr.on('data', c => { stderr += c.toString(); });
+    proc.stdout.on('data', (c: any) => { stdout += c.toString(); });
+    proc.stderr.on('data', (c: any) => { stderr += c.toString(); });
 
     const timer = setTimeout(() => {
       const { sendTelegramMessage } = require('./telegramClient');
       sendTelegramMessage(
-        `Project Sentinel — Aider Timeout ⏱️\n\nTask ${task.task_number}: ${task.title}\nRepo: ${context.repoName}\nAider killed after ${process.env.AIDER_TIMEOUT_MINUTES || 20}m — task skipped.`,
+        `Project Sentinel — Aider Timeout ⏱️\n\nTask ${task.task_number}: ${task.title}\nRepo: ${context.repoName}\nAider killed after ${process.env['AIDER_TIMEOUT_MINUTES'] || 20}m — task skipped.`,
         null, context.topicId
       ).catch(() => {});
       proc.kill('SIGTERM');
       resolve({ success: false, reason: 'Aider timed out' });
     }, AIDER_TIMEOUT_MS);
 
-    proc.on('close', (code) => {
+    proc.on('close', (code: number | null) => {
       clearTimeout(timer);
       try { fs.unlinkSync(msgFile); } catch (e) {}
       resolve({ success: code === 0, exitCode: code, stdout, stderr });
     });
 
-    proc.on('error', (err) => {
+    proc.on('error', (err: any) => {
       clearTimeout(timer);
       resolve({ success: false, reason: err.message });
     });
   });
 }
 
-function buildAiderTaskMessage(task, context, resolvedFiles) {
+function buildAiderTaskMessage(task: any, context: any, resolvedFiles: string[]): string {
   // Use resolved paths if available — these are the actual paths in the cloned
   // repo and must match what aider sees when it produces diffs.
   const filePaths = (resolvedFiles && resolvedFiles.length > 0)
@@ -313,4 +313,4 @@ RULES:
 - One commit only. Do NOT push. Do not run build, test, or install commands.`;
 }
 
-module.exports = { executeBatch };
+export = { executeBatch };
