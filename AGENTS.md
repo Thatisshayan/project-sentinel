@@ -1,5 +1,7 @@
 # Agents
 
+> **⚠️ REBUILD IN PROGRESS — Phase 0/7 active.** Before making ANY changes, read `STATUS.md` and `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md` to understand current phase requirements. The codebase is being TypeScript-migrated, hardened, and tested — changes must follow the plan's conventions.
+
 Project Sentinel uses a pool of AI agents to perform code audits, fixes, and portfolio management. Each agent corresponds to a specific AI provider and model.
 
 ## Agent pool

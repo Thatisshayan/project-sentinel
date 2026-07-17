@@ -1,73 +1,139 @@
-# Sentinel — Open Issues
+# Sentinel — Master Task List
 
-## P0 — Broken / Actively Wrong
-
-### 1. ~~Agent status is a lie for agents with bad API keys~~ — FIXED 2026-06-16
-- Startup probe already existed (`backend/src/index.js` `probeTools()`) but only ran once at boot — no daily re-check, so a key that died mid-day stayed silently "idle".
-- Extracted the probe into `backend/src/providerHealthCheck.js` (`probeAIProviders`), reused by both startup (`index.js`) and a new daily 5am Toronto cron job (`provider-health` in `backend/src/workers.js`).
-- `getAgentRoomSummary()` in `backend/src/agentRoom.js` was bucketing any non-`working` agent (including `error`) as "idle (N done)" — fixed to surface `🔴 ERROR (...)` distinctly and added an Error count to the summary header.
-- UI `STATUS_COLOR` map in `ui/components/sentinel/agents-view.tsx` had no `error` entry (fell back to the same muted gray as `idle`) — added `error`/`unconfigured` colors and a red glow line so error agents are visually distinct.
-
-### 2. Health scores are all defaults — no real data flowing in
-- Every repo shows `6.5/10` (the hardcoded default) because `last_commit_at`, `builds_passed`, `builds_failed` are all null/0
-- This means GitHub webhooks are not being received OR not being stored as repo metrics
-- **Fix needed:** Verify GitHub webhook is registered and pointing to the correct backend URL. Check `repo_metrics` table is being written on each webhook event.
-
-### 3. Zero build history across all repos
-- `builds_passed: 0`, `builds_failed: 0` for every repo
-- Build poll worker fires on webhook push events — if webhooks aren't arriving, no builds get recorded
-- **Fix needed:** Same as above (GitHub webhook verification) + confirm `enqueueBuildCheck` is being called on push events.
-
-### 4. Tasks completed = 0 for all agents
-- No agent has ever completed or failed a task according to the DB
-- Either: tasks are never being executed, or execution isn't writing back to `agent_messages`/`audit_tasks`
-- **Fix needed:** Manually trigger one task with `/sentinel force-execute tapcash` via Telegram and verify the full flow runs end to end.
-
-### 5. ~~Security scores all showing 0 in the UI~~ — CONFIRMED FIXED
-- `ui/app/page.tsx` line 47 maps `security: Math.round(parseFloat(String(r.security_score ?? 0)))` from the real `/api/portfolio` response — no hardcoded 0 remains.
+> **REBUILD IN PROGRESS — Phase 0/7 active.**
+> Canonical plan: `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md`
+> Current status: `STATUS.md`
+> Tasks are prefixed `[PhaseN]` to indicate which phase they belong to.
 
 ---
 
-## P1 — Misleading / Missing
+## ⚡ Phase 0 — Foundation & Safety Net (ACTIVE)
 
-### 6. ~~NL commands in Agent Room — unrecognised patterns~~ — FIXED 2026-06-16
-- Added `"<agent> work on <repo>"`, `"start the task for <repo>"`, `"<agent> start <repo>"` to the NATURAL LANGUAGE TRIGGERS list in `backend/src/telegramAI.js` SYSTEM_PROMPT, mapped to `execute_tasks`.
-
-### 7. ~~`/sentinel audit` chip with no repo arg~~ — CONFIRMED FIXED
-- `ui/app/agent-room/page.tsx` line 8 chip already reads `/sentinel audit tapcash` (real repo, matches convention used throughout README/MANUAL/smoke-e2e docs). No change needed.
-
-### 8. Brain deployed but not verified
-- `sentinelBrain.js` wired into workers.js — fires 7am Toronto daily
-- Never been run yet — unknown if it actually works end to end
-- **Fix needed:** Manually trigger via Telegram: `/sentinel brain` or trigger the job directly. Verify it sends a briefing.
-
-### 9. Railway service arrow / connection visual
-- `SENTINEL_API_URL` was set without `${{sentinel-backend.RAILWAY_PUBLIC_DOMAIN}}` reference format
-- Railway doesn't show the visual arrow between services without the reference syntax
-- **Fix needed:** In Railway → sentinel-ui → Variables → change `SENTINEL_API_URL` to `${{sentinel-backend.RAILWAY_PUBLIC_DOMAIN}}` to restore the visual link (functional already, just cosmetic).
-
-### 10. DashScope international endpoint — verify it's working
-- Set `DASHSCOPE_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1` in Railway
-- Unknown if the new API key + intl endpoint combination is actually returning 200
-- **Fix needed:** Check Railway startup logs for the provider health check result for DashScope.
+| # | Task | Priority | Status |
+|---|------|----------|--------|
+| 0.1 | Overhaul CI to gate pull requests — add `pull_request` trigger | CRITICAL | Pending |
+| 0.2 | Add ESLint + Prettier to backend | HIGH | Pending |
+| 0.3 | Fix `execSync` → async `spawn` (event loop blocker) in taskBuilder, securityPatcher, dependencyScanner, index, repoOps | CRITICAL | Pending |
+| 0.4 | Setup Sentry error tracking (`@sentry/node`) | HIGH | Pending |
+| 0.5 | Add Pre-commit Hooks (husky + lint-staged) | MEDIUM | Pending |
+| 0.6 | Enforce branch protection on `main` (GitHub settings) | CRITICAL | Pending |
+| 0.7 | Clean up git-tracked stale + dangerous files (.aider history, session docs with leaked tokens) | HIGH | Pending |
 
 ---
 
-## P2 — Polish / Enhancement
+## 📋 Phase 1 — TypeScript Migration (incremental)
 
-### 11. ~~Sidebar badges should be real counts~~ — FIXED 2026-06-16
-- `ui/components/sentinel/sidebar.tsx` NAV badges were all hardcoded `null`. Reused the existing `/api/stats` route (already fetched by Topbar/BudgetPanel) — extended `ui/app/api/stats/route.ts` to also call the backend `/api/security/portfolio` endpoint and return `securityIssueCount`. Sidebar now polls `/api/stats` every 30s and shows: Repos = repo count, Agents = `working/total`, Security = open issue count (hidden when 0).
+| # | Task | Priority | Status |
+|---|------|----------|--------|
+| 1.0 | TypeScript build tooling (tsconfig, tsx, build scripts) | HIGH | Pending |
+| 1.1 | Convert infrastructure layer (logger, dbClient, config) | HIGH | Pending |
+| 1.2 | Convert data layer (all 7 `*Db.js` files) | HIGH | Pending |
+| 1.3 | Convert security cluster (5 files) | HIGH | Pending |
+| 1.4 | Convert agent cluster (8 files) | MEDIUM | Pending |
+| 1.5 | Convert telegram cluster (4 files) | MEDIUM | Pending |
+| 1.6 | Convert orchestration cluster (4 files) | HIGH | Pending |
+| 1.7 | Convert runner cluster (4 files) | HIGH | Pending |
+| 1.8 | Convert god modules (workers, webhook, api — 5 files) | HIGH | Pending |
+| 1.9 | Convert commands (4 files) | MEDIUM | Pending |
+| 1.10 | Convert entry point (index.js) | HIGH | Pending |
 
-### 12. ~~Connectors page — real health check~~ — CONFIRMED FIXED
-- `backend/src/api.js` `/api/integrations/status` delegates to `backend/src/integrationsStatus.js`; `ui/app/connectors/page.tsx` calls `getIntegrationsStatus()`. Real, not hardcoded.
+---
 
-### 13. ~~`+3 vs last week` health delta hardcoded~~ — CONFIRMED FIXED
-- `ui/app/page.tsx` computes `healthDeltaSub` from `portfolio.healthDelta`, sourced from backend `/api/portfolio` query against `velocity_metrics.health_delta` (`backend/src/api.js` lines 65-71). No hardcoded value remains.
+## ⚙️ Phase 2 — Error Architecture
 
-### 14. ~~Budget panel — verify real cost~~ — CONFIRMED FIXED
-- `ui/components/sentinel/budget-panel.tsx` → `/api/stats` → backend `/api/portfolio` → `monthlyCost: parseFloat(cost.rows[0]?.monthly_cost || 0)` computed via `SUM(estimated_cost) FROM api_costs WHERE recorded_at >= date_trunc('month', NOW())` (`backend/src/api.js` lines 50-55). Real DB-backed cost, not mocked.
+| # | Task | Priority | Status |
+|---|------|----------|--------|
+| 2.1 | Define error classes (AppError, DbError, AICallError, etc.) | HIGH | Pending |
+| 2.2 | Fix global error handlers (unhandledRejection, Express handler) | HIGH | Pending |
+| 2.3 | Fix all incorrect logger.error patterns ({ err: err.message }) | MEDIUM | Pending |
+| 2.4 | Add config validation on boot (fail fast on missing critical env vars) | HIGH | Pending |
 
-### 15. Three dashboard buttons call backend routes that don't exist — found 2026-06-16
-- "Audit All" (`repo-actions.tsx` → `POST /api/system/audit-all`), "Run All Scans" (`security-view.tsx` → `POST /api/system/security-scan`), and "Patch"/"Patch All Safe" (`security-view.tsx` → `POST /api/security/issue/:id/patch`) have no matching route in `backend/src/api.js`. Only per-repo equivalents exist as Telegram commands (`/sentinel audit <repo>`, `/sentinel security-scan <repo>`, `/sentinel security-patch <repo>`) — there's no bulk/portfolio-wide variant on either REST or Telegram.
-- Previously these failed silently (bare `catch {}`); now they surface a visible "backend route not available" error instead, so at least the UI doesn't lie about success. The underlying feature gap (bulk audit/scan/patch across the whole portfolio) is still unbuilt.
-- **Fix needed:** Design and implement portfolio-wide audit/scan/patch — needs explicit thought on cost/budget guardrails (looping AI audits across 12 repos on one click) and confirmation UX before wiring it up, not just a REST passthrough.
+---
+
+## 🔒 Phase 3 — Security Hardening
+
+| # | Task | Priority | Status |
+|---|------|----------|--------|
+| 3.1 | Timing-safe auth comparisons (SENTINEL_UI_KEY, DEBUGGER_SHARED_SECRET) | CRITICAL | Pending |
+| 3.2 | Fix SSL certificate validation (rejectUnauthorized: false → true) | CRITICAL | Pending |
+| 3.3 | Add rate limiting to all API routes | HIGH | Pending |
+| 3.4 | Harden UI action proxy (path whitelist, CSRF, origin validation) | HIGH | Pending |
+| 3.5 | Scope environment for child processes (don't spread entire process.env) | MEDIUM | Pending |
+| 3.6 | Add origin/CSRF check to all 5 UI proxy routes | MEDIUM | Pending |
+
+---
+
+## 🧪 Phase 4 — Test Coverage Blitz
+
+| # | Task | Priority | Status |
+|---|------|----------|--------|
+| 4.0 | Test infrastructure setup (testcontainers, ts-jest, coverage thresholds) | HIGH | Pending |
+| 4.1 | Write tests for infrastructure layer (dbClient, queueClient, logger, config) | HIGH | Pending |
+| 4.2 | Write tests for security cluster (securityScanner, securityPatcher, owaspChecker, secretScanner, dependencyScanner) | CRITICAL | Pending |
+| 4.3 | Write tests for core pipeline (workers, sprintOrchestrator, sprintPlanner, taskBuilder, webhook) | CRITICAL | Pending |
+| 4.4 | Write tests for all remaining untested modules (29 files) | HIGH | Pending |
+| 4.5 | Add regression tests for 12 already-fixed bugs | MEDIUM | Pending |
+| 4.6 | Set up UI test infrastructure (Vitest + React Testing Library) | MEDIUM | Pending |
+
+---
+
+## 🧹 Phase 5 — Catch Pattern Elimination
+
+| # | Task | Priority | Status |
+|---|------|----------|--------|
+| 5.1 | Create fire-and-forget helper (safeFire with Sentry + logging) | HIGH | Pending |
+| 5.2 | Replace all 37 `.catch(() => {})` patterns across 30+ files | HIGH | Pending |
+| 5.3 | Add dead-letter queue for retryable fire-and-forget ops | MEDIUM | Pending |
+
+---
+
+## 🏗️ Phase 6 — Architecture Refactoring
+
+| # | Task | Priority | Status |
+|---|------|----------|--------|
+| 6.1 | Split workers.ts god module (593 LOC, 25+ job types → separate job files) | HIGH | Pending |
+| 6.2 | Split webhook.ts (extract Notion sync, Telegram notify, security scan trigger) | HIGH | Pending |
+| 6.3 | Centralize 4 duplicated AI provider call patterns into one ai/client.ts | HIGH | Pending |
+| 6.4 | Eliminate inline require() calls (replace with top-level imports) | MEDIUM | Pending |
+| 6.5 | Consolidate duplicated UI utilities (relativeTime, agentColor, mapBuild, etc.) | LOW | Pending |
+
+---
+
+## 🚀 Phase 7 — Operational Excellence
+
+| # | Task | Priority | Status |
+|---|------|----------|--------|
+| 7.1 | DB migration tooling (replace CREATE TABLE IF NOT EXISTS with proper migrations) | HIGH | Pending |
+| 7.2 | UI hardening (output:standalone, multi-stage Docker, error boundaries, loading states) | HIGH | Pending |
+| 7.3 | Monitoring setup (/metrics endpoint, slow-query alerting, self-review) | MEDIUM | Pending |
+| 7.4 | Documentation consolidation (archive 8 stale docs, merge MANUAL.md into README.md) | MEDIUM | Pending |
+| 7.5 | Set up Dependabot for auto dependency updates | MEDIUM | Pending |
+| 7.6 | Accessibility improvements (aria-labels, semantic HTML, color contrast, form labels) | LOW | Pending |
+| 7.7 | Backend Dockerfile hardening (multi-stage, pinned digest, .dockerignore) | MEDIUM | Pending |
+| 7.8 | Railway config consistency (UI → Dockerfile, healthcheckPath, normalized casing) | LOW | Pending |
+
+---
+
+## 🔴 Existing P0 — Operational Issues (Blocked until Phase 0-1)
+
+These are data-flow / configuration issues, not code bugs. They persist until the GitHub webhook pipeline is verified end to end. Tracked separately from the rebuild.
+
+| # | Issue | Status |
+|---|-------|--------|
+| P0-2 | Health scores are all defaults (6.5/10) — webhooks not flowing | Pending |
+| P0-3 | Zero build history across all repos | Pending |
+| P0-4 | Tasks completed = 0 for all agents | Pending |
+
+## 🟡 Existing P1 — Missing / Unverified
+
+| # | Issue | Status |
+|---|-------|--------|
+| P1-8 | Brain deployed but not verified — never tested end to end | Pending |
+| P1-9 | Railway service arrow visual not connected (cosmetic) | Pending |
+| P1-10 | DashScope international endpoint — verify working | Pending |
+
+## 🟢 Existing P2 — Feature Gaps
+
+| # | Issue | Status |
+|---|-------|--------|
+| P2-15 | Three dashboard buttons call non-existent backend routes (bulk audit/scan/patch) | Pending |
