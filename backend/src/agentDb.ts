@@ -1,7 +1,9 @@
-const { query } = require('./dbClient');
-const logger    = require('./logger');
+import dbClient from './dbClient';
+import logger from './logger';
 
-async function initAgentSchema() {
+const { query } = dbClient;
+
+async function initAgentSchema(): Promise<void> {
   await query(`
     CREATE TABLE IF NOT EXISTS agent_registry (
       id              SERIAL PRIMARY KEY,
@@ -65,7 +67,7 @@ async function initAgentSchema() {
 
 // ── Agent registry helpers ────────────────────────────────────────────────────
 
-async function registerAgent(agentId, agentLabel) {
+async function registerAgent(agentId: string, agentLabel: string): Promise<void> {
   await query(`
     INSERT INTO agent_registry (agent_id, agent_label, status)
     VALUES ($1, $2, 'idle')
@@ -75,7 +77,7 @@ async function registerAgent(agentId, agentLabel) {
   `, [agentId, agentLabel]);
 }
 
-async function setAgentWorking(agentId, data) {
+async function setAgentWorking(agentId: string, data: { repoFullName: string; taskType: string; taskId: number; taskTitle: string }): Promise<void> {
   await query(`
     UPDATE agent_registry SET
       status         = 'working',
@@ -89,7 +91,7 @@ async function setAgentWorking(agentId, data) {
   `, [agentId, data.repoFullName, data.taskType, data.taskId, data.taskTitle]);
 }
 
-async function setAgentIdle(agentId, success = true) {
+async function setAgentIdle(agentId: string, success = true): Promise<void> {
   await query(`
     UPDATE agent_registry SET
       status         = 'idle',
@@ -104,7 +106,7 @@ async function setAgentIdle(agentId, success = true) {
   `, [agentId]);
 }
 
-async function markAgentError(agentId, reason) {
+async function markAgentError(agentId: string, reason: string): Promise<void> {
   await query(`
     UPDATE agent_registry
     SET status = 'error', task_title = $2, last_active_at = NOW()
@@ -112,7 +114,7 @@ async function markAgentError(agentId, reason) {
   `, [agentId, reason]);
 }
 
-async function getActiveAgents() {
+async function getActiveAgents(): Promise<any[]> {
   const r = await query(`
     SELECT * FROM agent_registry
     WHERE status = 'working'
@@ -121,7 +123,7 @@ async function getActiveAgents() {
   return r.rows;
 }
 
-async function getIdleAgents() {
+async function getIdleAgents(): Promise<any[]> {
   const r = await query(`
     SELECT * FROM agent_registry
     WHERE status = 'idle'
@@ -130,18 +132,18 @@ async function getIdleAgents() {
   return r.rows;
 }
 
-async function getAllAgents() {
+async function getAllAgents(): Promise<any[]> {
   const r = await query('SELECT * FROM agent_registry ORDER BY agent_id');
   return r.rows;
 }
 
 // ── File lock helpers ─────────────────────────────────────────────────────────
 
-async function acquireFileLocks(repoFullName, filePaths, agentId, taskId) {
+async function acquireFileLocks(repoFullName: string, filePaths: string[], agentId: string, taskId: number) {
   const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours
 
-  const conflicts = [];
-  const acquired  = [];
+  const conflicts: { filePath: string; lockedBy: string }[] = [];
+  const acquired: string[] = [];
 
   for (const filePath of filePaths) {
     // Atomic insert with ON CONFLICT - no race window
@@ -153,7 +155,7 @@ async function acquireFileLocks(repoFullName, filePaths, agentId, taskId) {
       RETURNING locked_by
     `, [repoFullName, filePath, agentId, taskId, expiresAt.toISOString()]);
 
-    if (inserted.rowCount > 0) {
+    if (inserted.rowCount! > 0) {
       acquired.push(filePath);
     } else {
       // Lock exists - find who owns it
@@ -168,16 +170,16 @@ async function acquireFileLocks(repoFullName, filePaths, agentId, taskId) {
   return { acquired, conflicts };
 }
 
-async function releaseFileLocks(repoFullName, agentId) {
+async function releaseFileLocks(repoFullName: string, agentId: string): Promise<string[]> {
   const r = await query(`
     DELETE FROM file_locks
     WHERE repo_full_name = $1 AND locked_by = $2
     RETURNING file_path
   `, [repoFullName, agentId]);
-  return r.rows.map(row => row.file_path);
+  return r.rows.map((row: any) => row.file_path);
 }
 
-async function releaseExpiredLocks() {
+async function releaseExpiredLocks(): Promise<any[]> {
   const r = await query(`
     DELETE FROM file_locks WHERE expires_at < NOW()
     RETURNING file_path, locked_by
@@ -187,7 +189,7 @@ async function releaseExpiredLocks() {
 
 // ── Message log helpers ───────────────────────────────────────────────────────
 
-async function logAgentMessage(agentId, agentLabel, message, type, repoName) {
+async function logAgentMessage(agentId: string, agentLabel: string, message: string, type?: string, repoName?: string): Promise<void> {
   await query(`
     INSERT INTO agent_messages
       (agent_id, agent_label, message, message_type, repo_name)
@@ -195,7 +197,7 @@ async function logAgentMessage(agentId, agentLabel, message, type, repoName) {
   `, [agentId, agentLabel, message.substring(0, 1000), type || 'info', repoName || null]);
 }
 
-async function getRecentMessages(limit = 20) {
+async function getRecentMessages(limit = 20): Promise<any[]> {
   const r = await query(`
     SELECT * FROM agent_messages
     ORDER BY created_at DESC LIMIT $1
@@ -205,19 +207,19 @@ async function getRecentMessages(limit = 20) {
 
 // ── Agent room config ─────────────────────────────────────────────────────────
 
-async function getConfig(key) {
+async function getConfig(key: string): Promise<string | null> {
   const r = await query('SELECT value FROM agent_room_config WHERE key = $1', [key]);
   return r.rows[0]?.value || null;
 }
 
-async function setConfig(key, value) {
+async function setConfig(key: string, value: any): Promise<void> {
   await query(`
     INSERT INTO agent_room_config (key, value) VALUES ($1, $2)
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
   `, [key, String(value)]);
 }
 
-module.exports = {
+export = {
   initAgentSchema,
   registerAgent,
   setAgentWorking,

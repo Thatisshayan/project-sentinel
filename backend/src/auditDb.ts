@@ -1,7 +1,9 @@
-const { query } = require('./dbClient');
-const logger    = require('./logger');
+import dbClient from './dbClient';
+import logger from './logger';
 
-async function initAuditSchema() {
+const { query } = dbClient;
+
+async function initAuditSchema(): Promise<void> {
   await query(`
     CREATE TABLE IF NOT EXISTS audit_cycles (
       id                SERIAL PRIMARY KEY,
@@ -72,7 +74,7 @@ async function initAuditSchema() {
   logger.info('Audit schema initialised');
 }
 
-async function getAuditCycle(repoFullName, commitSha) {
+async function getAuditCycle(repoFullName: string, commitSha: string): Promise<any | null> {
   const r = await query(
     'SELECT * FROM audit_cycles WHERE repo_full_name=$1 AND commit_sha=$2',
     [repoFullName, commitSha]
@@ -80,7 +82,7 @@ async function getAuditCycle(repoFullName, commitSha) {
   return r.rows[0] || null;
 }
 
-async function getActiveCycleForRepo(repoFullName) {
+async function getActiveCycleForRepo(repoFullName: string): Promise<any | null> {
   const r = await query(`
     SELECT * FROM audit_cycles
     WHERE repo_full_name = $1
@@ -90,7 +92,7 @@ async function getActiveCycleForRepo(repoFullName) {
   return r.rows[0] || null;
 }
 
-async function getLastCompletedAudit(repoFullName) {
+async function getLastCompletedAudit(repoFullName: string): Promise<any | null> {
   const r = await query(`
     SELECT created_at FROM audit_cycles
     WHERE repo_full_name = $1
@@ -100,7 +102,7 @@ async function getLastCompletedAudit(repoFullName) {
   return r.rows[0] || null;
 }
 
-async function createAuditCycle(data) {
+async function createAuditCycle(data: { repoFullName: string; commitSha: string; projectName?: string }): Promise<any | null> {
   const r = await query(`
     INSERT INTO audit_cycles
       (repo_full_name, commit_sha, project_name, status, audit_agent)
@@ -111,7 +113,7 @@ async function createAuditCycle(data) {
   return r.rows[0] || null;
 }
 
-async function updateAuditCycle(id, updates) {
+async function updateAuditCycle(id: number, updates: Record<string, any>): Promise<any | null> {
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
   const fields = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
@@ -122,7 +124,7 @@ async function updateAuditCycle(id, updates) {
   return r.rows[0] || null;
 }
 
-async function getQueuedTaskCount(repoFullName) {
+async function getQueuedTaskCount(repoFullName: string): Promise<number> {
   const r = await query(`
     SELECT COUNT(*) as count FROM audit_tasks
     WHERE repo_full_name=$1
@@ -131,7 +133,13 @@ async function getQueuedTaskCount(repoFullName) {
   return parseInt(r.rows[0]?.count || '0');
 }
 
-async function createAuditTask(data) {
+async function createAuditTask(data: {
+  auditCycleId: number; repoFullName: string; taskNumber: number;
+  title: string; description?: string; priority?: string; category?: string;
+  affectedFiles?: string[]; complexity?: string; safeToAutoExecute?: boolean;
+  safetyReason?: string; acceptanceCriteria?: string; batchNumber?: number;
+  builderAgent?: string;
+}): Promise<any | null> {
   const r = await query(`
     INSERT INTO audit_tasks
       (audit_cycle_id, repo_full_name, task_number, title, description,
@@ -150,7 +158,7 @@ async function createAuditTask(data) {
   return r.rows[0] || null;
 }
 
-async function getNextBatch(repoFullName, batchSize) {
+async function getNextBatch(repoFullName: string, batchSize: number): Promise<any[]> {
   // Eligibility is decided by the task's own status/safe flag, not by its
   // original parent cycle's status — executeApprovedTasks() always creates
   // or reuses the *current* cycle to drive execution, so gating on the
@@ -167,7 +175,7 @@ async function getNextBatch(repoFullName, batchSize) {
   return r.rows;
 }
 
-async function updateAuditTask(id, updates) {
+async function updateAuditTask(id: number, updates: Record<string, any>): Promise<any | null> {
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
   const fields = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
@@ -178,7 +186,7 @@ async function updateAuditTask(id, updates) {
   return r.rows[0] || null;
 }
 
-async function checkDuplicateTask(repoFullName, title) {
+async function checkDuplicateTask(repoFullName: string, title: string): Promise<boolean> {
   const r = await query(`
     SELECT id FROM audit_tasks
     WHERE repo_full_name=$1
@@ -189,7 +197,7 @@ async function checkDuplicateTask(repoFullName, title) {
   return r.rows.length > 0;
 }
 
-async function countTasksExecutedToday(repoFullName) {
+async function countTasksExecutedToday(repoFullName: string): Promise<number> {
   const r = await query(`
     SELECT COUNT(*) as count FROM audit_tasks
     WHERE repo_full_name=$1
@@ -199,7 +207,7 @@ async function countTasksExecutedToday(repoFullName) {
   return parseInt(r.rows[0]?.count || '0');
 }
 
-async function stopAllTasksForRepo(repoFullName) {
+async function stopAllTasksForRepo(repoFullName: string): Promise<void> {
   await query(`
     UPDATE audit_tasks SET status='skipped', updated_at=NOW()
     WHERE repo_full_name=$1 AND status IN ('queued','in_progress')
@@ -210,14 +218,14 @@ async function stopAllTasksForRepo(repoFullName) {
   `, [repoFullName]);
 }
 
-async function markTasksDoneForBranch(repoFullName, branchName) {
+async function markTasksDoneForBranch(repoFullName: string, branchName: string): Promise<void> {
   await query(`
     UPDATE audit_tasks SET status='done', updated_at=NOW()
     WHERE repo_full_name=$1 AND branch_name=$2 AND status='build_check'
   `, [repoFullName, branchName]);
 }
 
-module.exports = {
+export = {
   initAuditSchema,
   getAuditCycle,
   getActiveCycleForRepo,

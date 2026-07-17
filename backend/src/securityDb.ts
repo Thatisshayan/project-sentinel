@@ -1,7 +1,9 @@
-const { query } = require('./dbClient');
-const logger    = require('./logger');
+import dbClient from './dbClient';
+import logger from './logger';
 
-async function initSecuritySchema() {
+const { query } = dbClient;
+
+async function initSecuritySchema(): Promise<void> {
   await query(`
     CREATE TABLE IF NOT EXISTS security_scans (
       id                SERIAL PRIMARY KEY,
@@ -83,7 +85,9 @@ async function initSecuritySchema() {
   logger.info('Security schema initialised');
 }
 
-async function createSecurityScan(data) {
+async function createSecurityScan(data: {
+  repoFullName: string; commitSha: string; branchName?: string;
+}): Promise<any> {
   const r = await query(`
     INSERT INTO security_scans (repo_full_name, commit_sha, branch_name, status)
     VALUES ($1, $2, $3, 'running') RETURNING *
@@ -91,7 +95,7 @@ async function createSecurityScan(data) {
   return r.rows[0];
 }
 
-async function updateSecurityScan(id, updates) {
+async function updateSecurityScan(id: number, updates: Record<string, any>): Promise<any | null> {
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
   const fields = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
@@ -102,7 +106,12 @@ async function updateSecurityScan(id, updates) {
   return r.rows[0] || null;
 }
 
-async function insertSecurityIssue(data) {
+async function insertSecurityIssue(data: {
+  scanId: number; repoFullName: string; issueType: string; severity: string;
+  title: string; description?: string; filePath?: string; lineNumber?: number;
+  cveId?: string; cvssScore?: number; fixAvailable?: boolean;
+  fixDescription?: string; autoFixable?: boolean;
+}): Promise<number | undefined> {
   const r = await query(`
     INSERT INTO security_issues
       (scan_id, repo_full_name, issue_type, severity, title, description,
@@ -119,7 +128,7 @@ async function insertSecurityIssue(data) {
   return r.rows[0]?.id;
 }
 
-async function getOpenIssues(repoFullName, severity = null) {
+async function getOpenIssues(repoFullName: string, severity: string | null = null): Promise<any[]> {
   const ORDER = `ORDER BY
     CASE severity
       WHEN 'critical' THEN 1 WHEN 'high' THEN 2
@@ -143,7 +152,10 @@ async function getOpenIssues(repoFullName, severity = null) {
   return r.rows;
 }
 
-async function upsertSecurityScore(repoName, data) {
+async function upsertSecurityScore(repoName: string, data: {
+  score: number; vulnerabilities: number; critical: number;
+  high: number; medium: number; low: number;
+}): Promise<void> {
   await query(`
     INSERT INTO security_scores
       (repo_name, score, vulnerabilities, critical_count,
@@ -158,7 +170,7 @@ async function upsertSecurityScore(repoName, data) {
       data.critical, data.high, data.medium, data.low]);
 }
 
-async function upsertOwaspItem(repoName, owaspItem, status, notes) {
+async function upsertOwaspItem(repoName: string, owaspItem: string, status: string, notes?: string): Promise<void> {
   await query(`
     INSERT INTO owasp_checklist (repo_name, owasp_item, status, notes, last_checked_at)
     VALUES ($1,$2,$3,$4,NOW())
@@ -167,7 +179,7 @@ async function upsertOwaspItem(repoName, owaspItem, status, notes) {
   `, [repoName, owaspItem, status, notes || null]);
 }
 
-async function getLatestSecurityScore(repoName) {
+async function getLatestSecurityScore(repoName: string): Promise<any | null> {
   const r = await query(`
     SELECT * FROM security_scores WHERE repo_name = $1
     ORDER BY recorded_date DESC LIMIT 1
@@ -175,7 +187,7 @@ async function getLatestSecurityScore(repoName) {
   return r.rows[0] || null;
 }
 
-async function getPortfolioSecuritySummary() {
+async function getPortfolioSecuritySummary(): Promise<any[]> {
   const r = await query(`
     SELECT DISTINCT ON (repo_name)
       repo_name, score, vulnerabilities, critical_count,
@@ -185,7 +197,7 @@ async function getPortfolioSecuritySummary() {
   return r.rows;
 }
 
-module.exports = {
+export = {
   initSecuritySchema, createSecurityScan, updateSecurityScan,
   insertSecurityIssue, getOpenIssues, upsertSecurityScore,
   upsertOwaspItem, getLatestSecurityScore, getPortfolioSecuritySummary,

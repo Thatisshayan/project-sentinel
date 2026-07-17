@@ -1,7 +1,9 @@
-const { query } = require('./dbClient');
-const logger    = require('./logger');
+import dbClient from './dbClient';
+import logger from './logger';
 
-async function initSprintSchema() {
+const { query } = dbClient;
+
+async function initSprintSchema(): Promise<void> {
   await query(`
     CREATE TABLE IF NOT EXISTS sprints (
       id                  SERIAL PRIMARY KEY,
@@ -73,7 +75,7 @@ async function initSprintSchema() {
 
 // ── Sprint helpers ────────────────────────────────────────────────────────────
 
-async function getCurrentSprint() {
+async function getCurrentSprint(): Promise<any | null> {
   const r = await query(`
     SELECT * FROM sprints
     WHERE status IN ('approved','executing','proposed','paused')
@@ -82,12 +84,15 @@ async function getCurrentSprint() {
   return r.rows[0] || null;
 }
 
-async function getSprintById(id) {
+async function getSprintById(id: number): Promise<any | null> {
   const r = await query('SELECT * FROM sprints WHERE id=$1', [id]);
   return r.rows[0] || null;
 }
 
-async function createSprint(data) {
+async function createSprint(data: {
+  weekStart: string; weekEnd: string; totalTasks: number;
+  estimatedCost: number; healthStart: number; proposalSummary: string;
+}): Promise<any> {
   const r = await query(`
     INSERT INTO sprints
       (week_start, week_end, total_tasks, estimated_cost,
@@ -101,7 +106,7 @@ async function createSprint(data) {
   return r.rows[0];
 }
 
-async function updateSprint(id, updates) {
+async function updateSprint(id: number, updates: Record<string, any>): Promise<any | null> {
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
   const fields = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
@@ -112,7 +117,12 @@ async function updateSprint(id, updates) {
   return r.rows[0] || null;
 }
 
-async function createSprintTask(data) {
+async function createSprintTask(data: {
+  sprintId: number; auditTaskId?: number; repoFullName: string;
+  repoName: string; taskTitle: string; taskDescription?: string;
+  priority?: string; complexity?: string; builderAgent?: string;
+  estimatedCost?: number; executionOrder: number;
+}): Promise<any> {
   const r = await query(`
     INSERT INTO sprint_tasks
       (sprint_id, audit_task_id, repo_full_name, repo_name,
@@ -129,7 +139,7 @@ async function createSprintTask(data) {
   return r.rows[0];
 }
 
-async function getNextSprintTask(sprintId) {
+async function getNextSprintTask(sprintId: number): Promise<any | null> {
   const r = await query(`
     SELECT * FROM sprint_tasks
     WHERE sprint_id = $1 AND status = 'queued'
@@ -139,7 +149,7 @@ async function getNextSprintTask(sprintId) {
   return r.rows[0] || null;
 }
 
-async function updateSprintTask(id, updates) {
+async function updateSprintTask(id: number, updates: Record<string, any>): Promise<any | null> {
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
   const fields = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
@@ -150,7 +160,7 @@ async function updateSprintTask(id, updates) {
   return r.rows[0] || null;
 }
 
-async function getSprintTasks(sprintId) {
+async function getSprintTasks(sprintId: number): Promise<any[]> {
   const r = await query(`
     SELECT * FROM sprint_tasks
     WHERE sprint_id = $1
@@ -159,7 +169,11 @@ async function getSprintTasks(sprintId) {
   return r.rows;
 }
 
-async function recordVelocity(data) {
+async function recordVelocity(data: {
+  weekStart: string; tasksCompleted: number; prsMerged: number;
+  buildsFixed: number; avgHealth: number; healthDelta: number;
+  apiCost: number; activeRepos: number;
+}): Promise<void> {
   await query(`
     INSERT INTO velocity_metrics
       (week_start, tasks_completed, prs_merged, builds_fixed,
@@ -179,7 +193,7 @@ async function recordVelocity(data) {
   ]);
 }
 
-async function getVelocityTrend(weeks = 4) {
+async function getVelocityTrend(weeks = 4): Promise<any[]> {
   const r = await query(`
     SELECT * FROM velocity_metrics
     ORDER BY week_start DESC
@@ -188,7 +202,7 @@ async function getVelocityTrend(weeks = 4) {
   return r.rows.reverse(); // oldest first
 }
 
-module.exports = {
+export = {
   initSprintSchema,
   getCurrentSprint,
   getSprintById,
