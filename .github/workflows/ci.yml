@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '0 3 * * 1'  # Weekly OWASP dependency check (Monday 3am UTC)
 
 jobs:
   backend:
@@ -14,6 +16,8 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -22,6 +26,54 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+
+      # Security: npm audit (fail on high/critical)
+      - name: Security audit (npm)
+        run: npm audit --audit-level=high --production
+        continue-on-error: false
+
+      # Security: gitleaks secret scan
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  backend-scheduled:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+
+      # OWASP Dependency Check (weekly)
+      - name: OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        id: depcheck
+        with:
+          project: 'Sentinel Backend'
+          path: '.'
+          format: 'JSON'
+          out: 'reports'
+          args: >
+            --failOnCVSS 7
+            --suppressionFile ../.github/dependency-check-suppressions.xml
+
+      - name: Upload OWASP reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: owasp-reports
+          path: backend/reports/
 
   ui:
     runs-on: ubuntu-latest

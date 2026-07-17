@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions>
+  <!--
+    Example suppression format:
+    <suppress>
+      <notes><![CDATA[Accepted risk: ...]]></notes>
+      <packageUrl><![CDATA[pkg:npm/lodash@4.17.20]]></packageUrl>
+      <cve>CVE-2021-23337</cve>
+    </suppress>
+  -->
+</suppressions>
