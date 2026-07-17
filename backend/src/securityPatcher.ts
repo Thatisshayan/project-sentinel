@@ -1,38 +1,54 @@
-const { execAsync } = require('./utils/execAsync');
-const path         = require('path');
-const os           = require('os');
-const fs           = require('fs');
-const axios        = require('axios');
-const simpleGit    = require('simple-git');
-const logger       = require('./logger');
-const { sendTelegramMessage } = require('./telegramClient');
+import { execAsync } from './utils/execAsync';
+import path from 'path';
+import os from 'os';
+import fs from 'fs';
+import axios from 'axios';
+import simpleGit from 'simple-git';
+import logger from './logger';
+import { sendTelegramMessage } from './telegramClient';
 
-const SENSITIVE_PATHS = [
+const SENSITIVE_PATHS: string[] = [
   'auth','middleware','stripe','paypal','payout',
   'billing','users','firebaseAdmin','jwt','token',
 ];
 
+interface SecurityIssue {
+  auto_fixable: boolean;
+  issue_type: string;
+  severity: string;
+  title: string;
+  description: string;
+  [key: string]: any;
+}
+
+interface PRParams {
+  repoFullName: string;
+  branchName: string;
+  title: string;
+  body: string;
+}
+
 // Direct GitHub API call — prCreator.js has a debug-fix-specific signature
-async function openSecurityPR({ repoFullName, branchName, title, body }) {
+async function openSecurityPR({ repoFullName, branchName, title, body }: PRParams): Promise<string | null> {
   try {
     const res = await axios.post(
       `https://api.github.com/repos/${repoFullName}/pulls`,
       { title, body, head: branchName, base: 'main' },
       {
         headers: {
-          Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+          Authorization: `Bearer ${process.env['GITHUB_TOKEN']}`,
           Accept:        'application/vnd.github+json',
         },
       }
     );
     return res.data.html_url;
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message, repoFullName }, 'Security PR creation failed');
     return null;
   }
 }
 
-async function applySecurityPatches(repoFullName, repoName, issues, topicId) {
+async function applySecurityPatches(repoFullName: string, repoName: string, issues: SecurityIssue[], topicId?: any) {
   const autoFixable = issues.filter(i =>
     i.auto_fixable &&
     i.issue_type === 'vulnerability' &&
@@ -45,13 +61,13 @@ async function applySecurityPatches(repoFullName, repoName, issues, topicId) {
     return;
   }
 
-  let tmpDir = null;
+  let tmpDir: string | null = null;
 
   try {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sentinel-patch-'));
     const git = simpleGit();
     await git.clone(
-      `https://${process.env.GITHUB_TOKEN}@github.com/${repoFullName}.git`, tmpDir
+      `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`, tmpDir
     );
 
     const cloneGit   = simpleGit(tmpDir);
@@ -60,7 +76,7 @@ async function applySecurityPatches(repoFullName, repoName, issues, topicId) {
     const branchName = `sentinel/security-patch-${Date.now()}`;
     await cloneGit.checkoutLocalBranch(branchName);
 
-    await execAsync('npm audit fix', { cwd: tmpDir, timeout: 120000, stdio: 'ignore' });
+    await execAsync('npm audit fix', { cwd: tmpDir, timeout: 120000 });
 
     const status = await cloneGit.status();
     if (status.files.length === 0) {
@@ -74,7 +90,7 @@ async function applySecurityPatches(repoFullName, repoName, issues, topicId) {
       autoFixable.map(i => `- ${i.title}`).join('\n')
     );
     await cloneGit.push([
-      `https://${process.env.GITHUB_TOKEN}@github.com/${repoFullName}.git`,
+      `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`,
       branchName,
     ]);
 
@@ -107,7 +123,7 @@ async function applySecurityPatches(repoFullName, repoName, issues, topicId) {
 
     logger.info({ repoFullName, branchName, prUrl }, 'Security patch PR created');
 
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message, repoFullName }, 'Security patch failed');
   } finally {
     if (tmpDir) {
@@ -116,4 +132,4 @@ async function applySecurityPatches(repoFullName, repoName, issues, topicId) {
   }
 }
 
-module.exports = { applySecurityPatches };
+export = { applySecurityPatches };

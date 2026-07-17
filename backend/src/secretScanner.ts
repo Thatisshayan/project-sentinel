@@ -1,7 +1,13 @@
-const logger = require('./logger');
-const { insertSecurityIssue } = require('./securityDb');
+import logger from './logger';
+import { insertSecurityIssue } from './securityDb';
 
-const SECRET_PATTERNS = [
+interface SecretPattern {
+  name: string;
+  regex: RegExp;
+  severity: string;
+}
+
+const SECRET_PATTERNS: SecretPattern[] = [
   { name: 'Firebase API Key',         regex: /AIza[0-9A-Za-z-_]{35}/g,              severity: 'critical' },
   { name: 'Firebase Service Account', regex: /"private_key":\s*"-----BEGIN/g,        severity: 'critical' },
   { name: 'Stripe Secret Key',        regex: /sk_(live|test)_[0-9a-zA-Z]{24,}/g,    severity: 'critical' },
@@ -16,12 +22,12 @@ const SECRET_PATTERNS = [
   { name: 'Secret in Code',           regex: /secret\s*[:=]\s*["'][^"']{8,}["']/gi,   severity: 'high'   },
 ];
 
-const IGNORED_PATHS = [
+const IGNORED_PATHS: string[] = [
   '.md', '.txt', 'test/', 'tests/', '__tests__/',
   'fixtures/', '.example', '.sample', 'node_modules/',
 ];
 
-function shouldIgnorePath(p) {
+function shouldIgnorePath(p: string): boolean {
   // Match path segments exactly, not substrings
   // e.g. 'test/' should match 'test/file.js' but not 'contest/file.js'
   const normalized = p.replace(/\\/g, '/');
@@ -36,8 +42,8 @@ function shouldIgnorePath(p) {
   });
 }
 
-function shannonEntropy(str) {
-  const freq = {};
+function shannonEntropy(str: string): number {
+  const freq: Record<string, number> = {};
   for (const c of str) freq[c] = (freq[c] || 0) + 1;
   return -Object.values(freq).reduce((sum, f) => {
     const p = f / str.length;
@@ -45,19 +51,20 @@ function shannonEntropy(str) {
   }, 0);
 }
 
-function detectHighEntropyStrings(line) {
+function detectHighEntropyStrings(line: string): string[] {
   const matches = line.match(/["'][A-Za-z0-9+/=_-]{20,}["']/g) || [];
   return matches.map(m => m.slice(1, -1)).filter(s => shannonEntropy(s) > 4.5);
 }
 
-async function scanDiff(diffText, repoFullName, scanId, commitSha) {
+async function scanDiff(diffText: string, repoFullName: string, scanId: any, commitSha: string) {
   if (!diffText) return [];
-  const issues = [];
+  const issues: any[] = [];
   const lines  = diffText.split('\n');
   let currentFile = '';
 
-  for (let i = 0; i < lines.length; i++) {
+    for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (!line) continue;
     if (line.startsWith('+++ b/')) { currentFile = line.replace('+++ b/', ''); continue; }
     if (!line.startsWith('+') || line.startsWith('+++')) continue;
     if (shouldIgnorePath(currentFile)) continue;
@@ -83,7 +90,7 @@ async function scanDiff(diffText, repoFullName, scanId, commitSha) {
 
     const highEntropy = detectHighEntropyStrings(content);
     for (const s of highEntropy) {
-      const caught = issues.some(iss => iss.filePath === currentFile && iss.lineNumber === i);
+      const caught = issues.some((iss: any) => iss.filePath === currentFile && iss.lineNumber === i);
       if (caught) continue;
       const issue = {
         scanId, repoFullName, issueType: 'secret', severity: 'medium',
@@ -101,4 +108,4 @@ async function scanDiff(diffText, repoFullName, scanId, commitSha) {
   return issues;
 }
 
-module.exports = { scanDiff };
+export = { scanDiff };
