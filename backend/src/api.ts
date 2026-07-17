@@ -9,6 +9,7 @@ import dbClient from './dbClient';
 const { query } = dbClient;
 import logger from './logger';
 import { repoFullName } from './repoResolver';
+import { timingSafeEqual } from './utils/timingSafeCompare';
 
 const router = express.Router();
 
@@ -16,7 +17,8 @@ const router = express.Router();
 
 router.use((req: any, res: any, next: any) => {
   const key = process.env['SENTINEL_UI_KEY'];
-  if (key && req.headers['x-sentinel-key'] !== key) {
+  const headerKey = req.headers['x-sentinel-key'];
+  if (key && (typeof headerKey !== 'string' || !timingSafeEqual(headerKey, key))) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }

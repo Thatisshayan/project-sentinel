@@ -8,6 +8,7 @@ import {
 import * as Sentry from '@sentry/node';
 type SentryCaptureContext = Parameters<typeof Sentry.captureException>[1];
 import logger from './logger';
+import { timingSafeEqual } from './utils/timingSafeCompare';
 import { initSchema } from './dbClient';
 import { initAuditSchema } from './auditDb';
 import { initPortfolioSchema } from './portfolioDb';
@@ -165,7 +166,7 @@ app.post('/webhook/telegram', async (req: express.Request, res: express.Response
     logger.error({ ip: req.ip }, 'DEBUGGER_SHARED_SECRET not set — rejecting Telegram webhook');
     return res.status(401).json({ error: 'Webhook secret not configured on server' });
   }
-  if (secret !== expectedSecret) {
+  if (!timingSafeEqual(secret || '', expectedSecret)) {
     logger.warn({ ip: req.ip }, 'Telegram webhook secret mismatch');
     return res.status(401).json({ error: 'Invalid secret' });
   }
