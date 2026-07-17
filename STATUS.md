@@ -2,13 +2,15 @@
 
 > **START HERE** if you're an agent or developer new to this codebase. This file is the canonical source of truth for upgrade progress.
 
-## Current Phase: 3 — Security Hardening
+## Current Phase: 4 — Test Coverage Blitz (IN PROGRESS)
 
 **Start date:** 2026-07-16
 **Plan:** `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md`
 **Audit:** `2026-07-16-DeepCodebaseAudit.md`
 **Prerequisite reading:** `AGENTS.md`, `TODO.md`
-**Current branch:** `feat/phase3-security-hardening`
+**Current branch:** `feat/phase3-security-hardening` (Phase 4 work will move to its own branch)
+
+> ⚠️ **Phase 4 blocker (D-002):** No Docker daemon in this environment, so testcontainers-based integration tests cannot run. Coverage is being raised via **mocked unit tests** only. The 50%-line plan goal is **not reachable here**; current unit-test-only coverage ≈ 33% lines. Integration suite must run on a Docker-enabled runner.
 
 ## Phase Progress
 
@@ -18,7 +20,7 @@
 | 1: TypeScript Migration | **COMPLETE** 🎉 | 100% | Needs Phase 0 |
 | 2: Error Architecture | **COMPLETE** ✅ | 100% | Needs Phase 0-1 |
 | 3: Security Hardening | **COMPLETE** 🔒 | 100% | Can overlap with Phases 1-2 |
-| 4: Test Coverage Blitz | Pending | 0% | Needs Phase 0 + 1 |
+| 4: Test Coverage Blitz | **IN PROGRESS** 🧪 | ~15% (infra + 4 unit suites; integration blocked by D-002) | Needs Phase 0 + 1 |
 | 5: Catch Pattern Elimination | Pending | 0% | Needs Phase 2 + 4 |
 | 6: Architecture Refactoring | Pending | 0% | Needs Phase 4 + 5 |
 | 7: Operational Excellence | Pending | 0% | Can start after Phase 3 |
@@ -54,7 +56,7 @@
 - 2.4: Sentry v8+ wiring ✅
 - 2.5: Structured error responses via Express middleware ✅
 
-## Phase 3 — IN PROGRESS 🔒 (branch `feat/phase3-security-hardening`)
+## Phase 3 — COMPLETE 🔒 (branch `feat/phase3-security-hardening`, PR #23)
 - 3.1: Timing-safe auth comparisons ✅ commit `35d6e52`
   - `src/utils/timingSafeCompare.ts` (crypto.timingSafeEqual)
   - `api.ts` SENTINEL_UI_KEY, `index.ts` DEBUGGER_SHARED_SECRET
@@ -67,6 +69,18 @@
   - New `src/utils/childEnv.ts` (buildChildEnv allowlist); wired into aiderRunner, claudeCodeRunner, claudeCodeAudit, builderRouter.getAiderEnv
 - 3.6: CSRF/origin check on all 5 UI proxy routes ✅ commit `b0838cd`
   - `isValidOrigin` guard in action, agent-room-proxy, agents-proxy, settings, stats
+
+## Phase 4 — IN PROGRESS 🧪 (unit tests; integration blocked by D-002)
+- 4.0: Test infrastructure ✅ `jest.config.js` with `coverageThreshold` gate; `@swc/jest` transform; 4 unit suites added (errors, timingSafeCompare, childEnv, execAsync)
+  - ⚠️ `jest.config.ts` not used — Jest TS-config parser breaks on TS7 (D-003)
+  - ⚠️ testcontainers integration tests BLOCKED — no Docker (D-002)
+- 4.1: Tests for infrastructure layer — ⏳ Pending (needs DB mocks; blocked by D-002 for real DB)
+- 4.2: Tests for security cluster — ⏳ Pending
+- 4.3: Tests for core pipeline — ⏳ Pending
+- 4.4: Tests for remaining 29 modules — ⏳ Pending
+- 4.5: Regression tests for 12 fixed bugs — ⏳ Pending
+- 4.6: UI test infra (Vitest + RTL) — ⏳ Pending
+- **Current coverage:** ~33% lines / ~31% stmts / ~24% branch / ~17% funcs (unit-only)
 
 ## TS Files on main (76 files)
 - All files in `backend/src/` — **no .js files remain**

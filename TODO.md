@@ -1,6 +1,6 @@
 # Sentinel — Master Task List
 
-> **REBUILD IN PROGRESS — Phase 3/7 active.**
+> **REBUILD IN PROGRESS — Phase 4/7 active.**
 > Canonical plan: `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md`
 > Current status: `STATUS.md`
 > Tasks are prefixed `[PhaseN]` to indicate which phase they belong to.
@@ -63,12 +63,14 @@
 
 ---
 
-## 🧪 Phase 4 — Test Coverage Blitz
+## 🧪 Phase 4 — Test Coverage Blitz (IN PROGRESS)
+
+> ⚠️ **D-002 (blocker):** No Docker daemon in this environment → testcontainers integration tests cannot run. Raise coverage via mocked unit tests. 50%-line goal not reachable here (currently ~33% lines unit-only). Integration suite must run on a Docker-enabled runner. See `docs/governance/DEFERRED_WORK.md`.
 
 | # | Task | Priority | Status |
 |---|------|----------|--------|
-| 4.0 | Test infrastructure setup (testcontainers, ts-jest, coverage thresholds) | HIGH | ⏳ Pending |
-| 4.1 | Write tests for infrastructure layer (dbClient, queueClient, logger, config) | HIGH | ⏳ Pending |
+| 4.0 | Test infrastructure setup (jest.config.js + coverage thresholds; testcontainers **blocked D-002**, jest.config.ts **blocked D-003**) | HIGH | ✅ Done |
+| 4.1 | Write tests for infrastructure layer (dbClient, queueClient, logger, config) — needs DB mocks; real-DB integration blocked D-002 | HIGH | ⏳ Pending |
 | 4.2 | Write tests for security cluster (securityScanner, securityPatcher, owaspChecker, secretScanner, dependencyScanner) | CRITICAL | ⏳ Pending |
 | 4.3 | Write tests for core pipeline (workers, sprintOrchestrator, sprintPlanner, taskBuilder, webhook) | CRITICAL | ⏳ Pending |
 | 4.4 | Write tests for all remaining untested modules (29 files) | HIGH | ⏳ Pending |
