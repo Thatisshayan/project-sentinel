@@ -113,7 +113,7 @@ function sanitizeLogs(logs) {
   const SENSITIVE_PATTERNS = [
     /token[=:\s]+\S+/gi,
     /secret[=:\s]+\S+/gi,
-    /key[=:\s]+[A-Za-z0-9_\-]{10,}/gi,
+    /key[=:\s]+[A-Za-z0-9_-]{10,}/gi,
     /password[=:\s]+\S+/gi,
     /authorization[=:\s]+\S+/gi,
     /bearer\s+\S+/gi,

@@ -34,6 +34,7 @@ async function listAllOwnedRepos() {
   const repos   = [];
   let page = 1;
 
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     const res = await axios.get('https://api.github.com/user/repos', {
       headers,

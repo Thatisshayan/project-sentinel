@@ -46,7 +46,7 @@ function shannonEntropy(str) {
 }
 
 function detectHighEntropyStrings(line) {
-  const matches = line.match(/["'][A-Za-z0-9+/=_\-]{20,}["']/g) || [];
+  const matches = line.match(/["'][A-Za-z0-9+/=_-]{20,}["']/g) || [];
   return matches.map(m => m.slice(1, -1)).filter(s => shannonEntropy(s) > 4.5);
 }
 
