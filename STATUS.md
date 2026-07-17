@@ -39,19 +39,28 @@
   - `dbClient.ts` with typed query function, interfaces
   - Added `@swc/core` + `@swc/jest` for Jest TS support
   - Jest config: moduleNameMapper, .test.ts match, .ts coverage
+- 1d: Convert all 8 *Db files to TypeScript ✅ PR #13
+  - agentDb, auditDb, businessDb, portfolioDb, securityDb, settingsDb, sprintDb, selfAuditDb
 
 ## Phase 1 — Remaining Tasks
-- 1d: Convert `*Db.js` files (7 files: agentDb, auditDb, businessDb, portfolioDb, securityDb, settingsDb, sprintDb, selfAuditDb)
 - 1e: Convert security cluster (securityScanner, securityPatcher, dependencyScanner, secretScanner, owaspChecker)
 - 1f: Convert remaining core files (health, webhook, api, workers, index, etc.)
 
-## TS Files on main (8 files)
+## TS Files on main (16 files)
 - `src/errors/codes.ts`
 - `src/errors/errorClasses.ts`
 - `src/errors/sentry.ts`
 - `src/utils/execAsync.ts`
-- `src/logger.ts` ← NEW
-- `src/dbClient.ts` ← NEW
+- `src/logger.ts`
+- `src/dbClient.ts`
+- `src/agentDb.ts`
+- `src/auditDb.ts`
+- `src/businessDb.ts`
+- `src/portfolioDb.ts`
+- `src/securityDb.ts`
+- `src/settingsDb.ts`
+- `src/sprintDb.ts`
+- `src/selfAuditDb.ts`
 
 ## Active Task List
 
