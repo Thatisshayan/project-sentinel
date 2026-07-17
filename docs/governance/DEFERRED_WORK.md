@@ -34,13 +34,23 @@
 **Status**: Deferred — acceptable workaround in place.
 
 ### D-004: Installing Docker on this agent box is NOT feasible
-**Scope**: Enables D-002 (testcontainers integration tests for Phase 4)
+**Scope**: Enables D-002 (testcontainers integration tests for Phase4)
 **Reason blocked**: `docker` CLI is not present on this Win32 agent environment. Installing it requires Docker Desktop (admin rights, Hyper-V/WSL2 hypervisor enablement, and a host reboot) — infra changes outside an agent's authority and not automatable here.
-**Impact**: Phase 4 integration tests (plan Tasks 4.1–4.4 real-DB path) remain blocked locally.
+**Impact**: Phase4 integration tests (plan Tasks 4.1–4.4 real-DB path) remain blocked locally.
 **Proposed resolution**:
 - Run the integration suite on a CI runner or dev machine that already has Docker (recommended — keeps this agent box lean).
 - Or provision Docker on a dedicated build host and point `DATABASE_URL` / `REDIS_URL` at it for the test run.
 **Status**: Deferred — use a Docker-enabled runner; do not attempt to install Docker on this agent box.
+
+### D-005: Phase6 Task 6.3 — centralize 4 AI provider call patterns into `ai/client.ts`
+**Scope**: Phase6 Task 6.3 — the 4-provider OpenAI-compatible fallback chain (`NVIDIA NIM` → `Gemini` → `DashScope/Qwen` → `DeepSeek`, plus optional `Anthropic`) is hand-duplicated across `telegramAI.ts` (`callChatAPI`), `ceoReport.ts` (`callAI`), `sprintPlanner.ts`, `sentinelBrain.ts` (`callBrainAI`/`tryProvider`), `claudeCodeAudit.ts`, `owaspChecker.ts`, and `agentRoom.ts`.
+**Reason deferred**: High refactor risk, low immediate payoff. Each caller has divergent defaults (different model names, `max_tokens`, `temperature`, `system` vs no-system prompt, `timeout` 30s vs 60s, and provider-specific quirks — e.g. `telegramAI` also falls back to Anthropic; `sentinelBrain`/`ceoReport` strip `<think>` blocks and parse JSON; `claudeCodeAudit` posts to a fixed NIM URL only). A naive shared helper risks breaking subtle behavior (reasoning-model output stripping, JSON extraction) that is load-bearing for the audit/brain code paths. Combined with 6.4 (inline `require()` cycle-breakers), converting these call sites to a shared module must be done with per-caller care, not a blind script, and is best sequenced after the architecture is otherwise settled.
+**Impact**: Duplication remains in the provider-call layer; new providers must be added in N places.
+**Proposed resolution**:
+- Introduce `src/ai/client.ts` exporting `callAnyProvider({ systemPrompt?, userPrompt, maxTokens?, temperature?, timeoutMs?, modelOverride? })` that walks the standard provider precedence and returns content (with optional `<think>`/code-fence stripping).
+- Refactor the cleanest callers first (`telegramAI.callChatAPI`, `ceoReport.callAI`, `sentinelBrain.callBrainAI`); defer `claudeCodeAudit`/`owaspChecker`/`agentRoom` (fixed-endpoint or different shape) until their contract is understood.
+- Keep provider-specific post-processing (JSON parse, `<think>` strip) in the caller, not the shared client.
+**Status**: Deferred — revisit after 6.4/6.5 or as a standalone focused PR.
 
 ---
 
