@@ -1,10 +1,15 @@
-const logger = require('./logger');
-const axios  = require('axios');
+import logger from './logger';
+import axios from 'axios';
 
-const BOT_TOKEN = () => process.env.TELEGRAM_BOT_TOKEN;
-const BASE_URL  = () => `https://api.telegram.org/bot${BOT_TOKEN()}`;
+const BOT_TOKEN = (): string | undefined => process.env['TELEGRAM_BOT_TOKEN'];
+const BASE_URL  = (): string => `https://api.telegram.org/bot${BOT_TOKEN()}`;
 
-async function sendMenu(chatId, threadId, text, buttons) {
+interface InlineButton {
+  text: string;
+  callback_data: string;
+}
+
+async function sendMenu(chatId: number, threadId: number | null, text: string, buttons: InlineButton[][]): Promise<void> {
   await axios.post(`${BASE_URL()}/sendMessage`, {
     chat_id:           chatId,
     text,
@@ -12,10 +17,10 @@ async function sendMenu(chatId, threadId, text, buttons) {
     reply_markup: {
       inline_keyboard: buttons,
     },
-  }).catch(err => logger.warn({ err: err.message }, 'Menu send failed'));
+  }).catch((err: any) => logger.warn({ err: err.message }, 'Menu send failed'));
 }
 
-async function showMainMenu(chatId, threadId) {
+async function showMainMenu(chatId: number, threadId: number | null): Promise<void> {
   await sendMenu(chatId, threadId, '🛡️ Sentinel — Quick Actions', [
     [
       { text: '📊 Report',     callback_data: 'menu:report'    },
@@ -35,7 +40,7 @@ async function showMainMenu(chatId, threadId) {
   ]);
 }
 
-async function showRepoMenu(chatId, threadId, repoName) {
+async function showRepoMenu(chatId: number, threadId: number | null, repoName: string): Promise<void> {
   await sendMenu(chatId, threadId, `📁 ${repoName} — Actions`, [
     [
       { text: '📊 Status',   callback_data: `repo:status:${repoName}`   },
@@ -52,8 +57,8 @@ async function showRepoMenu(chatId, threadId, repoName) {
   ]);
 }
 
-async function showApprovalsMenu(chatId, threadId, pending) {
-  const buttons = [];
+async function showApprovalsMenu(chatId: number, threadId: number | null, pending: any): Promise<void> {
+  const buttons: InlineButton[][] = [];
   if (pending.sprint) buttons.push([
     { text: '✅ Approve Sprint', callback_data: 'approve:sprint'      },
     { text: '⏭ Skip Sprint',    callback_data: 'approve:skip-sprint' },
@@ -72,12 +77,12 @@ async function showApprovalsMenu(chatId, threadId, pending) {
   await sendMenu(chatId, threadId, '⏳ Pending Approvals', buttons);
 }
 
-async function showDidYouMean(chatId, threadId, suggestions) {
-  const buttons = suggestions.map(s => [
+async function showDidYouMean(chatId: number, threadId: number | null, suggestions: any[]): Promise<void> {
+  const buttons: InlineButton[][] = suggestions.map((s: any) => [
     { text: s.label, callback_data: `dym:${s.action}` }
   ]);
   buttons.push([{ text: '❌ Never mind', callback_data: 'dym:cancel' }]);
   await sendMenu(chatId, threadId, '🤔 Did you mean...?', buttons);
 }
 
-module.exports = { showMainMenu, showRepoMenu, showApprovalsMenu, showDidYouMean, sendMenu };
+export = { showMainMenu, showRepoMenu, showApprovalsMenu, showDidYouMean, sendMenu };

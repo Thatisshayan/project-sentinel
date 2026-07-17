@@ -52,7 +52,7 @@ async function handleAgentReply(message: any, agentId: string, topicId: number):
       : `You are being directly addressed as agent: ${agentId}`;
 
     // handleMessage(text, fromName, topicId, roomContext, targetAgentId, agentContext, replyToMessageId)
-    await handleMessage(text, fromName, topicId, null, agentId as any, agentContext as any, messageId);
+    await handleMessage(text, fromName, topicId, undefined, agentId as any, agentContext as any, messageId);
 
   } catch (err: any) {
     logger.error({ err: err.message, agentId }, 'Agent reply handling failed');

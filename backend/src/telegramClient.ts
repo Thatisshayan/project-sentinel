@@ -1,31 +1,30 @@
-const https   = require('https');
-const logger  = require('./logger');
+import https from 'https';
+import logger from './logger';
 
 const MAX_LENGTH = 4096;
 
 // Topic ID mapping: repo name (lowercase) → Telegram topic ID
-// Get topic IDs from Telegram: right-click a topic → "Copy ID" or use @RawDataBot
-const TOPIC_MAP = {
-  'project-sentinel':        parseInt(process.env.TOPIC_PROJECT_SENTINEL || '0', 10),
-  'acc':                     parseInt(process.env.TOPIC_ACC || '0', 10),
-  'alphonsoecosystem':       parseInt(process.env.TOPIC_ALPHONSOECOSYSTEM || '0', 10),
-  'shiporex':                parseInt(process.env.TOPIC_SHIPOREX || '0', 10),
-  'project-aegis-launch-site': parseInt(process.env.TOPIC_PROJECT_AEGIS || '0', 10),
-  'tapcash':                 parseInt(process.env.TOPIC_TAPCASH || '0', 10),
-  'sessionguard':            parseInt(process.env.TOPIC_SESSIONGUARD || '0', 10),
-  'costpilot':               parseInt(process.env.TOPIC_COSTPILOT || '0', 10),
-  'mint':                    parseInt(process.env.TOPIC_MINT || '0', 10),
-  'obsidianstudio':          parseInt(process.env.TOPIC_OBSIDIANSTUDIO || '0', 10),
-  'obsidianmedia':           parseInt(process.env.TOPIC_OBSIDIANMEDIA || '0', 10),
+const TOPIC_MAP: Record<string, number> = {
+  'project-sentinel':        parseInt(process.env['TOPIC_PROJECT_SENTINEL'] || '0', 10),
+  'acc':                     parseInt(process.env['TOPIC_ACC'] || '0', 10),
+  'alphonsoecosystem':       parseInt(process.env['TOPIC_ALPHONSOECOSYSTEM'] || '0', 10),
+  'shiporex':                parseInt(process.env['TOPIC_SHIPOREX'] || '0', 10),
+  'project-aegis-launch-site': parseInt(process.env['TOPIC_PROJECT_AEGIS'] || '0', 10),
+  'tapcash':                 parseInt(process.env['TOPIC_TAPCASH'] || '0', 10),
+  'sessionguard':            parseInt(process.env['TOPIC_SESSIONGUARD'] || '0', 10),
+  'costpilot':               parseInt(process.env['TOPIC_COSTPILOT'] || '0', 10),
+  'mint':                    parseInt(process.env['TOPIC_MINT'] || '0', 10),
+  'obsidianstudio':          parseInt(process.env['TOPIC_OBSIDIANSTUDIO'] || '0', 10),
+  'obsidianmedia':           parseInt(process.env['TOPIC_OBSIDIANMEDIA'] || '0', 10),
 };
 
-function getTopicId(repoName) {
+function getTopicId(repoName: string | null): number | null {
   const key = (repoName || '').toLowerCase();
   const topicId = TOPIC_MAP[key];
   return (topicId && topicId > 0) ? topicId : null;
 }
 
-function escapeHtml(text) {
+function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -34,9 +33,9 @@ function escapeHtml(text) {
     .replace(/'/g, '&#39;');
 }
 
-async function sendTelegramMessage(text, repoName, explicitTopicId, forceSend = false) {
-  const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-  const CHAT_ID   = process.env.TELEGRAM_CHAT_ID;
+async function sendTelegramMessage(text: string, repoName: string | null, explicitTopicId?: number | null, forceSend: boolean = false): Promise<any> {
+  const BOT_TOKEN = process.env['TELEGRAM_BOT_TOKEN'];
+  const CHAT_ID   = process.env['TELEGRAM_CHAT_ID'];
 
   if (!BOT_TOKEN || !CHAT_ID) {
     logger.warn('Telegram credentials not configured — skipping message');
@@ -52,7 +51,7 @@ async function sendTelegramMessage(text, repoName, explicitTopicId, forceSend = 
         logger.debug('Telegram alerts disabled in settings');
         return;
       }
-    } catch (err) {
+    } catch (err: any) {
       logger.warn({ err: err.message }, 'Could not check telegram alerts setting, sending anyway');
     }
   }
@@ -63,7 +62,7 @@ async function sendTelegramMessage(text, repoName, explicitTopicId, forceSend = 
 
   const escapedText = escapeHtml(safeText);
 
-  const body = {
+  const body: any = {
     chat_id:                  CHAT_ID,
     text:                     escapedText,
     parse_mode:               'HTML',
@@ -93,7 +92,7 @@ async function sendTelegramMessage(text, repoName, explicitTopicId, forceSend = 
 
     const req = https.request(options, (res) => {
       let data = '';
-      res.on('data',  chunk => { data += chunk; });
+      res.on('data',  (chunk: any) => { data += chunk; });
       res.on('end', () => {
         try {
           const parsed = JSON.parse(data);
@@ -122,11 +121,9 @@ async function sendTelegramMessage(text, repoName, explicitTopicId, forceSend = 
   });
 }
 
-// Registers Telegram's native "/" command menu (the button next to the
-// message box + the autocomplete popup). Without this, /start, /menu, /help
-// etc. are only reachable by a user manually typing the exact command.
-async function registerBotCommands() {
-  const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+// Registers Telegram's native "/" command menu
+async function registerBotCommands(): Promise<void> {
+  const BOT_TOKEN = process.env['TELEGRAM_BOT_TOKEN'];
   if (!BOT_TOKEN) {
     logger.warn('TELEGRAM_BOT_TOKEN not set — skipping bot command menu registration');
     return;
@@ -154,7 +151,7 @@ async function registerBotCommands() {
 
     const req = https.request(options, (res) => {
       let data = '';
-      res.on('data', chunk => { data += chunk; });
+      res.on('data', (chunk: any) => { data += chunk; });
       res.on('end', () => {
         try {
           const parsed = JSON.parse(data);
@@ -163,14 +160,14 @@ async function registerBotCommands() {
           } else {
             logger.info('Telegram bot command menu registered');
           }
-        } catch (e) {
+        } catch (e: any) {
           logger.warn({ err: e.message }, 'setMyCommands response parse failed');
         }
         resolve();
       });
     });
 
-    req.on('error', (err) => {
+    req.on('error', (err: any) => {
       logger.warn({ err: err.message }, 'setMyCommands request failed');
       resolve();
     });
@@ -181,4 +178,4 @@ async function registerBotCommands() {
   });
 }
 
-module.exports = { sendTelegramMessage, getTopicId, registerBotCommands };
+export = { sendTelegramMessage, getTopicId, registerBotCommands };
