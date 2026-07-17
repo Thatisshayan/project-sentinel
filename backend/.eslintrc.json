@@ -11,8 +11,16 @@
   ],
   "parserOptions": {
     "ecmaVersion": 2022,
-    "sourceType": "script"
+    "sourceType": "module"
   },
+  "overrides": [
+    {
+      "files": ["*.js"],
+      "parserOptions": {
+        "sourceType": "script"
+      }
+    }
+  ],
   "rules": {
     "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
     "no-empty": ["warn", { "allowEmptyCatch": true }],
@@ -21,5 +29,5 @@
     "prefer-const": "warn",
     "no-var": "error"
   },
-  "ignorePatterns": ["node_modules/", "dist/", "coverage/"]
+  "ignorePatterns": ["node_modules/", "dist/", "coverage/", "**/*.ts"]
 }
