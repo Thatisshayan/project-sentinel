@@ -2,13 +2,13 @@
 
 > **START HERE** if you're an agent or developer new to this codebase. This file is the canonical source of truth for upgrade progress.
 
-## Current Phase: 5 — Catch Pattern Elimination (IN PROGRESS)
+## Current Phase: 6 — Architecture Refactoring (IN PROGRESS)
 
 **Start date:** 2026-07-16
 **Plan:** `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md`
 **Audit:** `2026-07-16-DeepCodebaseAudit.md`
 **Prerequisite reading:** `AGENTS.md`, `TODO.md`
-**Current branch:** `feat/phase3-security-hardening` (Phase 4 work will move to its own branch)
+**Current branch:** `feat/phase6-arch-refactor`
 
 > ⚠️ **Phase 4 blocker (D-002):** No Docker daemon in this environment, so testcontainers-based integration tests cannot run. Coverage is being raised via **mocked unit tests** only. The 50%-line plan goal is **not reachable here**; current unit-test-only coverage ≈ 33% lines. Integration suite must run on a Docker-enabled runner.
 
@@ -21,8 +21,8 @@
 | 2: Error Architecture | **COMPLETE** ✅ | 100% | Needs Phase 0-1 |
 | 3: Security Hardening | **COMPLETE** 🔒 | 100% | Can overlap with Phases 1-2 |
 | 4: Test Coverage Blitz | **COMPLETE** 🧪 | ~100% (infra + unit suites; integration deferred D-002) | Needs Phase 0 + 1 |
-| 5: Catch Pattern Elimination | **IN PROGRESS** 🧹 | ~90% (5.1–5.3 done; integration verify on Docker runner) | Needs Phase 2 + 4 |
-| 6: Architecture Refactoring | Pending | 0% | Needs Phase 4 + 5 |
+| 5: Catch Pattern Elimination | **COMPLETE** 🧹 | 100% (5.1–5.3 done; integration verify on Docker runner, see D-002) | Needs Phase 2 + 4 |
+| 6: Architecture Refactoring | **IN PROGRESS** 🏗️ | ~15% (6.1 done; 6.2–6.5 pending) | Needs Phase 4 + 5 |
 | 7: Operational Excellence | Pending | 0% | Can start after Phase 3 |
 
 ## Phase 0 — Completed Tasks
@@ -91,6 +91,18 @@
   - Note: pre-existing `.catch((err) => logger.error(...))` sites were left as-is (they already observe errors; not silent swallows).
 - 5.3: Dead-letter queue ✅ — `queueClient.ts` `getDeadLetterQueue`/`enqueueDeadLetter` (BullMQ `dead-letter`, attempts:3 + exp backoff). `index.ts` registers `registerDeadLetterEnqueuer(enqueueDeadLetter)` so `safeFire(..., { retryable: true })` routes failures to DLQ.
   - ⚠️ DLQ + retry worker NOT runtime-verified — needs Redis (no Docker, D-002). Code path is wired but unexercised here.
+
+## Phase 6 — IN PROGRESS 🏗️ (architecture refactoring)
+- 6.1: Split `workers.ts` (596 LOC god module) ✅ — extracted the 4 worker factories into focused modules under `backend/src/workers/`:
+  - `buildPollWorker.ts` (`startBuildPollWorker`)
+  - `dailyReportWorker.ts` (`startDailyReportWorker`) — preserves all lazy `require()` cycle-breakers (`metricsFetcher`, `selfScaler`, `priorityEngine`, `ceoReport`, `agentStandup`, `agentLeaderboard`, `sentinelBrain`, plus inline `require('./portfolioAnalytics'|'providerHealthCheck'|'repoDiscovery'|'portfolioDb')`)
+  - `sprintWorker.ts` (`startSprintWorker`)
+  - `agentCleanupWorker.ts` (`startAgentCleanupWorker`)
+  - `workers.ts` reduced to a named-reexport barrel (public surface unchanged → `index.ts` import untouched). `tsc --noEmit` clean; 156 tests pass.
+- 6.2: Split `webhook.ts` (365 LOC) — ⏳ Pending
+- 6.3: Centralize 4 AI provider call patterns into `ai/client.ts` — ⏳ Pending
+- 6.4: Inline `require()` → top-level imports — ⏳ Pending (CAUTION: many are lazy cycle-breakers; convert per-file, not via blind script)
+- 6.5: Consolidate duplicated UI utilities — ⏳ Pending
 
 ## TS Files on main (76 files)
 - All files in `backend/src/` — **no .js files remain**
