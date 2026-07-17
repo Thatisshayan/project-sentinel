@@ -1,6 +1,6 @@
-const logger = require('./logger');
+import logger from './logger';
 
-const DASHSCOPE_BASE = process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+const DASHSCOPE_BASE = process.env['DASHSCOPE_BASE_URL'] || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
 // NVIDIA NIM requires the full provider/model name in the model field
 // (e.g. "qwen/qwen2.5-coder-32b-instruct", not just "qwen2.5-coder-32b-instruct").
@@ -8,14 +8,25 @@ const DASHSCOPE_BASE = process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliy
 // everything after that prefix as the model name to the custom API base.
 // So 'openai/qwen/qwen2.5-coder-32b-instruct' sends model="qwen/qwen2.5-coder-32b-instruct"
 // to NVIDIA NIM, which is exactly what the API expects.
-function toNvidiaModel(rawName) {
+function toNvidiaModel(rawName: string): string {
   // Already in openai/provider/model format — leave as-is
   if (rawName.startsWith('openai/')) return rawName;
   // Already has provider prefix (e.g. 'nvidia/llama-...') — just add openai/
   return `openai/${rawName}`;
 }
 
-const BUILDERS = {
+interface BuilderConfig {
+  id: string;
+  label: string;
+  type: string;
+  aiderModel?: string;
+  editFormat?: string;
+  apiBase?: string;
+  envKey?: string;
+  description: string;
+}
+
+const BUILDERS: Record<string, BuilderConfig> = {
   nvidia: {
     id:          'nvidia',
     label:       'NVIDIA NIM — Llama 3.1 70B',
@@ -24,7 +35,7 @@ const BUILDERS = {
     // parse those as SEARCH/REPLACE diffs.  Default to llama-3.1-70b-instruct
     // which is a plain instruction model that produces clean diffs.
     // NVIDIA_MODEL can still override but must NOT be set to nemotron for aider tasks.
-    aiderModel:  toNvidiaModel(process.env.NVIDIA_MODEL || 'meta/llama-3.1-70b-instruct'),
+    aiderModel:  toNvidiaModel(process.env['NVIDIA_MODEL'] || 'meta/llama-3.1-70b-instruct'),
     apiBase:     'https://integrate.api.nvidia.com/v1',
     envKey:      'NVIDIA_API_KEY',
     description: 'NVIDIA NIM — Llama 3.1 70B instruction model',
@@ -133,7 +144,7 @@ const DEFAULT_BUILDER = 'qwen_coder';
   // claude_code is the most reliable builder (uses real tools, not SEARCH/REPLACE diffs)
   // so it leads every chain when ANTHROPIC_API_KEY is configured.
   // nvidia is added as fallback for claude_code since it's free and uses different API.
-  const FALLBACK_CHAIN = {
+  const FALLBACK_CHAIN: Record<string, string[]> = {
     nvidia:          ['claude_code', 'qwen_coder_dash', 'gemini', 'deepseek', 'qwen_coder'],
     qwen_coder:      ['claude_code', 'qwen_coder_dash', 'gemini', 'deepseek', 'nvidia'],
     qwen_coder_dash: ['claude_code', 'qwen_coder',      'gemini', 'deepseek'],
@@ -147,7 +158,7 @@ const DEFAULT_BUILDER = 'qwen_coder';
     claude_code:     ['nvidia', 'qwen_coder_dash', 'gemini', 'deepseek', 'qwen_coder'],
   };
 
-function getFallbackBuilder(failedBuilder) {
+function getFallbackBuilder(failedBuilder: string): string | null {
   const chain = FALLBACK_CHAIN[failedBuilder] || ['nvidia'];
   for (const candidate of chain) {
     const config = BUILDERS[candidate];
@@ -158,7 +169,7 @@ function getFallbackBuilder(failedBuilder) {
   return null;
 }
 
-function getBuilderConfig(assignment) {
+function getBuilderConfig(assignment?: string): BuilderConfig {
   const key    = (assignment || DEFAULT_BUILDER).toLowerCase().trim();
   const config = BUILDERS[key];
 
@@ -189,36 +200,36 @@ function getBuilderConfig(assignment) {
   return config;
 }
 
-function getAiderEnv(config) {
-  const env = { ...process.env };
+function getAiderEnv(config: BuilderConfig): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env };
   switch (config.id) {
     case 'gemini':
-      env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+      env['GEMINI_API_KEY'] = process.env['GEMINI_API_KEY'] || '';
       break;
     case 'nvidia':
     case 'qwen_coder':
     case 'llama_fast':
-      env.OPENAI_API_KEY  = process.env.NVIDIA_API_KEY || '';
-      env.OPENAI_API_BASE = 'https://integrate.api.nvidia.com/v1';
-      env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1';
+      env['OPENAI_API_KEY']  = process.env['NVIDIA_API_KEY'] || '';
+      env['OPENAI_API_BASE'] = 'https://integrate.api.nvidia.com/v1';
+      env['OPENAI_BASE_URL'] = 'https://integrate.api.nvidia.com/v1';
       break;
     case 'qwen_max':
     case 'qwen_plus':
     case 'qwen_coder_dash':
     case 'qwen_turbo':
-      env.OPENAI_API_KEY  = process.env.DASHSCOPE_API_KEY || '';
-      env.OPENAI_API_BASE = DASHSCOPE_BASE;
+      env['OPENAI_API_KEY']  = process.env['DASHSCOPE_API_KEY'] || '';
+      env['OPENAI_API_BASE'] = DASHSCOPE_BASE;
       break;
     case 'deepseek':
-      env.DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
-      env.OPENAI_API_BASE  = 'https://api.deepseek.com';
-      env.OPENAI_API_KEY   = process.env.DEEPSEEK_API_KEY || '';
+      env['DEEPSEEK_API_KEY'] = process.env['DEEPSEEK_API_KEY'] || '';
+      env['OPENAI_API_BASE']  = 'https://api.deepseek.com';
+      env['OPENAI_API_KEY']   = process.env['DEEPSEEK_API_KEY'] || '';
       break;
   }
   return env;
 }
 
-function listBuilders() {
+function listBuilders(): Array<{ id: string; label: string; configured: boolean; description: string }> {
   return Object.values(BUILDERS).map(b => ({
     id:          b.id,
     label:       b.label,
@@ -227,4 +238,4 @@ function listBuilders() {
   }));
 }
 
-module.exports = { getBuilderConfig, getAiderEnv, listBuilders, getFallbackBuilder };
+export = { getBuilderConfig, getAiderEnv, listBuilders, getFallbackBuilder };

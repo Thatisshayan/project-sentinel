@@ -1,20 +1,30 @@
-const { spawn }   = require('child_process');
-const simpleGit   = require('simple-git');
-const tmp         = require('tmp');
-const path        = require('path');
-const fs          = require('fs');
-const logger      = require('./logger');
-const { sanitizeLogs } = require('./riskAssessor');
+import { spawn } from 'child_process';
+import simpleGit from 'simple-git';
+import tmp from 'tmp';
+import path from 'path';
+import fs from 'fs';
+import logger from './logger';
+import { sanitizeLogs } from './riskAssessor';
 
-const TIMEOUT_MS = () =>
-  parseInt(process.env.DEBUG_TIMEOUT_MINUTES || '30') * 60 * 1000;
+const TIMEOUT_MS = (): number =>
+  parseInt(process.env['DEBUG_TIMEOUT_MINUTES'] || '30') * 60 * 1000;
 
-const AIDER_MODEL = () =>
-  process.env.AIDER_MODEL || 'openai/meta/llama-3.1-70b-instruct';
+const AIDER_MODEL = (): string =>
+  process.env['AIDER_MODEL'] || 'openai/meta/llama-3.1-70b-instruct';
 
 // ── Build the message Aider receives ────────────────────────────────────────
 
-function buildAiderMessage(context) {
+interface AiderContext {
+  failureReason?: string;
+  failureLogs?: string;
+  changedFiles?: string[];
+  buildProvider?: string;
+  attemptNumber?: number;
+  repoFullName?: string;
+  branchName?: string;
+}
+
+function buildAiderMessage(context: AiderContext): string {
   const { failureReason, failureLogs, changedFiles, buildProvider, attemptNumber } = context;
 
   return `You are an autonomous build repair agent. A build has failed. Fix it.
@@ -46,7 +56,15 @@ Start by reading the relevant files, then apply your fix.`;
 
 // ── Run Aider as child process ───────────────────────────────────────────────
 
-async function runAider(repoPath, context) {
+interface AiderResult {
+  success: boolean;
+  exitCode?: number | null;
+  stdout?: string;
+  stderr?: string;
+  reason?: string | null;
+}
+
+async function runAider(repoPath: string, context: AiderContext): Promise<AiderResult> {
   return new Promise((resolve) => {
     const model   = AIDER_MODEL();
     const message = buildAiderMessage(context);
@@ -89,16 +107,16 @@ async function runAider(repoPath, context) {
     // prefix, so we point the OpenAI client at NIM's base URL and hand it the
     // NVIDIA key. Falls back to a real OPENAI_API_KEY/base if someone points
     // AIDER_MODEL at an actual OpenAI model instead.
-    const usingNvidia = model.startsWith('openai/') && !!process.env.NVIDIA_API_KEY;
+    const usingNvidia = model.startsWith('openai/') && !!process.env['NVIDIA_API_KEY'];
 
     const proc = spawn('aider', args, {
       cwd: repoPath,
       env: {
         ...process.env,
         // Pass API keys Aider needs based on model
-        GEMINI_API_KEY:  process.env.GEMINI_API_KEY  || '',
-        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
-        OPENAI_API_KEY:  usingNvidia ? process.env.NVIDIA_API_KEY : (process.env.OPENAI_API_KEY || ''),
+        GEMINI_API_KEY:  process.env['GEMINI_API_KEY']  || '',
+        ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'] || '',
+        OPENAI_API_KEY:  usingNvidia ? process.env['NVIDIA_API_KEY'] : (process.env['OPENAI_API_KEY'] || ''),
         ...(usingNvidia ? {
           OPENAI_API_BASE: 'https://integrate.api.nvidia.com/v1',
           OPENAI_BASE_URL: 'https://integrate.api.nvidia.com/v1',
@@ -106,8 +124,8 @@ async function runAider(repoPath, context) {
       },
     });
 
-    proc.stdout.on('data', chunk => { stdout += chunk.toString(); });
-    proc.stderr.on('data', chunk => { stderr += chunk.toString(); });
+    proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
 
     const timer = setTimeout(() => {
       proc.kill('SIGTERM');
@@ -120,7 +138,7 @@ async function runAider(repoPath, context) {
       });
     }, TIMEOUT_MS());
 
-    proc.on('close', (code) => {
+    proc.on('close', (code: number | null) => {
       clearTimeout(timer);
 
       // Clean up temp message file
@@ -137,7 +155,7 @@ async function runAider(repoPath, context) {
       });
     });
 
-    proc.on('error', (err) => {
+    proc.on('error', (err: Error) => {
       clearTimeout(timer);
       logger.error({ err: err.message }, 'Failed to spawn Aider process');
       resolve({
@@ -152,18 +170,28 @@ async function runAider(repoPath, context) {
 
 // ── Clone repo and run Aider ─────────────────────────────────────────────────
 
-async function cloneAndFix(context) {
+interface CloneResult {
+  status: string;
+  reason?: string;
+  fixBranch?: string;
+  aiderOutput?: string;
+  commitSha?: string;
+  commitMessage?: string;
+  filesChanged?: string[];
+}
+
+async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
   const { repoFullName, branchName, attemptNumber } = context;
   const tmpDir = tmp.dirSync({ unsafeCleanup: true, prefix: 'sentinel-' });
 
   try {
     logger.info({ repoFullName, tmpDir: tmpDir.name }, 'Cloning repo');
 
-    const cloneUrl = `https://${process.env.GITHUB_TOKEN}@github.com/${repoFullName}.git`;
+    const cloneUrl = `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`;
     const git = simpleGit();
 
     // Clone with depth 1 for speed
-    await git.clone(cloneUrl, tmpDir.name, ['--depth', '1', '--branch', branchName]);
+    await git.clone(cloneUrl, tmpDir.name, ['--depth', '1', '--branch', branchName!]);
 
     const repoGit = simpleGit(tmpDir.name);
 
@@ -185,7 +213,7 @@ async function cloneAndFix(context) {
     if (!aiderResult.success) {
       return {
         status:         'failed',
-        reason:         aiderResult.reason,
+        reason:         aiderResult.reason ?? undefined,
         fixBranch,
         aiderOutput:    aiderResult.stdout,
       };
@@ -202,7 +230,7 @@ async function cloneAndFix(context) {
       logger.warn({
         repoFullName,
         attempt: attemptNumber,
-        aiderTail: aiderResult.stdout.slice(-1000),
+        aiderTail: aiderResult.stdout?.slice(-1000),
       }, 'Aider made no new commits — cannot_fix');
       return {
         status:      'cannot_fix',
@@ -229,7 +257,7 @@ async function cloneAndFix(context) {
       aiderOutput:   aiderResult.stdout,
     };
 
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message, repoFullName }, 'cloneAndFix failed');
     return {
       status: 'error',
@@ -241,7 +269,7 @@ async function cloneAndFix(context) {
   }
 }
 
-async function getChangedFiles(git) {
+async function getChangedFiles(git: ReturnType<typeof simpleGit>): Promise<string[]> {
   try {
     const diff = await git.diff(['HEAD~1', 'HEAD', '--name-only']);
     return diff.trim().split('\n').filter(Boolean);
@@ -250,4 +278,4 @@ async function getChangedFiles(git) {
   }
 }
 
-module.exports = { cloneAndFix };
+export = { cloneAndFix };
