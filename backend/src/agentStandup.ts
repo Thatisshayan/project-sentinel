@@ -1,13 +1,15 @@
-const logger = require('./logger');
-const { getAllAgents }         = require('./agentDb');
-const { query }               = require('./dbClient');
-const { sendAsAgent }         = require('./agentBots');
-const { getStandupLine }      = require('./agentPersonality');
-const { sendTelegramMessage } = require('./telegramClient');
+import logger from './logger';
+import { getAllAgents } from './agentDb';
+import dbClient from './dbClient';
+import { sendAsAgent } from './agentBots';
+import { getStandupLine } from './agentPersonality';
+import { sendTelegramMessage } from './telegramClient';
 
-const AGENT_ROOM_TOPIC = () => parseInt(process.env.AGENT_ROOM_TOPIC_ID || '494');
+const { query } = dbClient;
 
-async function getRealAgentStats(agentId) {
+const AGENT_ROOM_TOPIC = (): number => parseInt(process.env['AGENT_ROOM_TOPIC_ID'] || '494');
+
+async function getRealAgentStats(agentId: string): Promise<any> {
   const [taskRows, cycleRows] = await Promise.all([
     query(`
       SELECT
@@ -35,7 +37,7 @@ async function getRealAgentStats(agentId) {
   };
 }
 
-async function runAgentStandup() {
+async function runAgentStandup(): Promise<void> {
   logger.info('Running agent standup');
 
   try {
@@ -73,9 +75,9 @@ async function runAgentStandup() {
     }
 
     logger.info('Agent standup complete');
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message }, 'Agent standup failed');
   }
 }
 
-module.exports = { runAgentStandup };
+export = { runAgentStandup };
