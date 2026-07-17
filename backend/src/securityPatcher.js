@@ -1,4 +1,4 @@
-const { execSync } = require('child_process');
+const { execAsync } = require('./utils/execAsync');
 const path         = require('path');
 const os           = require('os');
 const fs           = require('fs');
@@ -60,7 +60,7 @@ async function applySecurityPatches(repoFullName, repoName, issues, topicId) {
     const branchName = `sentinel/security-patch-${Date.now()}`;
     await cloneGit.checkoutLocalBranch(branchName);
 
-    execSync('npm audit fix', { cwd: tmpDir, timeout: 120000, stdio: 'ignore' });
+    await execAsync('npm audit fix', { cwd: tmpDir, timeout: 120000, stdio: 'ignore' });
 
     const status = await cloneGit.status();
     if (status.files.length === 0) {

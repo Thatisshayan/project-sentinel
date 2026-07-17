@@ -553,21 +553,21 @@ async function handleRepoOpsCmd(subcommand, parts, chatId, topicId) {
       return true;
     }
     case 'check-builder': {
-      const { execSync: exec } = require('child_process');
+      const { execAsync } = require('../utils/execAsync');
       const { listBuilders }   = require('../builderRouter');
       const lines = [];
 
       // Check aider binary
       try {
-        const v = exec('aider --version 2>&1', { timeout: 8000 }).toString().trim();
-        lines.push(`✅ aider: ${v}`);
+        const { stdout } = await execAsync('aider --version 2>&1', { timeout: 8000 });
+        lines.push(`✅ aider: ${stdout.trim()}`);
       } catch (e) {
         lines.push(`❌ aider: NOT FOUND — builder tasks will fail`);
       }
 
       // Check git
       try {
-        exec('git --version 2>&1', { timeout: 5000 });
+        await execAsync('git --version 2>&1', { timeout: 5000 });
         lines.push(`✅ git: available`);
       } catch {
         lines.push(`❌ git: NOT FOUND`);

@@ -1,6 +1,6 @@
 const simpleGit  = require('simple-git');
 const tmp        = require('tmp');
-const { spawn, execSync } = require('child_process');
+const { spawn } = require('child_process');
 const fs         = require('fs');
 const path       = require('path');
 const logger     = require('./logger');
@@ -8,6 +8,7 @@ const { runClaudeCodeForTask } = require('./claudeCodeRunner');
 const { getBuilderConfig, getAiderEnv } = require('./builderRouter');
 const { updateAuditTask }    = require('./auditDb');
 const { updateNotionTaskStatus } = require('./auditTaskWriter');
+const { execAsync } = require('./utils/execAsync');
 
 const AIDER_TIMEOUT_MS = parseInt(process.env.AIDER_TIMEOUT_MINUTES || '20', 10) * 60 * 1000;
 
@@ -188,19 +189,19 @@ async function executeBatch(tasks, context, builderAssignment) {
   }
 }
 
-function installDependencies(repoPath) {
+async function installDependencies(repoPath) {
   try {
     if (fs.existsSync(path.join(repoPath, 'package-lock.json'))) {
-      execSync('npm ci --prefer-offline --no-audit', { cwd: repoPath, timeout: 180000, stdio: 'pipe' });
+      await execAsync('npm ci --prefer-offline --no-audit', { cwd: repoPath, timeout: 180000 });
       logger.info({ repoPath }, 'npm ci complete');
     } else if (fs.existsSync(path.join(repoPath, 'package.json'))) {
-      execSync('npm install --no-audit', { cwd: repoPath, timeout: 180000, stdio: 'pipe' });
+      await execAsync('npm install --no-audit', { cwd: repoPath, timeout: 180000 });
       logger.info({ repoPath }, 'npm install complete');
     } else if (fs.existsSync(path.join(repoPath, 'requirements.txt'))) {
-      execSync('pip install -r requirements.txt -q', { cwd: repoPath, timeout: 120000, stdio: 'pipe' });
+      await execAsync('pip install -r requirements.txt -q', { cwd: repoPath, timeout: 120000 });
       logger.info({ repoPath }, 'pip install complete');
     } else if (fs.existsSync(path.join(repoPath, 'go.mod'))) {
-      execSync('go mod download', { cwd: repoPath, timeout: 120000, stdio: 'pipe' });
+      await execAsync('go mod download', { cwd: repoPath, timeout: 120000 });
       logger.info({ repoPath }, 'go mod download complete');
     }
   } catch (err) {

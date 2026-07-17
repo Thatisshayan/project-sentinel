@@ -1,4 +1,4 @@
-const { execSync } = require('child_process');
+const { execAsync } = require('./utils/execAsync');
 const axios        = require('axios');
 const logger       = require('./logger');
 const { insertSecurityIssue } = require('./securityDb');
@@ -18,10 +18,10 @@ async function scanDependencies(repoPath, repoFullName, scanId) {
   let rawAudit = null;
 
   try {
-    const out = execSync('npm audit --json', {
+    const { stdout } = await execAsync('npm audit --json', {
       cwd: repoPath, timeout: 60000, stdio: ['ignore','pipe','ignore'],
-    }).toString();
-    rawAudit = JSON.parse(out);
+    });
+    rawAudit = JSON.parse(stdout);
   } catch (err) {
     try { rawAudit = JSON.parse(err.stdout?.toString() || '{}'); }
     catch { logger.warn({ repoFullName }, 'npm audit parse failed'); return []; }

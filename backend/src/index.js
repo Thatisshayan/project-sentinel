@@ -23,12 +23,13 @@ let discoverAndOnboardRepos;
 try { ({ discoverAndOnboardRepos } = require('./repoDiscovery')); } catch {}
 
 async function probeTools() {
-  const { execSync } = require('child_process');
+  const { execAsync } = require('./utils/execAsync');
   const { logAgentMessage } = require('./agentDb');
 
   // Check aider — log result to agent_messages so it appears in the UI
   try {
-    const v = execSync('aider --version 2>&1', { timeout: 8000 }).toString().trim();
+    const { stdout } = await execAsync('aider --version 2>&1', { timeout: 8000 });
+    const v = stdout.trim();
     logger.info({ version: v }, 'Aider is available');
     await logAgentMessage('sentinel', 'Sentinel', `Builder ready: ${v}`, 'info', null).catch(() => {});
   } catch {
