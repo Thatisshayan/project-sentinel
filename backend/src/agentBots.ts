@@ -1,25 +1,25 @@
-const https  = require('https');
-const logger = require('./logger');
+import https from 'https';
+import logger from './logger';
 
 // Per-agent bot tokens — set in Railway Variables
-const AGENT_BOT_TOKENS = () => ({
-  nvidia:          process.env.BOT_TOKEN_NEMOTRON,
-  qwen_coder:      process.env.BOT_TOKEN_QWEN_CODER,
-  qwen_coder_dash: process.env.BOT_TOKEN_QWEN_DASH,
-  gemini:          process.env.BOT_TOKEN_GEMINI,
-  qwen_max:        process.env.BOT_TOKEN_QWEN_MAX,
-  qwen_turbo:      process.env.BOT_TOKEN_QWEN_TURBO,
-  llama_fast:      process.env.BOT_TOKEN_LLAMA,
-  deepseek:        process.env.BOT_TOKEN_DEEPSEEK,
-  sentinel:        process.env.TELEGRAM_BOT_TOKEN,
+const AGENT_BOT_TOKENS = (): Record<string, string | undefined> => ({
+  nvidia:          process.env['BOT_TOKEN_NEMOTRON'],
+  qwen_coder:      process.env['BOT_TOKEN_QWEN_CODER'],
+  qwen_coder_dash: process.env['BOT_TOKEN_QWEN_DASH'],
+  gemini:          process.env['BOT_TOKEN_GEMINI'],
+  qwen_max:        process.env['BOT_TOKEN_QWEN_MAX'],
+  qwen_turbo:      process.env['BOT_TOKEN_QWEN_TURBO'],
+  llama_fast:      process.env['BOT_TOKEN_LLAMA'],
+  deepseek:        process.env['BOT_TOKEN_DEEPSEEK'],
+  sentinel:        process.env['TELEGRAM_BOT_TOKEN'],
 });
 
-const CHAT_ID  = () => process.env.TELEGRAM_CHAT_ID;
-const TOPIC_ID = () => process.env.AGENT_ROOM_TOPIC_ID;
+const CHAT_ID  = (): string | undefined => process.env['TELEGRAM_CHAT_ID'];
+const TOPIC_ID = (): string | undefined => process.env['AGENT_ROOM_TOPIC_ID'];
 const MAX_LEN  = 4096;
 
 // Send a message from a specific agent's own bot token
-async function sendAsAgent(agentId, text, replyToMessageId = null) {
+async function sendAsAgent(agentId: string, text: string, replyToMessageId: number | null = null): Promise<any> {
   const tokens = AGENT_BOT_TOKENS();
   const token  = tokens[agentId];
 
@@ -41,7 +41,7 @@ async function sendAsAgent(agentId, text, replyToMessageId = null) {
     text:                     safeText,
     parse_mode:               'HTML',
     disable_web_page_preview: true,
-    message_thread_id:        TOPIC_ID() ? parseInt(TOPIC_ID()) : undefined,
+    message_thread_id:        TOPIC_ID() ? parseInt(TOPIC_ID()!) : undefined,
     reply_to_message_id:      replyToMessageId || undefined,
   });
 
@@ -58,7 +58,7 @@ async function sendAsAgent(agentId, text, replyToMessageId = null) {
 
     const req = https.request(options, (res) => {
       let data = '';
-      res.on('data', c => { data += c; });
+      res.on('data', (c: string) => { data += c; });
       res.on('end', () => {
         try {
           const parsed = JSON.parse(data);
@@ -89,7 +89,7 @@ async function sendAsAgent(agentId, text, replyToMessageId = null) {
 }
 
 // Fallback — send via main Sentinel bot with emoji prefix
-async function sendViaSentinel(agentId, text) {
+async function sendViaSentinel(agentId: string, text: string): Promise<any> {
   const { sendTelegramMessage } = require('./telegramClient');
   // Lazy require to avoid circular dependency with agentRoom
   const agentRoom = require('./agentRoom');
@@ -98,12 +98,12 @@ async function sendViaSentinel(agentId, text) {
 }
 
 // Reply to a specific message from an agent's own bot
-async function replyAsAgent(agentId, replyToMessageId, text) {
+async function replyAsAgent(agentId: string, replyToMessageId: number, text: string): Promise<any> {
   return sendAsAgent(agentId, text, replyToMessageId);
 }
 
 // Agent addresses another agent by @mention
-async function agentToAgent(fromAgentId, toAgentId, text) {
+async function agentToAgent(fromAgentId: string, toAgentId: string, text: string): Promise<any> {
   // Lazy require to avoid circular dependency with agentRoom
   const agentRoom = require('./agentRoom');
   const labels    = agentRoom.AGENT_LABELS || {};
@@ -113,10 +113,10 @@ async function agentToAgent(fromAgentId, toAgentId, text) {
 }
 
 // Check which agent bots have tokens configured
-function getConfiguredBots() {
+function getConfiguredBots(): { configured: string[]; missing: string[] } {
   const tokens     = AGENT_BOT_TOKENS();
-  const configured = [];
-  const missing    = [];
+  const configured: string[] = [];
+  const missing: string[]    = [];
 
   for (const [agentId, token] of Object.entries(tokens)) {
     if (agentId === 'sentinel') continue;
@@ -128,7 +128,7 @@ function getConfiguredBots() {
 }
 
 // Set bot description via Telegram API
-async function configureBotProfile(agentId, description) {
+async function configureBotProfile(agentId: string, description: string): Promise<void> {
   const tokens = AGENT_BOT_TOKENS();
   const token  = tokens[agentId];
   if (!token) return;
@@ -147,15 +147,15 @@ async function configureBotProfile(agentId, description) {
   return new Promise((resolve) => {
     const req = https.request(options, (res) => {
       res.on('data', () => {});
-      res.on('end', resolve);
+      res.on('end', () => resolve());
     });
-    req.on('error', resolve);
+    req.on('error', () => resolve());
     req.write(body);
     req.end();
   });
 }
 
-module.exports = {
+export = {
   sendAsAgent,
   replyAsAgent,
   agentToAgent,

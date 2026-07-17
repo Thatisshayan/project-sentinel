@@ -1,4 +1,4 @@
-const PERSONALITIES = {
+const PERSONALITIES: Record<string, string> = {
   nvidia: `You are Nemotron, Sentinel's lead analyst. You are precise, analytical, and methodical.
 You speak in short declarative sentences. You cite data. You flag risks.
 You never speculate. When you don't know something you say so directly.
@@ -33,24 +33,36 @@ You don't get the glamour tasks but you get them done.
 Tone: dependable. No drama.`,
 };
 
-function getPersonalityPrompt(agentId) {
+function getPersonalityPrompt(agentId: string): string {
   return PERSONALITIES[agentId] || '';
 }
 
-const STANDUP_STYLES = {
-  nvidia:          (stats) => `Audited ${stats.audits} repos. ${stats.tasksGenerated} tasks generated. ${stats.failed} failures.`,
-  qwen_coder:      (stats) => `${stats.prs} PRs. ${stats.tasks} tasks done. ${stats.failed} failed. Moving on.`,
-  qwen_coder_dash: (stats) => `Picked up ${stats.tasks} tasks. Completed ${stats.done}. Ready.`,
-  gemini:          (stats) => `Debugged ${stats.debugs} builds. Found ${stats.issues} issues others missed.`,
-  qwen_max:        (stats) => `Handled ${stats.complex} complex tasks. All done.`,
-  qwen_turbo:      (stats) => `${stats.tasks} tasks. ${stats.done} done. Fast as always.`,
-  llama_fast:      (stats) => `Quick work today — ${stats.tasks} tasks, nothing stuck. Good to go.`,
-  deepseek:        (stats) => `Covered ${stats.tasks} fallback tasks. Steady.`,
+type StandupStats = {
+  audits?: number;
+  tasksGenerated?: number;
+  failed?: number;
+  prs?: number;
+  tasks?: number;
+  done?: number;
+  debugs?: number;
+  issues?: number;
+  complex?: number;
 };
 
-function getStandupLine(agentId, stats) {
+const STANDUP_STYLES: Record<string, (stats: StandupStats) => string> = {
+  nvidia:          (stats: StandupStats) => `Audited ${stats.audits} repos. ${stats.tasksGenerated} tasks generated. ${stats.failed} failures.`,
+  qwen_coder:      (stats: StandupStats) => `${stats.prs} PRs. ${stats.tasks} tasks done. ${stats.failed} failed. Moving on.`,
+  qwen_coder_dash: (stats: StandupStats) => `Picked up ${stats.tasks} tasks. Completed ${stats.done}. Ready.`,
+  gemini:          (stats: StandupStats) => `Debugged ${stats.debugs} builds. Found ${stats.issues} issues others missed.`,
+  qwen_max:        (stats: StandupStats) => `Handled ${stats.complex} complex tasks. All done.`,
+  qwen_turbo:      (stats: StandupStats) => `${stats.tasks} tasks. ${stats.done} done. Fast as always.`,
+  llama_fast:      (stats: StandupStats) => `Quick work today — ${stats.tasks} tasks, nothing stuck. Good to go.`,
+  deepseek:        (stats: StandupStats) => `Covered ${stats.tasks} fallback tasks. Steady.`,
+};
+
+function getStandupLine(agentId: string, stats: StandupStats): string {
   const fn = STANDUP_STYLES[agentId];
   return fn ? fn(stats) : `${stats.tasks} tasks completed.`;
 }
 
-module.exports = { getPersonalityPrompt, getStandupLine, PERSONALITIES };
+export = { getPersonalityPrompt, getStandupLine, PERSONALITIES };

@@ -1,9 +1,9 @@
-const logger = require('./logger');
-const { sendAsAgent } = require('./agentBots');
-const { handleMessage } = require('./telegramAI');
+import logger from './logger';
+import { sendAsAgent } from './agentBots';
+import { handleMessage } from './telegramAI';
 
 // Telegram bot username (lowercase, no @) → agent ID
-const BOT_USERNAME_TO_AGENT = {
+const BOT_USERNAME_TO_AGENT: Record<string, string> = {
   nemotronsintel:        'nvidia',          // @nemotronsintelbot
   qwencodersintenel:     'qwen_coder',      // @qwencodersintenelbot (typo in username)
   qwendashsentinel:      'qwen_coder_dash', // @qwendashsentinelbot
@@ -13,7 +13,7 @@ const BOT_USERNAME_TO_AGENT = {
 };
 
 // Returns agent ID if the message is a reply to a specific agent bot, else null
-function detectAgentReply(message) {
+function detectAgentReply(message: any): string | null {
   const replyTo = message?.reply_to_message;
   if (!replyTo) return null;
 
@@ -26,7 +26,7 @@ function detectAgentReply(message) {
 }
 
 // Route a message that is a reply to a specific agent
-async function handleAgentReply(message, agentId, topicId) {
+async function handleAgentReply(message: any, agentId: string, topicId: number): Promise<void> {
   const text      = message.text || '';
   const fromName  = message.from?.first_name || message.from?.username || 'Shayan';
   const messageId = message.message_id;
@@ -41,7 +41,7 @@ async function handleAgentReply(message, agentId, topicId) {
       getAllAgents().catch(() => []),
     ]);
 
-    const thisAgent = agents.find(a => a.agent_id === agentId);
+    const thisAgent = agents.find((a: any) => a.agent_id === agentId);
 
     const agentContext = thisAgent
       ? `You are specifically being addressed as ${thisAgent.agent_label}. ` +
@@ -52,9 +52,9 @@ async function handleAgentReply(message, agentId, topicId) {
       : `You are being directly addressed as agent: ${agentId}`;
 
     // handleMessage(text, fromName, topicId, roomContext, targetAgentId, agentContext, replyToMessageId)
-    await handleMessage(text, fromName, topicId, null, agentId, agentContext, messageId);
+    await handleMessage(text, fromName, topicId, null, agentId as any, agentContext as any, messageId);
 
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message, agentId }, 'Agent reply handling failed');
     await sendAsAgent(
       agentId,
@@ -64,4 +64,4 @@ async function handleAgentReply(message, agentId, topicId) {
   }
 }
 
-module.exports = { detectAgentReply, handleAgentReply };
+export = { detectAgentReply, handleAgentReply };

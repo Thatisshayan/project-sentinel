@@ -1,8 +1,7 @@
-const logger = require('./logger');
-const { registerAgent, setAgentWorking,
-        setAgentIdle, getActiveAgents }  = require('./agentDb');
-const { getBuilderConfig }               = require('./builderRouter');
-const { broadcastToAll }                 = require('./agentRoom');
+import logger from './logger';
+import { registerAgent, setAgentWorking, setAgentIdle, getActiveAgents } from './agentDb';
+import { getBuilderConfig } from './builderRouter';
+import { broadcastToAll } from './agentRoom';
 
 const AGENT_POOL = [
   // { id: 'claude', priority: 1, maxConcurrent: 2 },  // re-add when ANTHROPIC_API_KEY is set
@@ -16,7 +15,7 @@ const AGENT_POOL = [
   { id: 'deepseek',        priority: 4, maxConcurrent: 3 },
 ];
 
-async function initAgentPool() {
+async function initAgentPool(): Promise<void> {
   let registered = 0;
   for (const agent of AGENT_POOL) {
     const config = getBuilderConfig(agent.id);
@@ -28,7 +27,7 @@ async function initAgentPool() {
   logger.info({ registered }, 'Agent pool initialised');
 }
 
-async function selectAgent(taskComplexity, preferredBuilder) {
+async function selectAgent(taskComplexity: string, preferredBuilder?: string): Promise<string> {
   if (preferredBuilder) {
     const config = getBuilderConfig(preferredBuilder);
     if (config && (!config.envKey || process.env[config.envKey])) {
@@ -37,18 +36,18 @@ async function selectAgent(taskComplexity, preferredBuilder) {
   }
 
   const active = await getActiveAgents();
-  const activeCounts = {};
-  active.forEach(a => {
+  const activeCounts: Record<string, number> = {};
+  active.forEach((a: any) => {
     activeCounts[a.agent_id] = (activeCounts[a.agent_id] || 0) + 1;
   });
 
-  const complexityPreference = {
+  const complexityPreference: Record<string, string[]> = {
     low:      ['llama_fast', 'qwen_turbo', 'qwen_coder', 'nvidia'],
     medium:   ['qwen_coder', 'nvidia', 'qwen_coder_dash', 'gemini'],
     high:     ['nvidia', 'qwen_max', 'qwen_coder', 'gemini'],
   };
 
-  const preferred = complexityPreference[taskComplexity] || complexityPreference.medium;
+  const preferred = complexityPreference[taskComplexity] || complexityPreference['medium'] || [];
 
   for (const agentId of preferred) {
     const poolEntry = AGENT_POOL.find(a => a.id === agentId);
@@ -74,18 +73,18 @@ async function selectAgent(taskComplexity, preferredBuilder) {
   }
 
   logger.warn('No available agents — all at capacity');
-  return AGENT_POOL[0].id;
+  return AGENT_POOL[0]!.id;
 }
 
-async function assignAgent(agentId, taskData) {
+async function assignAgent(agentId: string, taskData: any): Promise<void> {
   await setAgentWorking(agentId, taskData);
 }
 
-async function freeAgent(agentId, success = true) {
+async function freeAgent(agentId: string, success = true): Promise<void> {
   await setAgentIdle(agentId, success);
 }
 
-module.exports = {
+export = {
   initAgentPool,
   selectAgent,
   assignAgent,
