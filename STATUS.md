@@ -2,13 +2,13 @@
 
 > **START HERE** if you're an agent or developer new to this codebase. This file is the canonical source of truth for upgrade progress.
 
-## Current Phase: 1 — TypeScript Migration
+## Current Phase: 3 — Security Hardening
 
 **Start date:** 2026-07-16
 **Plan:** `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md`
 **Audit:** `2026-07-16-DeepCodebaseAudit.md`
 **Prerequisite reading:** `AGENTS.md`, `TODO.md`
-**Current branch:** `main`
+**Current branch:** `feat/phase3-security-hardening`
 
 ## Phase Progress
 
@@ -17,7 +17,7 @@
 | 0: Foundation & Safety Net | **Complete** | 100% | None — starting point |
 | 1: TypeScript Migration | **COMPLETE** 🎉 | 100% | Needs Phase 0 |
 | 2: Error Architecture | **COMPLETE** ✅ | 100% | Needs Phase 0-1 |
-| 3: Security Hardening | Pending | 0% | Can overlap with Phases 1-2 |
+| 3: Security Hardening | **IN PROGRESS** 🔒 | 50% | Can overlap with Phases 1-2 |
 | 4: Test Coverage Blitz | Pending | 0% | Needs Phase 0 + 1 |
 | 5: Catch Pattern Elimination | Pending | 0% | Needs Phase 2 + 4 |
 | 6: Architecture Refactoring | Pending | 0% | Needs Phase 4 + 5 |
@@ -46,6 +46,24 @@
 - 1f: Convert all remaining files to TypeScript ✅ PR #20–#21
   - Agent (8 files), Telegram (4), Orchestration (4), Runner (5), God modules (5), Commands/utilities (41 files)
   - `index.ts` entry point — final merge, all `.js` -> `.ts` complete
+
+## Phase 2 — COMPLETE ✅
+- 2.1: AppError taxonomy (`src/errors/errors.ts`, 12 subclasses) ✅ commit `accf464`
+- 2.2: Global error handlers fixed (unhandledRejection, uncaughtException, Express middleware) ✅
+- 2.3: Logger.error full-stack serialization ✅ commit `4a619e2`
+- 2.4: Sentry v8+ wiring ✅
+- 2.5: Structured error responses via Express middleware ✅
+
+## Phase 3 — IN PROGRESS 🔒 (branch `feat/phase3-security-hardening`)
+- 3.1: Timing-safe auth comparisons ✅ commit `35d6e52`
+  - `src/utils/timingSafeCompare.ts` (crypto.timingSafeEqual)
+  - `api.ts` SENTINEL_UI_KEY, `index.ts` DEBUGGER_SHARED_SECRET
+- 3.2: SSL certificate validation (CA cert handling) ✅ commit `2a68f42`
+  - `dbClient.ts` ssl config, `DATABASE_CA_CERT` in `.env.example`
+- 3.3: Rate limiting on API routes — pending (branch)
+- 3.4: Harden UI action proxy (path whitelist) — pending
+- 3.5: Scope environment for child processes — pending
+- 3.6: CSRF/origin check to UI proxy routes — pending
 
 ## TS Files on main (76 files)
 - All files in `backend/src/` — **no .js files remain**

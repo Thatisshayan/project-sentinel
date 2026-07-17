@@ -27,6 +27,7 @@
 - ✅ Global error handlers fixed with Sentry v8+ (Phase 2 Tasks 2.2, 2.4)
 - ✅ Logger.error pattern fixed (Phase 2 Task 2.3) — 67 occurrences
 - ✅ Structured error responses via Express middleware (Phase 2 Task 2.5)
+- ✅ Phase 3 Tasks 3.1–3.2 completed (timing-safe auth, SSL CA handling) on `feat/phase3-security-hardening`
 
 ---
 
@@ -34,4 +35,4 @@
 
 - Phase 2 error architecture is complete. The `AppError` class hierarchy in `src/errors/errors.ts` is the canonical error type. All new errors should subclass `AppError`.
 - Lint for `.ts` files is temporarily disabled. Do not re-enable until `@typescript-eslint` releases a version compatible with TypeScript 7.
-- The `.eslintrc.json` ignores `**/*.ts` via `ignorePatterns`. When lint for TS is re-enabled, remove `**/*.ts` from `ignorePatterns`.
+- The `.eslintrc.json` ignores `**/*.ts` via `ignorePatterns` (added 2026-07-17 to match this register). When lint for TS is re-enabled, remove `**/*.ts` from `ignorePatterns`.
