@@ -1,7 +1,9 @@
-const { query } = require('./dbClient');
-const logger    = require('./logger');
+import dbClient from './dbClient';
+import logger from './logger';
 
-async function initSelfAuditSchema() {
+const { query } = dbClient;
+
+async function initSelfAuditSchema(): Promise<void> {
   await query(`
     CREATE TABLE IF NOT EXISTS self_audit_cycles (
       id              SERIAL PRIMARY KEY,
@@ -71,7 +73,10 @@ async function initSelfAuditSchema() {
 
 // ── Model performance helpers ─────────────────────────────────────────────────
 
-async function recordModelOutcome(data) {
+async function recordModelOutcome(data: {
+  modelId: string; taskType: string; complexity?: string;
+  success: boolean; durationMs?: number; repoFullName?: string;
+}): Promise<void> {
   await query(`
     INSERT INTO model_performance
       (model_id, task_type, complexity, success, duration_ms, repo_full_name)
@@ -82,7 +87,7 @@ async function recordModelOutcome(data) {
   ]);
 }
 
-async function getModelScores(taskType) {
+async function getModelScores(taskType: string): Promise<any[]> {
   const r = await query(`
     SELECT
       model_id,
@@ -100,7 +105,7 @@ async function getModelScores(taskType) {
   return r.rows;
 }
 
-async function getBestModelForTask(taskType) {
+async function getBestModelForTask(taskType: string): Promise<string | null> {
   const scores = await getModelScores(taskType);
   if (scores.length === 0) return null;
   return scores[0].model_id;
@@ -108,7 +113,7 @@ async function getBestModelForTask(taskType) {
 
 // ── Component health helpers ──────────────────────────────────────────────────
 
-async function recordComponentFailure(componentName, errorMessage) {
+async function recordComponentFailure(componentName: string, errorMessage?: string): Promise<void> {
   await query(`
     INSERT INTO component_health
       (component_name, failure_count, last_failure_at, last_error, status)
@@ -126,7 +131,7 @@ async function recordComponentFailure(componentName, errorMessage) {
   `, [componentName, (errorMessage || '').substring(0, 500)]);
 }
 
-async function recordComponentSuccess(componentName) {
+async function recordComponentSuccess(componentName: string): Promise<void> {
   await query(`
     INSERT INTO component_health (component_name, failure_count, status)
     VALUES ($1, 0, 'healthy')
@@ -140,7 +145,7 @@ async function recordComponentSuccess(componentName) {
   `, [componentName]);
 }
 
-async function getDegradedComponents() {
+async function getDegradedComponents(): Promise<any[]> {
   const r = await query(`
     SELECT * FROM component_health
     WHERE status IN ('degraded','failed')
@@ -152,7 +157,7 @@ async function getDegradedComponents() {
 
 // ── Self-audit cycle helpers ──────────────────────────────────────────────────
 
-async function createSelfAuditCycle() {
+async function createSelfAuditCycle(): Promise<any> {
   const r = await query(`
     INSERT INTO self_audit_cycles (status)
     VALUES ('running')
@@ -161,7 +166,7 @@ async function createSelfAuditCycle() {
   return r.rows[0];
 }
 
-async function updateSelfAuditCycle(id, updates) {
+async function updateSelfAuditCycle(id: number, updates: Record<string, any>): Promise<any | null> {
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
   const fields = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
@@ -172,7 +177,7 @@ async function updateSelfAuditCycle(id, updates) {
   return r.rows[0] || null;
 }
 
-module.exports = {
+export = {
   initSelfAuditSchema,
   recordModelOutcome,
   getModelScores,

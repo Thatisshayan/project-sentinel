@@ -1,7 +1,9 @@
-const { query } = require('./dbClient');
-const logger    = require('./logger');
+import dbClient from './dbClient';
+import logger from './logger';
 
-async function initSettingsSchema() {
+const { query } = dbClient;
+
+async function initSettingsSchema(): Promise<void> {
   await query(`
     CREATE TABLE IF NOT EXISTS system_settings (
       id                     SERIAL PRIMARY KEY,
@@ -40,8 +42,8 @@ const SETTINGS_DEFAULTS = {
   fallback_agent: 'gemini',
   telegram_alerts: true,
   email_digest: false,
-  batch_size_override: null,
-  daily_limit_override: null,
+  batch_size_override: null as number | null,
+  daily_limit_override: null as number | null,
 };
 
 async function getSettings() {
@@ -71,7 +73,7 @@ async function getSettings() {
 
   // Guard against individual columns being null/undefined (stale rows,
   // schema drift, or a query result that doesn't carry every column).
-  const merged = { ...SETTINGS_DEFAULTS, updated_at: row.updated_at };
+  const merged: Record<string, any> = { ...SETTINGS_DEFAULTS, updated_at: row.updated_at };
   for (const key of Object.keys(SETTINGS_DEFAULTS)) {
     if (row[key] !== null && row[key] !== undefined) {
       merged[key] = row[key];
@@ -80,7 +82,7 @@ async function getSettings() {
   return merged;
 }
 
-async function updateSettings(updates) {
+async function updateSettings(updates: Record<string, any>) {
   const allowed = [
     'auto_approve_tasks',
     'audit_cooldown_h',
@@ -96,8 +98,8 @@ async function updateSettings(updates) {
   ];
 
   // Build dynamic SET clause
-  const setClauses = [];
-  const values = [];
+  const setClauses: string[] = [];
+  const values: any[] = [];
   let paramIndex = 1;
 
   for (const [key, value] of Object.entries(updates)) {
@@ -125,7 +127,7 @@ async function updateSettings(updates) {
   return r.rows[0] || await getSettings();
 }
 
-module.exports = {
+export = {
   initSettingsSchema,
   getSettings,
   updateSettings,

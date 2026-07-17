@@ -1,7 +1,9 @@
-const { query } = require('./dbClient');
-const logger    = require('./logger');
+import dbClient from './dbClient';
+import logger from './logger';
 
-async function initBusinessSchema() {
+const { query } = dbClient;
+
+async function initBusinessSchema(): Promise<void> {
   // Daily business metric snapshots per repo/service
   await query(`
     CREATE TABLE IF NOT EXISTS business_metrics (
@@ -78,7 +80,10 @@ async function initBusinessSchema() {
 
 // ── Business metrics helpers ──────────────────────────────────────────────────
 
-async function upsertMetric(data) {
+async function upsertMetric(data: {
+  repoName: string; service: string; metricName: string;
+  metricValue: number; metricUnit?: string; recordedDate?: string;
+}): Promise<void> {
   await query(`
     INSERT INTO business_metrics
       (repo_name, service, metric_name, metric_value, metric_unit, recorded_date)
@@ -92,7 +97,7 @@ async function upsertMetric(data) {
   ]);
 }
 
-async function getMetricTrend(repoName, metricName, days = 7) {
+async function getMetricTrend(repoName: string, metricName: string, days = 7): Promise<any[]> {
   const r = await query(`
     SELECT recorded_date, metric_value, metric_unit
     FROM business_metrics
@@ -103,7 +108,7 @@ async function getMetricTrend(repoName, metricName, days = 7) {
   return r.rows;
 }
 
-async function getLatestMetrics(repoName) {
+async function getLatestMetrics(repoName: string): Promise<any[]> {
   const r = await query(`
     SELECT DISTINCT ON (metric_name)
       metric_name, metric_value, metric_unit, recorded_date
@@ -114,7 +119,10 @@ async function getLatestMetrics(repoName) {
   return r.rows;
 }
 
-async function recordPRImpact(data) {
+async function recordPRImpact(data: {
+  repoFullName: string; prNumber: number; prUrl: string;
+  mergedAt: string; preSnapshot: any;
+}): Promise<number | undefined> {
   const r = await query(`
     INSERT INTO pr_impact
       (repo_full_name, pr_number, pr_url, merged_at, pre_merge_snapshot)
@@ -127,7 +135,7 @@ async function recordPRImpact(data) {
   return r.rows[0]?.id;
 }
 
-async function updatePRImpact(id, postSnapshot) {
+async function updatePRImpact(id: number, postSnapshot: any) {
   const pre     = await query('SELECT pre_merge_snapshot FROM pr_impact WHERE id=$1', [id]);
   const preData = pre.rows[0]?.pre_merge_snapshot || {};
   const delta   = calculateDelta(preData, postSnapshot);
@@ -145,8 +153,8 @@ async function updatePRImpact(id, postSnapshot) {
   return { delta, score };
 }
 
-function calculateDelta(pre, post) {
-  const delta = {};
+function calculateDelta(pre: Record<string, any>, post: Record<string, any>) {
+  const delta: Record<string, any> = {};
   for (const key of Object.keys(post)) {
     if (pre[key] !== undefined) {
       delta[key] = {
@@ -162,7 +170,7 @@ function calculateDelta(pre, post) {
   return delta;
 }
 
-function calculateImpactScore(delta) {
+function calculateImpactScore(delta: Record<string, any>): number | string {
   let score = 0;
   let count = 0;
   for (const metric of Object.values(delta)) {
@@ -173,7 +181,11 @@ function calculateImpactScore(delta) {
   return count > 0 ? ((score / count) * 10).toFixed(1) : 0;
 }
 
-async function upsertTaskROI(data) {
+async function upsertTaskROI(data: {
+  auditTaskId: number; repoName: string; baseScore: number;
+  priorityBonus: number; healthBonus: number; revenueBonus: number;
+  finalScore: number; scoringReason: string;
+}): Promise<void> {
   await query(`
     INSERT INTO task_roi_scores
       (audit_task_id, repo_name, base_score, priority_bonus,
@@ -187,7 +199,7 @@ async function upsertTaskROI(data) {
   ]);
 }
 
-module.exports = {
+export = {
   initBusinessSchema,
   upsertMetric,
   getMetricTrend,

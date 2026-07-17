@@ -1,7 +1,9 @@
-const { query } = require('./dbClient');
-const logger    = require('./logger');
+import dbClient from './dbClient';
+import logger from './logger';
 
-async function initPortfolioSchema() {
+const { query } = dbClient;
+
+async function initPortfolioSchema(): Promise<void> {
   // Daily health snapshot per repo
   await query(`
     CREATE TABLE IF NOT EXISTS portfolio_metrics (
@@ -98,7 +100,12 @@ async function initPortfolioSchema() {
 
 // ── Portfolio metrics helpers ─────────────────────────────────────────────────
 
-async function upsertRepoMetrics(data) {
+async function upsertRepoMetrics(data: {
+  repoFullName: string; repoName: string; healthScore?: number;
+  buildStatus?: string; priority?: string; buildsPassedToday?: number;
+  buildsFailedToday?: number; tasksDoneToday?: number; tasksQueued?: number;
+  debuggerRunsToday?: number; lastBuildAt?: string; lastCommitAt?: string;
+}): Promise<void> {
   await query(`
     INSERT INTO portfolio_metrics
       (repo_full_name, repo_name, health_score, build_status,
@@ -113,7 +120,7 @@ async function upsertRepoMetrics(data) {
   ]);
 }
 
-async function getLatestMetrics(repoFullName) {
+async function getLatestMetrics(repoFullName: string): Promise<any | null> {
   const r = await query(`
     SELECT * FROM portfolio_metrics
     WHERE repo_full_name = $1
@@ -122,7 +129,7 @@ async function getLatestMetrics(repoFullName) {
   return r.rows[0] || null;
 }
 
-async function getAllLatestMetrics() {
+async function getAllLatestMetrics(): Promise<any[]> {
   const r = await query(`
     SELECT DISTINCT ON (repo_full_name) *
     FROM portfolio_metrics
@@ -133,7 +140,10 @@ async function getAllLatestMetrics() {
 
 // ── Cost helpers ──────────────────────────────────────────────────────────────
 
-async function logApiCost(data) {
+async function logApiCost(data: {
+  repoFullName?: string; operation: string; model: string;
+  inputTokens?: number; outputTokens?: number; estimatedCost?: number;
+}): Promise<void> {
   await query(`
     INSERT INTO api_costs
       (repo_full_name, operation, model, input_tokens, output_tokens, estimated_cost)
@@ -145,7 +155,7 @@ async function logApiCost(data) {
   ]);
 }
 
-async function getDailyCost() {
+async function getDailyCost(): Promise<number> {
   const r = await query(`
     SELECT COALESCE(SUM(estimated_cost), 0) as total
     FROM api_costs
@@ -154,7 +164,7 @@ async function getDailyCost() {
   return parseFloat(r.rows[0]?.total || '0');
 }
 
-async function getMonthlyCost() {
+async function getMonthlyCost(): Promise<number> {
   const r = await query(`
     SELECT COALESCE(SUM(estimated_cost), 0) as total
     FROM api_costs
@@ -163,7 +173,7 @@ async function getMonthlyCost() {
   return parseFloat(r.rows[0]?.total || '0');
 }
 
-async function getWeeklyCost() {
+async function getWeeklyCost(): Promise<number> {
   const r = await query(`
     SELECT COALESCE(SUM(estimated_cost), 0) as total
     FROM api_costs
@@ -172,7 +182,7 @@ async function getWeeklyCost() {
   return parseFloat(r.rows[0]?.total || '0');
 }
 
-async function getCostByRepo(days = 7) {
+async function getCostByRepo(days = 7): Promise<any[]> {
   const r = await query(`
     SELECT repo_full_name,
            COALESCE(SUM(estimated_cost), 0) as total,
@@ -188,7 +198,10 @@ async function getCostByRepo(days = 7) {
 
 // ── Pattern helpers ───────────────────────────────────────────────────────────
 
-async function upsertPattern(data) {
+async function upsertPattern(data: {
+  patternType: string; patternKey: string; description?: string;
+  affectedRepos?: string[]; severity?: string;
+}): Promise<number> {
   const existing = await query(`
     SELECT id FROM repo_patterns
     WHERE pattern_key = $1 AND status = 'open'
@@ -216,7 +229,7 @@ async function upsertPattern(data) {
   return r.rows[0].id;
 }
 
-async function getOpenPatterns() {
+async function getOpenPatterns(): Promise<any[]> {
   const r = await query(`
     SELECT * FROM repo_patterns
     WHERE status = 'open'
@@ -227,21 +240,23 @@ async function getOpenPatterns() {
 
 // ── Discovered repos helpers ─────────────────────────────────────────────────
 
-async function getDiscoveredRepoNames() {
+async function getDiscoveredRepoNames(): Promise<string[]> {
   const r = await query(`SELECT repo_name FROM discovered_repos`);
-  return r.rows.map(row => row.repo_name);
+  return r.rows.map((row: any) => row.repo_name);
 }
 
-async function getOnboardedDiscoveredRepos() {
+async function getOnboardedDiscoveredRepos(): Promise<{ repoName: string; repoFullName: string }[]> {
   const r = await query(`
     SELECT repo_name, repo_full_name FROM discovered_repos
     WHERE onboarded_at IS NOT NULL
     ORDER BY discovered_at ASC
   `);
-  return r.rows.map(row => ({ repoName: row.repo_name, repoFullName: row.repo_full_name }));
+  return r.rows.map((row: any) => ({ repoName: row.repo_name, repoFullName: row.repo_full_name }));
 }
 
-async function insertDiscoveredRepo({ repoName, repoFullName, githubId, isPrivate }) {
+async function insertDiscoveredRepo({ repoName, repoFullName, githubId, isPrivate }: {
+  repoName: string; repoFullName: string; githubId?: number; isPrivate?: boolean;
+}): Promise<void> {
   await query(`
     INSERT INTO discovered_repos (repo_name, repo_full_name, github_id, is_private)
     VALUES ($1, $2, $3, $4)
@@ -249,7 +264,7 @@ async function insertDiscoveredRepo({ repoName, repoFullName, githubId, isPrivat
   `, [repoName, repoFullName, githubId ?? null, isPrivate ?? true]);
 }
 
-async function markDiscoveredRepoOnboarded(repoName, error = null) {
+async function markDiscoveredRepoOnboarded(repoName: string, error: string | null = null): Promise<void> {
   await query(`
     UPDATE discovered_repos
     SET onboarded_at = CASE WHEN $2::text IS NULL THEN NOW() ELSE onboarded_at END,
@@ -258,7 +273,7 @@ async function markDiscoveredRepoOnboarded(repoName, error = null) {
   `, [repoName, error]);
 }
 
-module.exports = {
+export = {
   initPortfolioSchema,
   upsertRepoMetrics,
   getLatestMetrics,
