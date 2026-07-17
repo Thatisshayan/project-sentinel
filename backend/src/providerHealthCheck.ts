@@ -1,34 +1,38 @@
-const axios   = require('axios');
-const logger  = require('./logger');
+import axios from 'axios';
+import logger from './logger';
 
-// T15 — probe each configured AI provider (quick ping, non-blocking).
-// Used at startup (index.js) and on a daily cron (workers.js) so that
-// agents whose key goes bad mid-day are caught too, not just on deploy.
-async function probeAIProviders() {
-  const probes = [
+interface ProviderProbe {
+  name: string;
+  key: string;
+  url: string;
+  auth: () => string;
+}
+
+async function probeAIProviders(): Promise<string[]> {
+  const probes: ProviderProbe[] = [
     {
       name: 'NVIDIA NIM', key: 'NVIDIA_API_KEY',
       url:  'https://integrate.api.nvidia.com/v1/models',
-      auth: () => `Bearer ${process.env.NVIDIA_API_KEY}`,
+      auth: () => `Bearer ${process.env['NVIDIA_API_KEY']}`,
     },
     {
       name: 'Gemini',    key: 'GEMINI_API_KEY',
       url:  'https://generativelanguage.googleapis.com/v1beta/openai/models',
-      auth: () => `Bearer ${process.env.GEMINI_API_KEY}`,
+      auth: () => `Bearer ${process.env['GEMINI_API_KEY']}`,
     },
     {
       name: 'DashScope (Qwen)', key: 'DASHSCOPE_API_KEY',
-      url:  `${process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}/models`,
-      auth: () => `Bearer ${process.env.DASHSCOPE_API_KEY}`,
+      url:  `${process.env['DASHSCOPE_BASE_URL'] || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}/models`,
+      auth: () => `Bearer ${process.env['DASHSCOPE_API_KEY']}`,
     },
     {
       name: 'DeepSeek', key: 'DEEPSEEK_API_KEY',
       url:  'https://api.deepseek.com/models',
-      auth: () => `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+      auth: () => `Bearer ${process.env['DEEPSEEK_API_KEY']}`,
     },
   ];
 
-  const results = [];
+  const results: string[] = [];
   for (const p of probes) {
     if (!process.env[p.key]) {
       results.push(`  ○ ${p.name}: key not set`);
@@ -41,7 +45,7 @@ async function probeAIProviders() {
       });
       results.push(`  ✓ ${p.name}: reachable`);
       logger.info({ provider: p.name }, 'AI provider reachable');
-    } catch (err) {
+    } catch (err: any) {
       const status = err.response?.status;
       if (status === 401 || status === 403) {
         results.push(`  ✗ ${p.name}: key invalid (${status})`);
@@ -72,7 +76,7 @@ async function probeAIProviders() {
 
     // Mark affected agents as error so the UI shows truth instead of idle
     const { markAgentError } = require('./agentDb');
-    const PROVIDER_AGENT_MAP = {
+    const PROVIDER_AGENT_MAP: Record<string, string[]> = {
       'NVIDIA NIM':       ['nvidia', 'qwen_coder', 'llama_fast'],
       'Gemini':           ['gemini'],
       'DashScope (Qwen)': ['qwen_coder_dash', 'qwen_max', 'qwen_turbo'],
@@ -80,7 +84,7 @@ async function probeAIProviders() {
     };
     for (const line of invalidProviders) {
       const provider = line.match(/✗ (.+?):/)?.[1];
-      for (const agentId of (PROVIDER_AGENT_MAP[provider] || [])) {
+      for (const agentId of (PROVIDER_AGENT_MAP[provider || ''] || [])) {
         await markAgentError(agentId, 'invalid_api_key').catch(() => {});
       }
     }
@@ -89,4 +93,4 @@ async function probeAIProviders() {
   return results;
 }
 
-module.exports = { probeAIProviders };
+export = { probeAIProviders };

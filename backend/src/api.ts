@@ -4,24 +4,28 @@
  * All routes prefixed /api when mounted in index.js
  */
 
-const router  = require('express').Router();
-const { query } = require('./dbClient');
-const logger  = require('./logger');
-const { repoFullName } = require('./repoResolver');
+import express from 'express';
+import dbClient from './dbClient';
+const { query } = dbClient;
+import logger from './logger';
+import { repoFullName } from './repoResolver';
+
+const router = express.Router();
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
-router.use((req, res, next) => {
-  const key = process.env.SENTINEL_UI_KEY;
+router.use((req: any, res: any, next: any) => {
+  const key = process.env['SENTINEL_UI_KEY'];
   if (key && req.headers['x-sentinel-key'] !== key) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
   }
   next();
 });
 
 // ── Portfolio overview ────────────────────────────────────────────────────────
 
-router.get('/portfolio', async (req, res) => {
+router.get('/portfolio', async (req: any, res: any) => {
   try {
     // Latest snapshot per repo. health_score is picked from the most recent
     // row where it is non-null — a null row written at webhook-receipt time
@@ -86,7 +90,7 @@ router.get('/portfolio', async (req, res) => {
       tasksQueued: parseInt(tasks.rows[0]?.queued || 0),
       healthDelta,
     });
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message }, 'GET /portfolio error');
     res.status(500).json({ error: err.message });
   }
@@ -94,12 +98,13 @@ router.get('/portfolio', async (req, res) => {
 
 // ── Single repo ───────────────────────────────────────────────────────────────
 
-router.get('/repo/:name', async (req, res) => {
+router.get('/repo/:name', async (req: any, res: any) => {
   try {
     const name = req.params.name;
 
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
-      return res.status(400).json({ error: 'Invalid repo name' });
+      res.status(400).json({ error: 'Invalid repo name' });
+      return;
     }
 
     const metrics = await query(`
@@ -122,25 +127,26 @@ router.get('/repo/:name', async (req, res) => {
       ORDER BY created_at DESC LIMIT 1
     `, [`%/${name}`]);
 
-    if (!metrics.rows[0]) return res.status(404).json({ error: 'Repo not found' });
+    if (!metrics.rows[0]) { res.status(404).json({ error: 'Repo not found' }); return; }
 
     res.json({
       ...metrics.rows[0],
       tasks: tasks.rows,
       lastCycle: cycle.rows[0] || null,
     });
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message }, 'GET /repo/:name error');
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/repo/:name/tasks', async (req, res) => {
+router.get('/repo/:name/tasks', async (req: any, res: any) => {
   try {
     const name = req.params.name;
 
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
-      return res.status(400).json({ error: 'Invalid repo name' });
+      res.status(400).json({ error: 'Invalid repo name' });
+      return;
     }
 
     const r = await query(`
@@ -150,14 +156,14 @@ router.get('/repo/:name/tasks', async (req, res) => {
       ORDER BY at.priority ASC, at.task_number ASC
     `, [`%/${name}`]);
     res.json(r.rows);
-  } catch (err) {
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 
-router.get('/agents', async (req, res) => {
+router.get('/agents', async (req: any, res: any) => {
   try {
     const r = await query(`
       SELECT agent_id, agent_label, repo_full_name, task_id, task_title,
@@ -166,12 +172,12 @@ router.get('/agents', async (req, res) => {
       ORDER BY last_active_at DESC
     `);
     res.json(r.rows);
-  } catch (err) {
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/agents/:id/toggle', async (req, res) => {
+router.post('/agents/:id/toggle', async (req: any, res: any) => {
   try {
     const r = await query(`
       UPDATE agent_registry
@@ -180,19 +186,20 @@ router.post('/agents/:id/toggle', async (req, res) => {
       WHERE agent_id = $1
       RETURNING *
     `, [req.params.id]);
-    if (!r.rows[0]) return res.status(404).json({ error: 'Agent not found' });
+    if (!r.rows[0]) { res.status(404).json({ error: 'Agent not found' }); return; }
     res.json(r.rows[0]);
-  } catch (err) {
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ── Dashboard command — routes text from UI chat into Sentinel brain ──────────
 
-router.post('/command', async (req, res) => {
+router.post('/command', async (req: any, res: any) => {
   const { text, fromName = 'Dashboard' } = req.body || {};
   if (!text || typeof text !== 'string') {
-    return res.status(400).json({ error: 'text required' });
+    res.status(400).json({ error: 'text required' });
+    return;
   }
 
   // Log the user's message into agent_messages so the UI sees it
@@ -201,7 +208,7 @@ router.post('/command', async (req, res) => {
 
   // Fire command through the real handler (non-blocking — response arrives via agent_messages poll)
   const { handleCommand } = require('./telegramCommands');
-  handleCommand(text, null, null, fromName, null).catch(err =>
+  handleCommand(text, null, null, fromName, null).catch((err: any) =>
     logger.warn({ err: err.message }, 'Dashboard command failed')
   );
 
@@ -210,7 +217,7 @@ router.post('/command', async (req, res) => {
 
 // ── Agent room messages ───────────────────────────────────────────────────────
 
-router.get('/agent-room/messages', async (req, res) => {
+router.get('/agent-room/messages', async (req: any, res: any) => {
   try {
     const limit = Math.min(parseInt(req.query.limit || '50'), 200);
     const r = await query(`
@@ -220,21 +227,21 @@ router.get('/agent-room/messages', async (req, res) => {
       LIMIT $1
     `, [limit]);
     res.json(r.rows.reverse()); // chronological order
-  } catch (err) {
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ── Sprints ───────────────────────────────────────────────────────────────────
 
-router.get('/sprints/current', async (req, res) => {
+router.get('/sprints/current', async (req: any, res: any) => {
   try {
     const sprint = await query(`
       SELECT * FROM sprints
       WHERE status IN ('approved','executing','proposed')
       ORDER BY week_start DESC LIMIT 1
     `);
-    if (!sprint.rows[0]) return res.json(null);
+    if (!sprint.rows[0]) { res.json(null); return; }
 
     const tasks = await query(`
       SELECT * FROM sprint_tasks
@@ -252,41 +259,41 @@ router.get('/sprints/current', async (req, res) => {
       tasks: tasks.rows,
       velocity: velocity.rows.reverse(),
     });
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message }, 'GET /sprints/current error');
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/sprint/approve', async (req, res) => {
+router.post('/sprint/approve', async (req: any, res: any) => {
   try {
     const { sprintId } = req.body;
     const r = await query(`
       UPDATE sprints SET status='approved', approved_at=NOW()
       WHERE id = $1 RETURNING *
     `, [sprintId]);
-    if (!r.rows[0]) return res.status(404).json({ error: 'Sprint not found' });
+    if (!r.rows[0]) { res.status(404).json({ error: 'Sprint not found' }); return; }
     res.json(r.rows[0]);
-  } catch (err) {
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/sprint/skip', async (req, res) => {
+router.post('/sprint/skip', async (req: any, res: any) => {
   try {
     const { sprintId } = req.body;
     const r = await query(`
       UPDATE sprints SET status='skipped' WHERE id=$1 RETURNING *
     `, [sprintId]);
     res.json(r.rows[0] || {});
-  } catch (err) {
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ── Security ──────────────────────────────────────────────────────────────────
 
-router.get('/security/portfolio', async (req, res) => {
+router.get('/security/portfolio', async (req: any, res: any) => {
   try {
     const scores = await query(`
       SELECT DISTINCT ON (repo_name)
@@ -309,19 +316,20 @@ router.get('/security/portfolio', async (req, res) => {
     `);
 
     res.json({ scores: scores.rows, issues: issues.rows });
-  } catch (err) {
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ── Builder management ────────────────────────────────────────────────────────
 
-router.post('/system/set-builder', async (req, res) => {
+router.post('/system/set-builder', async (req: any, res: any) => {
   try {
     const { repoName, builder } = req.body;
     const { getBuilderConfig } = require('./builderRouter');
     if (!getBuilderConfig(builder)) {
-      return res.status(400).json({ error: `Unknown builder: ${builder}` });
+      res.status(400).json({ error: `Unknown builder: ${builder}` });
+      return;
     }
     const r = await query(`
       UPDATE audit_tasks SET builder_agent = $1
@@ -329,14 +337,14 @@ router.post('/system/set-builder', async (req, res) => {
       RETURNING id
     `, [builder, `%/${repoName}`]);
     res.json({ ok: true, updated: r.rows.length, builder });
-  } catch (err) {
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ── Repo actions ──────────────────────────────────────────────────────────────
 
-router.post('/repo/:name/audit', async (req, res) => {
+router.post('/repo/:name/audit', async (req: any, res: any) => {
   // Respond immediately; audit runs async in background
   res.json({ ok: true, message: `Audit queued for ${req.params.name}` });
   try {
@@ -352,16 +360,16 @@ router.post('/repo/:name/audit', async (req, res) => {
       authorName:    'Dashboard',
       authorEmail:   '',
       topicId:       null,
-    }).catch(err => logger.warn({ err: err.message, name }, 'Dashboard audit failed'));
-  } catch (err) {
+    }).catch((err: any) => logger.warn({ err: err.message, name }, 'Dashboard audit failed'));
+  } catch (err: any) {
     logger.warn({ err: err.message }, 'Could not start dashboard audit');
   }
 });
 
-router.post('/system/audit-all', (req, res) => {
+router.post('/system/audit-all', (req: any, res: any) => {
   const { REPO_LIST }   = require('./portfolioAnalytics');
   const { triggerAudit } = require('./auditOrchestrator');
-  const { repoFullName } = require('./repoResolver');
+  const { repoFullName: resolverFullName } = require('./repoResolver');
   res.json({ ok: true, queued: REPO_LIST.length });
   for (const repo of REPO_LIST) {
     triggerAudit({
@@ -374,11 +382,11 @@ router.post('/system/audit-all', (req, res) => {
       authorName:    'Dashboard',
       authorEmail:   '',
       topicId:       null,
-    }).catch(err => logger.warn({ err: err.message, repo: repo.repoName }, 'Bulk audit item failed'));
+    }).catch((err: any) => logger.warn({ err: err.message, repo: repo.repoName }, 'Bulk audit item failed'));
   }
 });
 
-router.post('/system/security-scan', (req, res) => {
+router.post('/system/security-scan', (req: any, res: any) => {
   const { REPO_LIST }     = require('./portfolioAnalytics');
   const { runSecurityScan } = require('./securityScanner');
   res.json({ ok: true, queued: REPO_LIST.length });
@@ -388,41 +396,41 @@ router.post('/system/security-scan', (req, res) => {
       repoName:     repo.repoName,
       commitSha:    'HEAD',
       topicId:      null,
-    }).catch(err => logger.warn({ err: err.message, repo: repo.repoName }, 'Bulk scan item failed'));
+    }).catch((err: any) => logger.warn({ err: err.message, repo: repo.repoName }, 'Bulk scan item failed'));
   }
 });
 
-router.post('/security/issue/:id/patch', (req, res) => {
+router.post('/security/issue/:id/patch', (req: any, res: any) => {
   res.status(501).json({
     error: 'Not implemented — use Telegram command /sentinel security-patch <repo> to patch issues',
   });
 });
 
-router.post('/system/pause', async (req, res) => {
+router.post('/system/pause', async (req: any, res: any) => {
   try {
     await query(`
       UPDATE agent_registry SET status='paused' WHERE status='idle'
     `);
     res.json({ ok: true });
-  } catch (err) {
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/system/resume', async (req, res) => {
+router.post('/system/resume', async (req: any, res: any) => {
   try {
     await query(`
       UPDATE agent_registry SET status='idle' WHERE status='paused'
     `);
     res.json({ ok: true });
-  } catch (err) {
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ── Cost data ─────────────────────────────────────────────────────────────────
 
-router.get('/costs', async (req, res) => {
+router.get('/costs', async (req: any, res: any) => {
   try {
     const monthly = await query(`
       SELECT COALESCE(SUM(estimated_cost), 0) AS total
@@ -441,17 +449,17 @@ router.get('/costs', async (req, res) => {
       monthly: parseFloat(monthly.rows[0]?.total || 0),
       byRepo: byRepo.rows,
     });
-  } catch (err) {
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/integrations/status', async (req, res) => {
+router.get('/integrations/status', async (req: any, res: any) => {
   try {
     const { getIntegrationsStatus } = require('./integrationsStatus');
     const status = await getIntegrationsStatus();
     res.json(status);
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message }, 'GET /integrations/status error');
     res.status(500).json({ error: err.message });
   }
@@ -459,26 +467,26 @@ router.get('/integrations/status', async (req, res) => {
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 
-router.get('/settings', async (req, res) => {
+router.get('/settings', async (req: any, res: any) => {
   try {
     const { getSettings } = require('./settingsDb');
     const settings = await getSettings();
     res.json(settings);
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message }, 'GET /settings error');
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/settings/update', async (req, res) => {
+router.post('/settings/update', async (req: any, res: any) => {
   try {
     const { updateSettings } = require('./settingsDb');
     const updated = await updateSettings(req.body);
     res.json(updated);
-  } catch (err) {
+  } catch (err: any) {
     logger.error({ err: err.message }, 'POST /settings/update error');
     res.status(500).json({ error: err.message });
   }
 });
 
-module.exports = router;
+export = router;
