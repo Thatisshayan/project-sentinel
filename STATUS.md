@@ -8,14 +8,14 @@
 **Plan:** `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md`
 **Audit:** `2026-07-16-DeepCodebaseAudit.md`
 **Prerequisite reading:** `AGENTS.md`, `TODO.md`
-**Current branch:** `feat/phase1-typescript-migration`
+**Current branch:** `main`
 
 ## Phase Progress
 
 | Phase | Status | % Complete | Dependencies |
 |-------|--------|-----------|-------------|
 | 0: Foundation & Safety Net | **Complete** | 100% | None — starting point |
-| 1: TypeScript Migration | **IN PROGRESS** | 30% | Needs Phase 0 |
+| 1: TypeScript Migration | **IN PROGRESS** | 50% | Needs Phase 0 |
 | 2: Error Architecture | Pending | 0% | Needs Phase 0-1 |
 | 3: Security Hardening | Pending | 0% | Can overlap with Phases 1-2 |
 | 4: Test Coverage Blitz | Pending | 0% | Needs Phase 0 + 1 |
@@ -31,16 +31,27 @@
 - 0.5: Security audit CI (npm audit, gitleaks, weekly OWASP dependency check)
 - 0.6: Branch protection (enabled via GitHub UI)
 
-## Phase 1 — In Progress Tasks
-- 1a: TypeScript config (`tsconfig.json`, `package.json`, typecheck scripts) ✅
-- 1b: CI typecheck step added to workflow ✅
-- 1c: Convert core files to `.ts` (index.js, utils/*, commands/*) — **BLOCKED: cannot push due to branch protection**
-- 1d: Incrementally convert remaining `src/*.js` to `.ts` — BLOCKED
+## Phase 1 — Completed Tasks
+- 1a: TypeScript config (`tsconfig.json`, `package.json`, typecheck scripts) ✅ PR #11
+- 1b: CI typecheck step added to workflow ✅ PR #11
+- 1c: Convert logger + dbClient to TypeScript ✅ PR #12
+  - `logger.ts` with `export =` for CJS compat (78+ consumers)
+  - `dbClient.ts` with typed query function, interfaces
+  - Added `@swc/core` + `@swc/jest` for Jest TS support
+  - Jest config: moduleNameMapper, .test.ts match, .ts coverage
 
-## Blockers
-- Branch protection ruleset "Sentinel Branch Protection" (ID 19080973) blocks direct pushes to ALL branches
-- PRs require passing status checks (`backend` + `backend-scheduled`) + code scanning before merge
-- **Resolution:** User must temporarily disable ruleset in GitHub Settings, or push via a PR workflow
+## Phase 1 — Remaining Tasks
+- 1d: Convert `*Db.js` files (7 files: agentDb, auditDb, businessDb, portfolioDb, securityDb, settingsDb, sprintDb, selfAuditDb)
+- 1e: Convert security cluster (securityScanner, securityPatcher, dependencyScanner, secretScanner, owaspChecker)
+- 1f: Convert remaining core files (health, webhook, api, workers, index, etc.)
+
+## TS Files on main (8 files)
+- `src/errors/codes.ts`
+- `src/errors/errorClasses.ts`
+- `src/errors/sentry.ts`
+- `src/utils/execAsync.ts`
+- `src/logger.ts` ← NEW
+- `src/dbClient.ts` ← NEW
 
 ## Active Task List
 
