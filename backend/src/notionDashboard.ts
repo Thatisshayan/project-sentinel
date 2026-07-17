@@ -111,7 +111,7 @@ async function updateDashboard(): Promise<void> {
     logger.info('Notion dashboard updated');
 
   } catch (err: any) {
-    logger.error({ err: err.message }, 'Dashboard update failed — non-blocking');
+    logger.error({ err: err.stack ?? err.message }, 'Dashboard update failed — non-blocking');
   }
 }
 
@@ -171,3 +171,4 @@ function code(text: string): any {
 }
 
 export = { updateDashboard };
+

@@ -76,8 +76,9 @@ async function runAgentStandup(): Promise<void> {
 
     logger.info('Agent standup complete');
   } catch (err: any) {
-    logger.error({ err: err.message }, 'Agent standup failed');
+    logger.error({ err: err.stack ?? err.message }, 'Agent standup failed');
   }
 }
 
 export = { runAgentStandup };
+

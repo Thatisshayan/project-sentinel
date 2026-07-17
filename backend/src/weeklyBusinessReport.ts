@@ -76,8 +76,9 @@ async function generateWeeklyReport(): Promise<void> {
 
     logger.info('Weekly business report sent');
   } catch (err: any) {
-    logger.error({ err: err.message }, 'Weekly business report failed');
+    logger.error({ err: err.stack ?? err.message }, 'Weekly business report failed');
   }
 }
 
 export = { generateWeeklyReport };
+

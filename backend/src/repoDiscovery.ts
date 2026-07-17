@@ -44,7 +44,7 @@ async function discoverAndOnboardRepos(): Promise<{ discovered: number; repos?: 
   try {
     ghRepos = await listAllOwnedRepos();
   } catch (err: any) {
-    logger.error({ err: err.message }, 'Repo discovery: GitHub list failed');
+    logger.error({ err: err.stack ?? err.message }, 'Repo discovery: GitHub list failed');
     return { discovered: 0, error: err.message };
   }
 
@@ -73,7 +73,7 @@ async function discoverAndOnboardRepos(): Promise<{ discovered: number; repos?: 
     await insertDiscoveredRepo({
       repoName: BASELINE_MARKER, repoFullName: 'internal/baseline-marker',
       githubId: 0, isPrivate: true,
-    }).catch((err: any) => logger.error({ err: err.message }, 'Failed to write baseline marker — discovery will re-seed next run'));
+    }).catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'Failed to write baseline marker — discovery will re-seed next run'));
     return { discovered: 0, seeded: newRepos.length };
   }
 
@@ -95,7 +95,7 @@ async function discoverAndOnboardRepos(): Promise<{ discovered: number; repos?: 
       await onboardRepo(repo.name);
       await markDiscoveredRepoOnboarded(repo.name);
     } catch (err: any) {
-      logger.error({ err: err.message, repoName: repo.name }, 'Repo discovery: onboarding failed');
+      logger.error({ err: err.stack ?? err.message, repoName: repo.name }, 'Repo discovery: onboarding failed');
       await markDiscoveredRepoOnboarded(repo.name, err.message).catch(() => {});
     }
   }
@@ -110,3 +110,4 @@ async function getFullRepoList(): Promise<Array<{ repoName: string; repoFullName
 }
 
 export = { discoverAndOnboardRepos, getFullRepoList, listAllOwnedRepos };
+

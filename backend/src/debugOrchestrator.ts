@@ -126,7 +126,7 @@ async function orchestrateDebug(payload: any): Promise<void> {
   try {
     fixResult = await cloneAndFix(fixContext);
   } catch (err: any) {
-    logger.error({ err: err.message }, 'cloneAndFix threw unexpectedly');
+    logger.error({ err: err.stack ?? err.message }, 'cloneAndFix threw unexpectedly');
     fixResult = { status: 'error', reason: err.message };
   }
 
@@ -329,3 +329,4 @@ function buildExhaustedMessage(d: any): string {
 }
 
 export = { orchestrateDebug };
+

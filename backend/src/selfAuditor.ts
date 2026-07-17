@@ -114,7 +114,7 @@ async function runSelfAudit(): Promise<void> {
     );
 
   } catch (err: any) {
-    logger.error({ err: err.message }, 'Self-audit failed');
+    logger.error({ err: err.stack ?? err.message }, 'Self-audit failed');
     await updateSelfAuditCycle(selfCycle.id, { status: 'failed' }).catch(() => {});
     await sendTelegramMessage(
       `🛡️ Sentinel Self-Audit Failed\n\nError: ${err.message.substring(0, 200)}`,
@@ -124,3 +124,4 @@ async function runSelfAudit(): Promise<void> {
 }
 
 export = { runSelfAudit };
+

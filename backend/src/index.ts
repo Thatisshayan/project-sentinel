@@ -188,7 +188,7 @@ app.post('/webhook/telegram', async (req: express.Request, res: express.Response
   try {
     await handleCommand(message.text, chatId, topicId, fromName, message);
   } catch (err: any) {
-    logger.error({ err: err.message }, 'Telegram command handler error');
+    logger.error({ err: err.stack ?? err.message }, 'Telegram command handler error');
   }
 
   res.status(200).json({ ok: true });
@@ -419,7 +419,7 @@ app.listen(PORT, () => {
       logger.warn({ err: err.message }, 'Startup GitHub metrics sync failed — non-blocking')
     );
   } catch (err: any) {
-    logger.error({ err: err.message }, 'Failed to initialise Phase 2 components');
+    logger.error({ err: err.stack ?? err.message }, 'Failed to initialise Phase 2 components');
   }
 })();
 
@@ -499,3 +499,4 @@ process.on('uncaughtException', (err: Error) => {
   // Note: DiD violated here — only safe for uncaught exceptions (no recovery possible)
   process.exit(1);
 });
+

@@ -55,7 +55,7 @@ async function handleAgentReply(message: any, agentId: string, topicId: number):
     await handleMessage(text, fromName, topicId, undefined, agentId as any, agentContext as any, messageId);
 
   } catch (err: any) {
-    logger.error({ err: err.message, agentId }, 'Agent reply handling failed');
+    logger.error({ err: err.stack ?? err.message, agentId }, 'Agent reply handling failed');
     await sendAsAgent(
       agentId,
       'Sorry, I had trouble processing that. Try again or use /sentinel agents.',
@@ -65,3 +65,4 @@ async function handleAgentReply(message: any, agentId: string, topicId: number):
 }
 
 export = { detectAgentReply, handleAgentReply };
+

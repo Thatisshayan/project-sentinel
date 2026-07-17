@@ -182,7 +182,7 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
     };
 
   } catch (err: any) {
-    logger.error({ err: err.message, repoFullName }, 'executeBatch threw an error');
+    logger.error({ err: err.stack ?? err.message, repoFullName }, 'executeBatch threw an error');
     return { status: 'error', reason: err.message };
   } finally {
     try { tmpDir.removeCallback(); } catch (e) {}
@@ -314,3 +314,4 @@ RULES:
 }
 
 export = { executeBatch };
+

@@ -146,8 +146,9 @@ Max 200 words. Start with "📊 Weekly Update —" and today's date (${todayStr}
     logger.info('CEO report sent');
 
   } catch (err: any) {
-    logger.error({ err: err.message }, 'CEO report failed');
+    logger.error({ err: err.stack ?? err.message }, 'CEO report failed');
   }
 }
 
 export = { generateCEOReport };
+

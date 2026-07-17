@@ -107,7 +107,7 @@ async function handleExecute(repoArg: string, topicId: number | null): Promise<b
   }
   await sendTelegramMessage(`Starting task execution for ${repoArg}...`, null, topicId);
   executeApprovedTasks(repoFullName(repoArg), repoArg, topicId)
-    .catch((err: any) => logger.error({ err: err.message }, 'Execute failed'));
+    .catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'Execute failed'));
   return true;
 }
 
@@ -137,7 +137,7 @@ async function handleManualAudit(repoArg: string, topicId: number | null): Promi
     authorName:    'Human',
     authorEmail:   '',
     topicId,
-  }).catch((err: any) => logger.error({ err: err.message }, 'Manual audit failed'));
+  }).catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'Manual audit failed'));
   return true;
 }
 
@@ -315,7 +315,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       );
       if (count > 0) {
         executeApprovedTasks(repoFullName(parts[2]), parts[2], topicId)
-          .catch((err: any) => logger.error({ err: err.message }, 'Force-execute failed'));
+          .catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'Force-execute failed'));
       }
       return true;
     }
@@ -428,7 +428,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       const { runStrategicBrain } = require('../sentinelBrain') as { runStrategicBrain: (topicId?: number | null) => Promise<void> };
       await sendTelegramMessage('🧠 Running strategic brain...', null, topicId);
       runStrategicBrain(topicId).catch((err: any) =>
-        logger.error({ err: err.message }, 'Manual brain run failed')
+        logger.error({ err: err.stack ?? err.message }, 'Manual brain run failed')
       );
       return true;
     }
@@ -465,7 +465,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       try {
         await dbQuery(`UPDATE agent_registry SET status='paused' WHERE status='idle'`);
       } catch (err: any) {
-        logger.error({ err: err.message }, 'Telegram pause failed to update agent_registry');
+        logger.error({ err: err.stack ?? err.message }, 'Telegram pause failed to update agent_registry');
       }
       await sendTelegramMessage(
         '⏸ All automation paused.\nSprints, audits, and builds will not auto-execute. All idle agents have been paused.\nSend /sentinel resume to restart.',
@@ -477,7 +477,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       try {
         await dbQuery(`UPDATE agent_registry SET status='idle' WHERE status='paused'`);
       } catch (err: any) {
-        logger.error({ err: err.message }, 'Telegram resume failed to update agent_registry');
+        logger.error({ err: err.stack ?? err.message }, 'Telegram resume failed to update agent_registry');
       }
       await sendTelegramMessage('▶️ Automation resumed. Paused agents are idle again.', null, topicId);
       return true;
@@ -581,3 +581,4 @@ export = {
   handleHelp, handleExecute, handleSkipAudit, handleManualAudit,
   handleListTasks, handleSkipBatch,
 };
+

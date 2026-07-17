@@ -142,7 +142,7 @@ async function runSecurityScan(data: ScanData) {
     return { securityScore, issues: allIssues, counts };
 
   } catch (err: any) {
-    logger.error({ err: err.message, repoFullName }, 'Security scan failed');
+    logger.error({ err: err.stack ?? err.message, repoFullName }, 'Security scan failed');
     if (scan?.id) {
       await updateSecurityScan(scan.id, { status: 'failed' }).catch(() => {});
     }
@@ -155,3 +155,4 @@ async function runSecurityScan(data: ScanData) {
 }
 
 export = { runSecurityScan };
+

@@ -6,7 +6,7 @@ async function handleSprintCmd(subcommand: string, parts: string[], chatId: stri
   switch (subcommand) {
     case 'approve-sprint': {
       approveSprint(topicId)
-        .catch((err: any) => logger.error({ err: err.message }, 'approve-sprint failed'));
+        .catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'approve-sprint failed'));
       return true;
     }
     case 'skip-sprint': {
@@ -36,7 +36,7 @@ async function handleSprintCmd(subcommand: string, parts: string[], chatId: stri
       const { generateSprintProposal } = require('../sprintPlanner') as { generateSprintProposal: () => Promise<any> };
       await sendTelegramMessage('Generating sprint proposal...', null, topicId);
       generateSprintProposal().catch((err: any) =>
-        logger.error({ err: err.message }, 'Manual sprint proposal failed')
+        logger.error({ err: err.stack ?? err.message }, 'Manual sprint proposal failed')
       );
       return true;
     }
@@ -69,3 +69,4 @@ async function handleSprintCmd(subcommand: string, parts: string[], chatId: stri
 }
 
 export = { handleSprintCmd };
+

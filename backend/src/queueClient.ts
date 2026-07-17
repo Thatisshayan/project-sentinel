@@ -12,7 +12,7 @@ function getRedisConnection(): IORedis | null {
       enableReadyCheck:     false,
     });
     connection.on('error', (err: Error) => {
-      logger.error({ err: err.message }, 'Redis connection error');
+      logger.error({ err: err.stack ?? err.message }, 'Redis connection error');
       const now = Date.now();
       if (now - lastRedisAlertAt > 5 * 60 * 1000) {
         lastRedisAlertAt = now;
@@ -127,3 +127,4 @@ export = {
   enqueueBuildCheck,
   enqueueDebug,
 };
+

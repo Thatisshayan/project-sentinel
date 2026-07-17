@@ -48,7 +48,7 @@ async function approveSprint(topicId: number | null): Promise<void> {
 
   logger.info({ sprintId: sprint.id }, 'Sprint approved — starting execution');
   executeNextSprintTask(sprint.id, topicId).catch((err: any) =>
-    logger.error({ err: err.message }, 'Initial sprint task failed')
+    logger.error({ err: err.stack ?? err.message }, 'Initial sprint task failed')
   );
 }
 
@@ -156,7 +156,7 @@ async function executeNextSprintTask(sprintId: string, topicId: number | null): 
     // Continue to next task after a brief pause
     setTimeout(() => {
       executeNextSprintTask(sprintId, topicId).catch((err: any) =>
-        logger.error({ err: err.message }, 'Sprint continuation failed')
+        logger.error({ err: err.stack ?? err.message }, 'Sprint continuation failed')
       );
     }, 10000);
 
@@ -294,7 +294,7 @@ async function resumeSprint(topicId: number | null): Promise<void> {
   ).catch(() => {});
 
   executeNextSprintTask(sprint.id, topicId).catch((err: any) =>
-    logger.error({ err: err.message }, 'Sprint resume failed')
+    logger.error({ err: err.stack ?? err.message }, 'Sprint resume failed')
   );
 }
 
@@ -305,3 +305,4 @@ export = {
   pauseSprint,
   resumeSprint,
 };
+

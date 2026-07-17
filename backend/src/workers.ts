@@ -88,7 +88,7 @@ function startBuildPollWorker(): Worker | null {
         ...data,
         attemptNumber: attemptNumber + 1,
       }).catch((err: any) =>
-        logger.error({ err: err.message }, 'Failed to re-queue build check')
+        logger.error({ err: err.stack ?? err.message }, 'Failed to re-queue build check')
       );
       return;
     }
@@ -144,7 +144,7 @@ function startBuildPollWorker(): Worker | null {
           data.branchName,
           data.topicId
         ).catch((err: any) =>
-          logger.error({ err: err.message }, 'handleBuildPassedAfterSentinelMerge failed')
+          logger.error({ err: err.stack ?? err.message }, 'handleBuildPassedAfterSentinelMerge failed')
         );
       } else if (process.env['AUDIT_AGENT_ENABLED'] !== 'false') {
         // Human commit — trigger fresh audit (subject to 4 rules in auditOrchestrator)
@@ -159,7 +159,7 @@ function startBuildPollWorker(): Worker | null {
           authorEmail:   data.authorEmail,
           topicId:       data.topicId,
         }).catch((err: any) =>
-          logger.error({ err: err.message }, 'Audit trigger failed')
+          logger.error({ err: err.stack ?? err.message }, 'Audit trigger failed')
         );
       }
 
@@ -170,7 +170,7 @@ function startBuildPollWorker(): Worker | null {
         commitSha,
         branchName: data.branchName,
         topicId:    data.topicId,
-      }).catch((err: any) => logger.error({ err: err.message }, 'Security scan failed'));
+      }).catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'Security scan failed'));
 
       refreshRepoMetrics(repoFullName, repoName)
         .catch((err: any) => logger.warn({ err: err.message }, 'Post-build metrics refresh failed'));
@@ -513,7 +513,7 @@ function startDailyReportWorker(): Worker | null {
   }, { connection: conn });
 
   worker.on('failed', (job: any, err: Error) => {
-    logger.error({ err: err.message }, 'Daily report worker failed');
+    logger.error({ err: err.stack ?? err.message }, 'Daily report worker failed');
   });
 
   logger.info('Daily report worker started — fires at 9am Toronto');
@@ -565,7 +565,7 @@ function startSprintWorker(): Worker | null {
   }, { connection: conn });
 
   worker.on('failed', (job: any, err: Error) => {
-    logger.error({ err: err.message, job: job?.name }, 'Sprint worker job failed');
+    logger.error({ err: err.stack ?? err.message, job: job?.name }, 'Sprint worker job failed');
   });
 
   logger.info('Sprint worker started — proposes Sunday 8pm, mid-week update Wednesday 9am');
@@ -592,3 +592,4 @@ function startAgentCleanupWorker(): void {
 }
 
 export = { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAgentCleanupWorker };
+

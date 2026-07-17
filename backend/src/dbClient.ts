@@ -16,7 +16,7 @@ function getPool(): Pool | null {
     });
 
     pool.on('error', (err: Error) => {
-      logger.error({ err: err.message }, 'PostgreSQL pool error');
+      logger.error({ err: err.stack ?? err.message }, 'PostgreSQL pool error');
     });
   }
   return pool;
@@ -174,3 +174,4 @@ export = {
   updateDebugAttempt,
   stopDebugAttempts,
 };
+

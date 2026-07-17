@@ -258,7 +258,7 @@ async function runStrategicBrain(topicId?: number | null): Promise<void> {
     logger.info({ focusRepos: decision.focus_repos, actionsTaken }, 'Brain strategy sent');
 
   } catch (err: any) {
-    logger.error({ err: err.message }, 'Strategic brain failed');
+    logger.error({ err: err.stack ?? err.message }, 'Strategic brain failed');
     await sendTelegramMessage(
       `🧠 Sentinel Brain — Error\n\n${err.message}`, null, topicId
     ).catch(() => {});
@@ -305,3 +305,4 @@ async function recordBrainOutcome(): Promise<void> {
 }
 
 export = { runStrategicBrain, recordBrainOutcome, initBrainSchema };
+

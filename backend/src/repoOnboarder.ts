@@ -61,7 +61,7 @@ async function checkAndOnboardNewRepos(): Promise<void> {
       if (existing) continue;
       await onboardRepo(repoName);
     } catch (err: any) {
-      logger.error({ err: err.message, repoName }, 'Repo onboarding failed');
+      logger.error({ err: err.stack ?? err.message, repoName }, 'Repo onboarding failed');
     }
   }
 
@@ -95,3 +95,4 @@ async function registerWebhook(repoName: string): Promise<void> {
 }
 
 export = { checkAndOnboardNewRepos, getWatchedRepos, onboardRepo, registerWebhook };
+

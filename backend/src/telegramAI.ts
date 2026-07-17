@@ -361,7 +361,7 @@ async function handleMessage(messageText: string, fromName: string, topicId: num
     }
 
   } catch (err: any) {
-    logger.error({ err: err.message }, 'AI response failed');
+    logger.error({ err: err.stack ?? err.message }, 'AI response failed');
     await sendTelegramMessage(
       'Having trouble processing that. Try a slash command instead.',
       null, topicId
@@ -395,7 +395,7 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
         `Starting task execution for ${repoName}...`, null, topicId
       ).catch(() => {});
       executeApprovedTasks(repoFullNameVal, repoName, topicId)
-        .catch((err: any) => logger.error({ err: err.message }, 'AI execute failed'));
+        .catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'AI execute failed'));
       break;
 
     case 'trigger_audit':
@@ -408,7 +408,7 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
         projectName: repoName, commitSha: `manual-${Date.now()}`,
         commitMessage: '[manual-audit]', branchName: 'main',
         authorName: 'Human', authorEmail: '', topicId,
-      }).catch((err: any) => logger.error({ err: err.message }, 'AI audit failed'));
+      }).catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'AI audit failed'));
       break;
 
     case 'stop_repo':
@@ -540,7 +540,7 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
           ].join('\n'), null, topicId).catch(() => {});
         }
       } catch (err: any) {
-        logger.error({ err: err.message }, 'create_task action failed');
+        logger.error({ err: err.stack ?? err.message }, 'create_task action failed');
         await sendTelegramMessage(
           `Failed to create task: ${err.message}`, null, topicId
         ).catch(() => {});
@@ -558,3 +558,4 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
 }
 
 export = { handleMessage };
+

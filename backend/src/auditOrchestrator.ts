@@ -168,7 +168,7 @@ async function triggerAudit(payload: any): Promise<void> {
     await reportSuccess('auditOrchestrator');
   } catch (err: any) {
     await reportFailure('auditOrchestrator', err);
-    logger.error({ err: err.message, repoFullName }, 'Audit failed');
+    logger.error({ err: err.stack ?? err.message, repoFullName }, 'Audit failed');
     await updateAuditCycle(cycle.id, { status: 'failed' });
     await sendTelegramMessage(
       `Project Sentinel — Audit Failed ❌\n\nRepo: ${repoName}\nError: ${err.message.substring(0, 300)}`,
@@ -504,3 +504,4 @@ export = {
   processNextBatch,
   handleBuildPassedAfterSentinelMerge,
 };
+

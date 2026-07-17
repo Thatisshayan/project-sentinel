@@ -141,7 +141,7 @@ async function handleReportsCmd(subcommand: string, parts: string[], chatId: str
     case 'ceo': {
       const { generateCEOReport } = require('../ceoReport') as { generateCEOReport: (topicId?: number | null) => Promise<void> };
       await sendTelegramMessage('Generating CEO report...', null, topicId);
-      generateCEOReport(topicId).catch((err: any) => logger.error({ err: err.message }, 'Manual CEO report failed'));
+      generateCEOReport(topicId).catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'Manual CEO report failed'));
       return true;
     }
     default:
@@ -150,3 +150,4 @@ async function handleReportsCmd(subcommand: string, parts: string[], chatId: str
 }
 
 export = { handleReportsCmd };
+

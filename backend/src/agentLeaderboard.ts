@@ -45,8 +45,9 @@ async function postAgentLeaderboard(): Promise<void> {
     await sendTelegramMessage(lines.join('\n'), null, AGENT_ROOM_TOPIC());
     logger.info('Leaderboard posted');
   } catch (err: any) {
-    logger.error({ err: err.message }, 'Leaderboard failed');
+    logger.error({ err: err.stack ?? err.message }, 'Leaderboard failed');
   }
 }
 
 export = { postAgentLeaderboard };
+

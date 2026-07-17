@@ -23,7 +23,7 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
     }
     case 'self-audit': {
       await sendTelegramMessage('Triggering Sentinel self-audit...', null, topicId);
-      runSelfAudit().catch((err: any) => logger.error({ err: err.message }, 'Self-audit failed'));
+      runSelfAudit().catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'Self-audit failed'));
       return true;
     }
     case 'self-approve': {
@@ -84,12 +84,12 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
     case 'standup': {
       const { runAgentStandup } = require('../agentStandup') as { runAgentStandup: () => Promise<void> };
       await sendTelegramMessage('Running agent standup...', null, topicId);
-      runAgentStandup().catch((err: any) => logger.error({ err: err.message }, 'Manual standup failed'));
+      runAgentStandup().catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'Manual standup failed'));
       return true;
     }
     case 'leaderboard': {
       const { postAgentLeaderboard } = require('../agentLeaderboard') as { postAgentLeaderboard: () => Promise<void> };
-      postAgentLeaderboard().catch((err: any) => logger.error({ err: err.message }, 'Manual leaderboard failed'));
+      postAgentLeaderboard().catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'Manual leaderboard failed'));
       return true;
     }
     case 'memory': {
@@ -113,3 +113,4 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
 }
 
 export = { handleAgentsCmd };
+

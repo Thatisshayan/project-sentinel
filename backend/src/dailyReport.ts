@@ -119,8 +119,9 @@ async function sendDailyReport(): Promise<void> {
     logger.info('Daily report sent');
 
   } catch (err: any) {
-    logger.error({ err: err.message }, 'Daily report failed');
+    logger.error({ err: err.stack ?? err.message }, 'Daily report failed');
   }
 }
 
 export = { sendDailyReport };
+

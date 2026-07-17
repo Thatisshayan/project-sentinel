@@ -43,7 +43,7 @@ async function openSecurityPR({ repoFullName, branchName, title, body }: PRParam
     );
     return res.data.html_url;
   } catch (err: any) {
-    logger.error({ err: err.message, repoFullName }, 'Security PR creation failed');
+    logger.error({ err: err.stack ?? err.message, repoFullName }, 'Security PR creation failed');
     return null;
   }
 }
@@ -124,7 +124,7 @@ async function applySecurityPatches(repoFullName: string, repoName: string, issu
     logger.info({ repoFullName, branchName, prUrl }, 'Security patch PR created');
 
   } catch (err: any) {
-    logger.error({ err: err.message, repoFullName }, 'Security patch failed');
+    logger.error({ err: err.stack ?? err.message, repoFullName }, 'Security patch failed');
   } finally {
     if (tmpDir) {
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
@@ -133,3 +133,4 @@ async function applySecurityPatches(repoFullName: string, repoName: string, issu
 }
 
 export = { applySecurityPatches };
+

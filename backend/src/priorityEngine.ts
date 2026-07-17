@@ -88,8 +88,9 @@ async function runPriorityEngine(): Promise<void> {
 
     logger.info('Priority engine complete');
   } catch (err: any) {
-    logger.error({ err: err.message }, 'Priority engine failed');
+    logger.error({ err: err.stack ?? err.message }, 'Priority engine failed');
   }
 }
 
 export = { runPriorityEngine };
+

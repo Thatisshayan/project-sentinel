@@ -39,7 +39,7 @@ async function scheduleAutoApprove(sprintId: string | number, topicId: string | 
       await approveSprint(data.topicId);
       logger.info({ sprintId }, 'Sprint auto-approved');
     } catch (err: any) {
-      logger.error({ err: err.message }, 'Auto-approve failed');
+      logger.error({ err: err.stack ?? err.message }, 'Auto-approve failed');
     }
   }, AUTO_APPROVE_DELAY_MS);
 }
@@ -61,3 +61,4 @@ async function isPendingAutoApprove(): Promise<boolean> {
 }
 
 export = { scheduleAutoApprove, cancelAutoApprove, isPendingAutoApprove };
+

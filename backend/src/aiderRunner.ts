@@ -157,7 +157,7 @@ async function runAider(repoPath: string, context: AiderContext): Promise<AiderR
 
     proc.on('error', (err: Error) => {
       clearTimeout(timer);
-      logger.error({ err: err.message }, 'Failed to spawn Aider process');
+      logger.error({ err: err.stack ?? err.message }, 'Failed to spawn Aider process');
       resolve({
         success: false,
         reason:  `Failed to spawn Aider: ${err.message}`,
@@ -258,7 +258,7 @@ async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
     };
 
   } catch (err: any) {
-    logger.error({ err: err.message, repoFullName }, 'cloneAndFix failed');
+    logger.error({ err: err.stack ?? err.message, repoFullName }, 'cloneAndFix failed');
     return {
       status: 'error',
       reason: err.message,
@@ -279,3 +279,4 @@ async function getChangedFiles(git: ReturnType<typeof simpleGit>): Promise<strin
 }
 
 export = { cloneAndFix };
+

@@ -91,7 +91,7 @@ router.get('/portfolio', async (req: any, res: any) => {
       healthDelta,
     });
   } catch (err: any) {
-    logger.error({ err: err.message }, 'GET /portfolio error');
+    logger.error({ err: err.stack ?? err.message }, 'GET /portfolio error');
     res.status(500).json({ error: err.message });
   }
 });
@@ -135,7 +135,7 @@ router.get('/repo/:name', async (req: any, res: any) => {
       lastCycle: cycle.rows[0] || null,
     });
   } catch (err: any) {
-    logger.error({ err: err.message }, 'GET /repo/:name error');
+    logger.error({ err: err.stack ?? err.message }, 'GET /repo/:name error');
     res.status(500).json({ error: err.message });
   }
 });
@@ -260,7 +260,7 @@ router.get('/sprints/current', async (req: any, res: any) => {
       velocity: velocity.rows.reverse(),
     });
   } catch (err: any) {
-    logger.error({ err: err.message }, 'GET /sprints/current error');
+    logger.error({ err: err.stack ?? err.message }, 'GET /sprints/current error');
     res.status(500).json({ error: err.message });
   }
 });
@@ -460,7 +460,7 @@ router.get('/integrations/status', async (req: any, res: any) => {
     const status = await getIntegrationsStatus();
     res.json(status);
   } catch (err: any) {
-    logger.error({ err: err.message }, 'GET /integrations/status error');
+    logger.error({ err: err.stack ?? err.message }, 'GET /integrations/status error');
     res.status(500).json({ error: err.message });
   }
 });
@@ -473,7 +473,7 @@ router.get('/settings', async (req: any, res: any) => {
     const settings = await getSettings();
     res.json(settings);
   } catch (err: any) {
-    logger.error({ err: err.message }, 'GET /settings error');
+    logger.error({ err: err.stack ?? err.message }, 'GET /settings error');
     res.status(500).json({ error: err.message });
   }
 });
@@ -484,9 +484,10 @@ router.post('/settings/update', async (req: any, res: any) => {
     const updated = await updateSettings(req.body);
     res.json(updated);
   } catch (err: any) {
-    logger.error({ err: err.message }, 'POST /settings/update error');
+    logger.error({ err: err.stack ?? err.message }, 'POST /settings/update error');
     res.status(500).json({ error: err.message });
   }
 });
 
 export = router;
+

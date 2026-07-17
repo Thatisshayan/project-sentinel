@@ -115,7 +115,7 @@ async function processWebhook(payload: any): Promise<void> {
   try {
     data = extractPayload(payload);
   } catch (err: any) {
-    logger.error({ err: err.message }, 'Payload extraction failed — cannot process');
+    logger.error({ err: err.stack ?? err.message }, 'Payload extraction failed — cannot process');
     return;
   }
 
@@ -137,7 +137,7 @@ async function processWebhook(payload: any): Promise<void> {
   try {
     notionProject = await findNotionProject(repoNameLower);
   } catch (err: any) {
-    logger.error({ err: err.message, repoName }, 'Notion search threw an error');
+    logger.error({ err: err.stack ?? err.message, repoName }, 'Notion search threw an error');
     await sendTelegramMessage(
       buildErrorMessage('Notion search failed', repoName, err.message),
       repoName
@@ -179,7 +179,7 @@ async function processWebhook(payload: any): Promise<void> {
   try {
     await updateNotionProject(notionProject.pageId, data);
   } catch (err: any) {
-    logger.error({ err: err.message, repoName }, 'Notion update failed');
+    logger.error({ err: err.stack ?? err.message, repoName }, 'Notion update failed');
     await sendTelegramMessage(
       buildErrorMessage('Notion update failed', repoName, err.message),
       repoName
@@ -198,7 +198,7 @@ async function processWebhook(payload: any): Promise<void> {
   try {
     await sendTelegramMessage(buildSuccessMessage(data, changelogAppended), repoName);
   } catch (err: any) {
-    logger.error({ err: err.message, repoName }, 'Telegram send failed');
+    logger.error({ err: err.stack ?? err.message, repoName }, 'Telegram send failed');
   }
 
   // Record the commit event (no health score — analytics module owns that).
@@ -350,14 +350,15 @@ router.post('/github', limiter, verifySignature, (req: any, res: any) => {
 
   if (event === 'pull_request') {
     processPREvent(req.body).catch((err: any) => {
-      logger.error({ err: err.message }, 'Unhandled error in processPREvent');
+      logger.error({ err: err.stack ?? err.message }, 'Unhandled error in processPREvent');
     });
     return;
   }
 
   processWebhook(req.body).catch((err: any) => {
-    logger.error({ err: err.message }, 'Unhandled error in processWebhook');
+    logger.error({ err: err.stack ?? err.message }, 'Unhandled error in processWebhook');
   });
 });
 
 export = router;
+
