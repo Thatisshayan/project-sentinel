@@ -2,25 +2,45 @@
 
 > **START HERE** if you're an agent or developer new to this codebase. This file is the canonical source of truth for upgrade progress.
 
-## Current Phase: 0 — Foundation & Safety Net
+## Current Phase: 1 — TypeScript Migration
 
 **Start date:** 2026-07-16
 **Plan:** `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md`
 **Audit:** `2026-07-16-DeepCodebaseAudit.md`
 **Prerequisite reading:** `AGENTS.md`, `TODO.md`
+**Current branch:** `feat/phase1-typescript-migration`
 
 ## Phase Progress
 
 | Phase | Status | % Complete | Dependencies |
 |-------|--------|-----------|-------------|
-| 0: Foundation & Safety Net | **ACTIVE** | 0% | None — starting point |
-| 1: TypeScript Migration | Pending | 0% | Needs Phase 0 |
+| 0: Foundation & Safety Net | **Complete** | 100% | None — starting point |
+| 1: TypeScript Migration | **IN PROGRESS** | 30% | Needs Phase 0 |
 | 2: Error Architecture | Pending | 0% | Needs Phase 0-1 |
-| 3: Security Hardening | Pending | 0% | Can overlap with Phase 1-2 |
+| 3: Security Hardening | Pending | 0% | Can overlap with Phases 1-2 |
 | 4: Test Coverage Blitz | Pending | 0% | Needs Phase 0 + 1 |
 | 5: Catch Pattern Elimination | Pending | 0% | Needs Phase 2 + 4 |
 | 6: Architecture Refactoring | Pending | 0% | Needs Phase 4 + 5 |
 | 7: Operational Excellence | Pending | 0% | Can start after Phase 3 |
+
+## Phase 0 — Completed Tasks
+- 0.1: CI overhaul (PR trigger, npm cache, lint step)
+- 0.2: ESLint + Prettier (`.eslintrc.json`, `.prettierrc`, scripts, 3 lint fixes)
+- 0.3: execSync→async (`execAsync.ts` wrapper, updated taskBuilder, securityPatcher, dependencyScanner, index, repoOps)
+- 0.4: Structured error codes + Sentry (`src/errors/codes.ts`, `src/errors/errorClasses.ts`, `src/errors/sentry.ts`)
+- 0.5: Security audit CI (npm audit, gitleaks, weekly OWASP dependency check)
+- 0.6: Branch protection (enabled via GitHub UI)
+
+## Phase 1 — In Progress Tasks
+- 1a: TypeScript config (`tsconfig.json`, `package.json`, typecheck scripts) ✅
+- 1b: CI typecheck step added to workflow ✅
+- 1c: Convert core files to `.ts` (index.js, utils/*, commands/*) — **BLOCKED: cannot push due to branch protection**
+- 1d: Incrementally convert remaining `src/*.js` to `.ts` — BLOCKED
+
+## Blockers
+- Branch protection ruleset "Sentinel Branch Protection" (ID 19080973) blocks direct pushes to ALL branches
+- PRs require passing status checks (`backend` + `backend-scheduled`) + code scanning before merge
+- **Resolution:** User must temporarily disable ruleset in GitHub Settings, or push via a PR workflow
 
 ## Active Task List
 
