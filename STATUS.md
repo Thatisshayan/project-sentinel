@@ -41,12 +41,13 @@
   - Jest config: moduleNameMapper, .test.ts match, .ts coverage
 - 1d: Convert all 8 *Db files to TypeScript ✅ PR #13
   - agentDb, auditDb, businessDb, portfolioDb, securityDb, settingsDb, sprintDb, selfAuditDb
+- 1e: Convert security cluster to TypeScript ✅ PR #14
+  - securityScanner, securityPatcher, dependencyScanner, secretScanner, owaspChecker
 
 ## Phase 1 — Remaining Tasks
-- 1e: Convert security cluster (securityScanner, securityPatcher, dependencyScanner, secretScanner, owaspChecker)
 - 1f: Convert remaining core files (health, webhook, api, workers, index, etc.)
 
-## TS Files on main (16 files)
+## TS Files on main (21 files)
 - `src/errors/codes.ts`
 - `src/errors/errorClasses.ts`
 - `src/errors/sentry.ts`
@@ -61,6 +62,11 @@
 - `src/settingsDb.ts`
 - `src/sprintDb.ts`
 - `src/selfAuditDb.ts`
+- `src/securityScanner.ts`
+- `src/securityPatcher.ts`
+- `src/dependencyScanner.ts`
+- `src/secretScanner.ts`
+- `src/owaspChecker.ts`
 
 ## Active Task List
 
