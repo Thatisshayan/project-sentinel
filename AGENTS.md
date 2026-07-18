@@ -29,12 +29,12 @@ For full details, see [RemoteCliControl/AGENTS.md](../RemoteCliControl/AGENTS.md
 
 ## Project Sentinel-Specific Context
 
-**Project Status**: ⚠️ REBUILD IN PROGRESS — Phase 6/7 active
+**Project Status**: ✅ Phases 0-7 complete, merged to `main`. Phase 6 (Architecture Refactoring) and Phase 7 (independent code audit + remediation) both landed via PR #26 and PR #27/#28.
 
 **Key Notes**:
-- Phase 6 (Architecture Refactoring) in progress — 6.4 complete, 6.5 pending
-- Inline require() → top-level imports done (12 files, 156 tests pass)
-- Ready for Phase 7 after Railway deployment verification
+- Phase 6 (webhook.ts/workers.ts split, inline require() → top-level imports) complete — 191 tests passing
+- Phase 7 audit (2026-07-18): verified Phase 3-6 claims against actual code, not commit messages. Found and fixed: a documented-but-nonexistent dead-letter queue, an unenforced coverage gate, residual silent `catch {}` swallows, 0%-covered worker files, and unscoped child-process env in package-install exec calls. See `docs/governance/DEFERRED_WORK.md` for the full trace.
+- Remaining known gaps (tracked, not yet blocking): `backend/.env.example` was significantly behind actual env var usage (being closed out in Phase 8); `timingSafeEqual`'s length-check has a low-severity timing side-channel.
 
 ---
 
