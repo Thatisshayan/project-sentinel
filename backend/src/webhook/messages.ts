@@ -26,18 +26,19 @@ export function buildSuccessMessage(data: any, changelogAppended: boolean): stri
 }
 
 export function buildUnknownRepoMessage(data: any): string {
-  const { repoName, branchName, repoUrl, commitMessage } = data;
+  const { repoName, branchName, commitMessage } = data;
 
   return [
-    `Project Sentinel warning ⚠️`,
+    `🆕 New repo pushed to: ${repoName}`,
     ``,
-    `Unknown repo received: ${repoName}`,
+    `I don't have this one set up yet, so I skipped it — nothing was lost.`,
+    ``,
+    `To start tracking it, reply:`,
+    `/sentinel repos scan`,
+    `(this scans GitHub and adds any new repos automatically)`,
+    ``,
     `Branch: ${branchName}`,
-    `Repo URL: ${repoUrl}`,
-    `Commit: ${commitMessage}`,
-    ``,
-    `No matching project found in Notion.`,
-    `Check the "Repo Name" field in Projects Command Center.`,
+    `Latest commit: ${commitMessage}`,
   ].join('\n');
 }
 

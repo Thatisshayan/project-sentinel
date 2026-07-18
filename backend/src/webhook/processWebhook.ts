@@ -9,7 +9,6 @@ import dbClient from '../dbClient';
 import { upsertRepoMetrics } from '../portfolioDb';
 import { refreshRepoMetrics } from '../portfolioAnalytics';
 import { buildSuccessMessage, buildUnknownRepoMessage, buildErrorMessage } from './messages';
-import { Client } from '@notionhq/client';
 import { runSecurityScan } from '../securityScanner';
 import { notifyDependents } from '../crossRepoCoordinator';
 
@@ -52,24 +51,7 @@ export async function processWebhook(payload: any): Promise<void> {
 
   if (!notionProject) {
     logger.warn({ repoName }, 'No matching Notion project');
-    let suggestionNote = '';
-    try {
-      const nc = new Client({ auth: process.env['NOTION_API_KEY'] });
-      const resp = await nc.databases.query({
-        database_id: process.env['NOTION_DATABASE_ID'] as string,
-        page_size: 20,
-      }).catch(() => null);
-      if (resp?.results?.length) {
-        const names = resp.results.map((p: any) => {
-          const t = p.properties['Name'] || p.properties['Project'] || p.properties['Title'];
-          return t?.title?.[0]?.plain_text || '(untitled)';
-        }).filter(Boolean);
-        suggestionNote = `\n\nExisting Notion pages: ${names.join(', ')}\nAdd a "Repo Name" property with value "${repoName}" to the matching page.`;
-      }
-    } catch (err: any) {
-      logger.warn({ err: err.message, repoName }, 'Notion suggestion lookup failed — continuing without suggestions');
-    }
-    await safeFire(sendTelegramMessage(buildUnknownRepoMessage(data) + suggestionNote, repoName), { label: 'webhook' })
+    await safeFire(sendTelegramMessage(buildUnknownRepoMessage(data), repoName), { label: 'webhook' })
     return;
   }
 

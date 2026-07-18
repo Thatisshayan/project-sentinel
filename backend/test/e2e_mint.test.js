@@ -376,7 +376,7 @@ describe('Stage 3: webhook pipeline for mint repo', () => {
       .send(body);
     await waitLong();
     const msg = sendTelegramMessage.mock.calls[0][0];
-    expect(msg).toContain('Unknown repo received');
+    expect(msg).toContain('New repo pushed');
     expect(msg).toContain('mint');
   });
 
