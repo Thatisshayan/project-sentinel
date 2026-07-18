@@ -1,3 +1,18 @@
+# ── Build stage ─────────────────────────────────────────────────────────────
+# Compiles TypeScript (src/**/*.ts -> dist/**/*.js). Needs devDependencies
+# (typescript, @swc/core, etc.) which the runtime stage below deliberately
+# does not install.
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+COPY package*.json tsconfig.json ./
+RUN npm ci
+
+COPY src/ ./src/
+RUN npm run build
+
+# ── Runtime stage ───────────────────────────────────────────────────────────
 FROM node:20-alpine
 
 # Install Python and pip for Aider
@@ -23,7 +38,7 @@ RUN aider --version || (echo "ERROR: aider not found after install" && exit 1)
 # Limit Node.js heap to prevent OOM kills (Railway default ~512MB)
 ENV NODE_OPTIONS="--max-old-space-size=256"
 
-COPY src/ ./src/
+COPY --from=builder /app/dist ./dist
 
 RUN addgroup -S sentinel && adduser -S sentinel -G sentinel
 USER sentinel
@@ -37,4 +52,4 @@ HEALTHCHECK \
   --retries=5 \
   CMD node -e "require('http').get('http://localhost:3000/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1));"
 
-CMD ["node", "src/index.js"]
+CMD ["node", "dist/index.js"]
