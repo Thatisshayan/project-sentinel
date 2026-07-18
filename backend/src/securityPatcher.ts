@@ -77,7 +77,7 @@ async function applySecurityPatches(repoFullName: string, repoName: string, issu
     const branchName = `sentinel/security-patch-${Date.now()}`;
     await cloneGit.checkoutLocalBranch(branchName);
 
-    await execAsync('npm audit fix', { cwd: tmpDir, timeout: 120000 });
+    await execAsync('npm audit fix', { cwd: tmpDir, timeout: 120000, scoped: true });
 
     const status = await cloneGit.status();
     if (status.files.length === 0) {

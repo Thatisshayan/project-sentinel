@@ -450,7 +450,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       try {
         const { isPendingAutoApprove } = require('../autoApprover') as { isPendingAutoApprove: () => Promise<boolean> };
         sprintPending = await isPendingAutoApprove().catch(() => false);
-      } catch {}
+      } catch (err: any) { logger.warn({ err: err.message }, 'autoApprover module failed to load — sprintPending defaults to false'); }
       await showApprovalsMenu(chatId, topicId, {
         sprint:    sprintPending,
         selfAudit: false,
@@ -462,7 +462,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       try {
         const { cancelAutoApprove } = require('../autoApprover') as { cancelAutoApprove: () => Promise<boolean> };
         await safeFire(cancelAutoApprove(), { label: 'repoOps' })
-      } catch {}
+      } catch (err: any) { logger.warn({ err: err.message }, 'cancelAutoApprove failed'); }
       try {
         await dbQuery(`UPDATE agent_registry SET status='paused' WHERE status='idle'`);
       } catch (err: any) {

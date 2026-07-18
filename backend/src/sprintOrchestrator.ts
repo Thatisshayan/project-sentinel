@@ -136,7 +136,7 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
         pr_url: prUrl,
         pr_number: prUrl ? parseInt(prUrl.split('/').pop() as string) : null,
       }).catch((err: any) => logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task'));
-      await safeFire(updateNotionTaskStatus(task.audit_task_id, 'build_check', { prUrl, commitUrl: batchResult.commitUrl }), { label: 'sprintOrchestrator' })
+      await safeFire(updateNotionTaskStatus(task.audit_task_id, 'build_check', { prUrl, commitUrl: batchResult.commitUrl }), { label: 'sprintOrchestrator', retryable: true })
     }
 
     const freshSprint = await getSprintById(sprintId);

@@ -66,7 +66,9 @@ export async function processWebhook(payload: any): Promise<void> {
         }).filter(Boolean);
         suggestionNote = `\n\nExisting Notion pages: ${names.join(', ')}\nAdd a "Repo Name" property with value "${repoName}" to the matching page.`;
       }
-    } catch {}
+    } catch (err: any) {
+      logger.warn({ err: err.message, repoName }, 'Notion suggestion lookup failed — continuing without suggestions');
+    }
     await safeFire(sendTelegramMessage(buildUnknownRepoMessage(data) + suggestionNote, repoName), { label: 'webhook' })
     return;
   }
@@ -126,7 +128,9 @@ export async function processWebhook(payload: any): Promise<void> {
         topicId:       notionProject.topicId || null,
       }).catch((err: any) => logger.warn({ err: err.message }, 'High-risk security scan failed — non-blocking'));
       logger.info({ repoName: data.repoName, risk: 'High' }, 'Security scan triggered for high-risk push');
-    } catch {}
+    } catch (err: any) {
+      logger.warn({ err: err.message, repoName: data.repoName }, 'Failed to trigger high-risk security scan');
+    }
   }
 
   if (notionProject) {
@@ -156,5 +160,7 @@ export async function processWebhook(payload: any): Promise<void> {
 
   try {
     fireAndForget(notifyDependents(repoName, data.commitSha, data.authorName), { label: 'webhook' })
-  } catch {}
+  } catch (err: any) {
+    logger.warn({ err: err.message, repoName }, 'Failed to fire notifyDependents');
+  }
 }

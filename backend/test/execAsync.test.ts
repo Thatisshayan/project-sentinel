@@ -27,4 +27,43 @@ describe('execAsync', () => {
   it('rejects on non-zero exit', async () => {
     await expect(execAsync('exit 3')).rejects.toBeTruthy();
   });
+
+  describe('scoped option', () => {
+    const originalPath = process.env.PATH;
+
+    afterEach(() => {
+      delete process.env.SENTINEL_TEST_SECRET;
+      process.env.PATH = originalPath;
+    });
+
+    it('does not leak arbitrary process.env vars into the child when scoped: true', async () => {
+      process.env.SENTINEL_TEST_SECRET = 'do-not-leak';
+      const res = await execAsync(
+        'node -e "process.stdout.write(process.env.SENTINEL_TEST_SECRET || \'ABSENT\')"',
+        { scoped: true }
+      );
+      expect(res.stdout.trim()).toBe('ABSENT');
+    });
+
+    it('leaks process.env vars into the child when scoped is omitted (existing default behavior)', async () => {
+      process.env.SENTINEL_TEST_SECRET = 'leaks-by-default';
+      const res = await execAsync(
+        'node -e "process.stdout.write(process.env.SENTINEL_TEST_SECRET || \'ABSENT\')"'
+      );
+      expect(res.stdout.trim()).toBe('leaks-by-default');
+    });
+
+    it('still allows PATH to resolve the command when scoped: true (allowlisted base var)', async () => {
+      const res = await execAsync('node --version', { scoped: true });
+      expect(res.stdout.trim()).toMatch(/^v\d+\.\d+\.\d+/);
+    });
+
+    it('explicit env option still overrides scoped defaults', async () => {
+      const res = await execAsync(
+        'node -e "process.stdout.write(process.env.SENTINEL_TEST_SECRET || \'ABSENT\')"',
+        { scoped: true, env: { ...process.env, SENTINEL_TEST_SECRET: 'explicit-override' } }
+      );
+      expect(res.stdout.trim()).toBe('explicit-override');
+    });
+  });
 });

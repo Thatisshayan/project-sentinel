@@ -36,7 +36,7 @@ export async function processPREvent(payload: any): Promise<void> {
     logger.info({ count: taskIds.length, repoFullName }, 'Tasks marked done after PR merge');
 
     for (const row of taskIds) {
-      await safeFire(updateNotionTaskStatus(row.notion_page_id, 'done', { prUrl }), { label: 'webhook' })
+      await safeFire(updateNotionTaskStatus(row.notion_page_id, 'done', { prUrl }), { label: 'webhook', retryable: true })
     }
 
     await safeFire(sendTelegramMessage([

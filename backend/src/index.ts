@@ -24,6 +24,8 @@ import { initConversationSchema } from './conversationMemory';
 import { initSettingsSchema } from './settingsDb';
 import { initSelfScaler } from './selfScaler';
 import { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAgentCleanupWorker } from './workers';
+import { registerDeadLetterEnqueuer } from './utils/safeFire';
+import { enqueueDeadLetter } from './queueClient';
 import { handleCommand, handleCallbackQuery } from './telegramCommands';
 
 const dsn = process.env['SENTRY_DSN'];
@@ -72,10 +74,10 @@ if (dsn) {
 }
 
 let checkAndOnboardNewRepos: (() => Promise<void>) | undefined;
-try { ({ checkAndOnboardNewRepos } = require('./repoOnboarder') as any); } catch {}
+try { ({ checkAndOnboardNewRepos } = require('./repoOnboarder') as any); } catch (err: any) { logger.warn({ err: err.message }, 'repoOnboarder module failed to load — repo onboarding disabled'); }
 
 let discoverAndOnboardRepos: (() => Promise<void>) | undefined;
-try { ({ discoverAndOnboardRepos } = require('./repoDiscovery') as any); } catch {}
+try { ({ discoverAndOnboardRepos } = require('./repoDiscovery') as any); } catch (err: any) { logger.warn({ err: err.message }, 'repoDiscovery module failed to load — repo discovery disabled'); }
 
 async function probeTools(): Promise<void> {
   const { execAsync } = require('./utils/execAsync');
@@ -405,6 +407,8 @@ app.listen(PORT, () => {
     startSprintWorker();
     startAgentCleanupWorker();
     logger.info('Workers started');
+    registerDeadLetterEnqueuer(enqueueDeadLetter);
+    logger.info('Dead-letter enqueuer registered');
 
     const { query: dbCleanup } = require('./dbClient');
     const stale = await dbCleanup(`

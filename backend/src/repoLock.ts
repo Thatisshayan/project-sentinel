@@ -38,7 +38,9 @@ async function getAllLocked(): Promise<any[]> {
     if (val) {
       try {
         locked.push({ repoName: key.replace(LOCK_PREFIX, ''), ...JSON.parse(val) });
-      } catch {}
+      } catch (err: any) {
+        logger.warn({ err: err.message, key }, 'Skipping corrupt repo-lock record');
+      }
     }
   }
   return locked;

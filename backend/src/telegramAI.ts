@@ -317,7 +317,9 @@ async function handleMessage(messageText: string, fromName: string, topicId: num
         const { getPersonalityPrompt } = require('./agentPersonality');
         const personality = getPersonalityPrompt(speakingAgent);
         if (personality) personalityPrefix = `${personality}\n\n`;
-      } catch {}
+      } catch (err: any) {
+        logger.warn({ err: err.message, speakingAgent }, 'Failed to load agent personality prompt — continuing without it');
+      }
     }
 
     const prompt = `${personalityPrefix}${context}${historySection}${recentSection}${agentSection}${directAddressSection}${mentionSection}\nMessage from ${fromName}: ${messageText}`;

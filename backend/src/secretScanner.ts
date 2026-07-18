@@ -84,7 +84,7 @@ async function scanDiff(diffText: string, repoFullName: string, scanId: any, com
           fixDescription: 'Remove the secret, rotate it immediately, use environment variables instead.',
           autoFixable: false,
         };
-        await safeFire(insertSecurityIssue(issue), { label: 'secretScanner' })
+        await safeFire(insertSecurityIssue(issue), { label: 'secretScanner', retryable: true })
         issues.push(issue);
       }
     }
@@ -100,7 +100,7 @@ async function scanDiff(diffText: string, repoFullName: string, scanId: any, com
         filePath: currentFile, lineNumber: i,
         fixAvailable: false, autoFixable: false,
       };
-      await safeFire(insertSecurityIssue(issue), { label: 'secretScanner' })
+      await safeFire(insertSecurityIssue(issue), { label: 'secretScanner', retryable: true })
       issues.push(issue);
     }
   }
