@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import Anthropic from '@anthropic-ai/sdk';
 import axios from 'axios';
 import logger from './logger';
@@ -272,7 +273,7 @@ async function handleMessage(messageText: string, fromName: string, topicId: num
     'AI handling Telegram message');
 
   // Store this incoming message in Redis context window (non-blocking)
-  storeRedisContext(topicId, fromName, messageText).catch(() => {});
+  fireAndForget(storeRedisContext(topicId, fromName, messageText), { label: 'telegramAI' })
 
   try {
     const [context, history, recentActivity] = await Promise.all([
@@ -343,11 +344,11 @@ async function handleMessage(messageText: string, fromName: string, topicId: num
     const responseText: string | null = parsed.action === 'answer' ? parsed.message : null;
 
     // Save to memory (non-blocking)
-    saveMessage(topicId ?? 0, fromName, messageText, responseText, speakingAgent as any).catch(() => {});
+    fireAndForget(saveMessage(topicId ?? 0, fromName, messageText, responseText, speakingAgent as any), { label: 'telegramAI' })
 
     // Store Sentinel's response in the Redis context window too
     if (responseText) {
-      storeRedisContext(topicId, `Sentinel${speakingAgent ? `/${speakingAgent}` : ''}`, responseText).catch(() => {});
+      fireAndForget(storeRedisContext(topicId, `Sentinel${speakingAgent ? `/${speakingAgent}` : ''}`, responseText), { label: 'telegramAI' })
     }
 
     // Route response through the speaking agent's bot when possible
@@ -362,10 +363,10 @@ async function handleMessage(messageText: string, fromName: string, topicId: num
 
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message }, 'AI response failed');
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       'Having trouble processing that. Try a slash command instead.',
       null, topicId
-    ).catch(() => {});
+    ), { label: 'telegramAI' })
   }
 }
 
@@ -381,28 +382,28 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
   if (action.repo && !resolved && REPO_REQUIRED_ACTIONS.includes(action.action)) {
     const { REPO_LIST } = require('./portfolioAnalytics');
     const known = [...REPO_LIST.map((r: any) => r.repoName), 'project-sentinel'].join(', ');
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       `I don't recognize repo "${action.repo}". Known repos: ${known}`,
       null, topicId
-    ).catch(() => {});
+    ), { label: 'telegramAI' })
     return;
   }
 
   switch (action.action) {
     case 'execute_tasks':
       if (!repoFullNameVal) break;
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `Starting task execution for ${repoName}...`, null, topicId
-      ).catch(() => {});
+      ), { label: 'telegramAI' })
       executeApprovedTasks(repoFullNameVal, repoName, topicId)
         .catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'AI execute failed'));
       break;
 
     case 'trigger_audit':
       if (!repoFullNameVal) break;
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `Triggering audit for ${repoName}...`, null, topicId
-      ).catch(() => {});
+      ), { label: 'telegramAI' })
       triggerAudit({
         repoFullName: repoFullNameVal, repoName,
         projectName: repoName, commitSha: `manual-${Date.now()}`,
@@ -414,9 +415,9 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
     case 'stop_repo':
       if (!repoFullNameVal) break;
       await stopAllTasksForRepo(repoFullNameVal);
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `All tasks and audits stopped for ${repoName}.`, null, topicId
-      ).catch(() => {});
+      ), { label: 'telegramAI' })
       break;
 
     case 'send_report':
@@ -426,27 +427,27 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
     case 'show_costs': {
       const { getCostReport } = require('./costTracker');
       const report = await getCostReport();
-      await sendTelegramMessage(report.formatted, null, topicId).catch(() => {});
+      await safeFire(sendTelegramMessage(report.formatted, null, topicId), { label: 'telegramAI' })
       break;
     }
 
     case 'approve_sprint':
-      approveSprint(topicId).catch(() => {});
+      fireAndForget(approveSprint(topicId), { label: 'telegramAI' })
       break;
 
     case 'sprint_status':
-      getSprintStatus(topicId).catch(() => {});
+      fireAndForget(getSprintStatus(topicId), { label: 'telegramAI' })
       break;
 
     case 'velocity_report': {
       const report = await getVelocityReport().catch(() => 'Velocity data unavailable.');
-      await sendTelegramMessage(report, null, topicId).catch(() => {});
+      await safeFire(sendTelegramMessage(report, null, topicId), { label: 'telegramAI' })
       break;
     }
 
     case 'show_agents': {
       const summary = await getAgentRoomSummary();
-      await sendTelegramMessage(summary, null, topicId).catch(() => {});
+      await safeFire(sendTelegramMessage(summary, null, topicId), { label: 'telegramAI' })
       break;
     }
 
@@ -454,17 +455,17 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
       const agents = await getAllAgents();
       const target = agents.find((a: any) => a.agent_id === action.agent);
       if (!target) {
-        await sendTelegramMessage(
+        await safeFire(sendTelegramMessage(
           `Unknown agent: ${action.agent}`, null, topicId
-        ).catch(() => {});
+        ), { label: 'telegramAI' })
         break;
       }
       const status = target.status === 'working'
         ? `working on ${target.repo_full_name?.split('/')[1]} — ${target.task_title}`
         : `idle (${target.completed_tasks} done, ${target.failed_tasks} failed)`;
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `${action.agent}: ${status}`, null, topicId
-      ).catch(() => {});
+      ), { label: 'telegramAI' })
       break;
     }
 
@@ -472,15 +473,15 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
       if (!repoFullNameVal || !action.agent) break;
       const project = await findNotionProject(repoName).catch(() => null);
       if (!project) {
-        await sendTelegramMessage(
+        await safeFire(sendTelegramMessage(
           `No Notion project found for ${repoName}.`, null, topicId
-        ).catch(() => {});
+        ), { label: 'telegramAI' })
         break;
       }
       await updateBuilderAgent(project.pageId, action.agent);
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `${repoName} assigned to ${action.agent} in Notion.`, null, topicId
-      ).catch(() => {});
+      ), { label: 'telegramAI' })
       break;
     }
 
@@ -492,9 +493,9 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
         await stopAllTasksForRepo(target.repo_full_name);
       }
       await setAgentIdle(action.agent, false);
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `${action.agent} stopped and marked idle.`, null, topicId
-      ).catch(() => {});
+      ), { label: 'telegramAI' })
       break;
     }
 
@@ -529,7 +530,7 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
             batchNumber:       1,
           });
 
-          await sendTelegramMessage([
+          await safeFire(sendTelegramMessage([
             `✅ Task created for ${taskRepoName}`,
             ``,
             `Title: ${action.title}`,
@@ -537,13 +538,13 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
             `Status: queued (needs approval)`,
             ``,
             `Use /sentinel force-execute ${taskRepoName} to run it now.`,
-          ].join('\n'), null, topicId).catch(() => {});
+          ].join('\n'), null, topicId), { label: 'telegramAI' })
         }
       } catch (err: any) {
         logger.error({ err: err.stack ?? err.message }, 'create_task action failed');
-        await sendTelegramMessage(
+        await safeFire(sendTelegramMessage(
           `Failed to create task: ${err.message}`, null, topicId
-        ).catch(() => {});
+        ), { label: 'telegramAI' })
       }
       break;
     }
@@ -551,7 +552,7 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
     case 'answer':
     default:
       if (action.message) {
-        await sendTelegramMessage(action.message, null, topicId).catch(() => {});
+        await safeFire(sendTelegramMessage(action.message, null, topicId), { label: 'telegramAI' })
       }
       break;
   }

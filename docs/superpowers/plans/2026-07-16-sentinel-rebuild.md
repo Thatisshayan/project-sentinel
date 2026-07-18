@@ -997,16 +997,28 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
 
 Then update all 4 callers to use `callAI()`.
 
-### Task 6.4: Eliminate inline require() calls
+### Task 6.4: Eliminate inline require() calls ✅ **DONE**
 
-- [ ] **Step 1:** Grep for `require(` inside function bodies across all `.ts`/`.js` files
-- [ ] **Step 2:** For each one, determine if it's genuinely needed to break a circular dependency or if it can be a top-level import
-- [ ] **Step 3:** For genuine circular deps, split the shared dependency into a separate module
-- [ ] **Step 4:** Move all remaining inline requires to top-level imports
+**Status:** Completed. Converted 12 files (~50 inline `require()` calls) to top-level ES imports.
 
-### Task 6.5: Consolidate duplicated UI utilities
+**Files modified:**
+- `auditOrchestrator.ts`, `taskBuilder.ts`, `sprintOrchestrator.ts`, `capacityManager.ts`
+- `costpilotClient.ts`, `correlationEngine.ts`, `providerHealthCheck.ts`
+- `queueClient.ts`, `settingsLoader.ts`, `autoApprover.ts`
+- `conflictDetector.ts`, `roiScorer.ts`, `telegramClient.ts`, `telegramCommands.ts`
+- `webhook/processWebhook.ts`, `webhook/processPREvent.ts`, `workers/sprintWorker.ts`
 
-**Files:** `relativeTime`, `agentColor`, `mapBuild`, `mapPriority`, `healthColor`/`scoreColor` are each defined in 2-4 files
+**Preserved cycle-breakers:**
+- `agentBots.ts` ↔ `agentRoom.ts` (bidirectional)
+- `repoResolver.ts` ↔ `portfolioAnalytics.ts` (inline require)
+- `dailyReportWorker.ts` optional module loads (graceful degradation)
+- `safeFire.ts` → `sentry` (circular dependency)
+
+**Verification:** `tsc --noEmit` clean; `jest --runInBand --forceExit` passes (156 tests).
+
+### Task 6.5: Consolidate duplicated UI utilities ⏳ PENDING
+
+**Files:** `relativeTime`, `agentColor`, `mapBuild`, `mapPriority`, `healthColor`/`scoreColor` are each defined in 2-4 UI component files.
 
 - [ ] **Step 1:** Create `ui/lib/utils.ts` with all shared utility functions
 - [ ] **Step 2:** Update all imports across UI components to use the single source

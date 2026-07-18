@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
@@ -135,7 +136,7 @@ async function runSecurityScan(data: ScanData) {
       lines.push(`/sentinel security ${repoName} — full details`);
       // Critical always alerts to main group (topicId null)
       const alertTopic = critical.length > 0 ? null : topicId;
-      await sendTelegramMessage(lines.join('\n'), null, alertTopic).catch(() => {});
+      await safeFire(sendTelegramMessage(lines.join('\n'), null, alertTopic), { label: 'securityScanner' })
     }
 
     logger.info({ repoFullName, securityScore, ...counts }, 'Security scan complete');
@@ -144,7 +145,7 @@ async function runSecurityScan(data: ScanData) {
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message, repoFullName }, 'Security scan failed');
     if (scan?.id) {
-      await updateSecurityScan(scan.id, { status: 'failed' }).catch(() => {});
+      await safeFire(updateSecurityScan(scan.id, { status: 'failed' }), { label: 'securityScanner' })
     }
     return null;
   } finally {

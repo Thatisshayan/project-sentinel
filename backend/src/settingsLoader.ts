@@ -1,4 +1,5 @@
 import logger from './logger';
+import { getSettings, updateSettings as updateSettingsDb } from './settingsDb';
 
 let settingsCache: any = null;
 let cacheTime = 0;
@@ -10,7 +11,6 @@ async function loadSettings(forceRefresh = false): Promise<any> {
   }
 
   try {
-    const { getSettings } = require('./settingsDb') as { getSettings: () => Promise<any> };
     settingsCache = await getSettings();
     cacheTime = Date.now();
   } catch (err: any) {
@@ -38,8 +38,7 @@ function getEnvFallbacks(): any {
 
 async function updateSettings(updates: Record<string, any>): Promise<void> {
   try {
-    const { saveSettings } = require('./settingsDb') as { saveSettings: (updates: Record<string, any>) => Promise<void> };
-    await saveSettings(updates);
+    await updateSettingsDb(updates);
     settingsCache = null; // invalidate cache
   } catch (err: any) {
     logger.warn({ err: err.message }, 'Failed to save settings to DB');

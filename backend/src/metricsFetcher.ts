@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import axios from 'axios';
 import logger from './logger';
 import { query } from './dbClient';
@@ -46,10 +47,10 @@ async function fetchAllMetrics(): Promise<void> {
       failed++;
       logger.warn({ source: source.name, err: err.message }, 'Metrics fetch failed');
       if (source.fromDb) {
-        await query(
+        await safeFire(query(
           'UPDATE metric_connectors SET last_error = $2 WHERE connector_name = $1',
           [source.name, err.message.substring(0, 500)]
-        ).catch(() => {});
+        ), { label: 'metricsFetcher' })
       }
     }
   }
@@ -91,10 +92,10 @@ async function fetchOne(source: any, today: string): Promise<void> {
     }
   }
 
-  await query(
+  await safeFire(query(
     'UPDATE metric_connectors SET last_pull_at = NOW(), last_error = NULL WHERE connector_name = $1',
     [name]
-  ).catch(() => {});
+  ), { label: 'metricsFetcher' })
 
   logger.info({ source: name, repo }, 'Metrics fetched');
 }

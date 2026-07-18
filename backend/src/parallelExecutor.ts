@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import axios from 'axios';
 import { getGithubOrg } from './repoResolver';
@@ -117,10 +118,10 @@ async function executeTaskParallel(task: any, context: any): Promise<any> {
       }
 
       if (!prVerified) {
-        await sendTelegramMessage(
+        await safeFire(sendTelegramMessage(
           `⚠️ Task marked failed — builder ran but no PR was created on GitHub.\nPR: https://github.com/${getGithubOrg()}/${repoName}/pulls`,
           repoName, topicId
-        ).catch(() => {});
+        ), { label: 'parallelExecutor' })
         await announceFailed(agentId, agentConfig.label, repoName,
           task.title || task.task_title, 'Builder ran but no PR was created');
         await freeAgent(agentId, false);
@@ -202,7 +203,7 @@ async function executePortfolioTasks(tasks: any[]): Promise<any[]> {
     summaryMsg = `❌ Batch Failed — 0/${total} tasks completed. Primary and fallback builder both threw errors. No code was written. No PRs opened. Check Railway logs.`;
   }
 
-  await sendTelegramMessage(summaryMsg, null, null).catch(() => {});
+  await safeFire(sendTelegramMessage(summaryMsg, null, null), { label: 'parallelExecutor' })
 
   return results;
 }

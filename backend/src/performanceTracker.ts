@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import { recordModelOutcome, getBestModelForTask, getModelScores } from './selfAuditDb';
 import logger from './logger';
 
@@ -14,7 +15,7 @@ async function trackModelCall<T>(modelId: string, taskType: string, complexity: 
     throw err;
   } finally {
     const durationMs = Date.now() - start;
-    recordModelOutcome({ modelId, taskType, complexity, success, durationMs }).catch(() => {});
+    fireAndForget(recordModelOutcome({ modelId, taskType, complexity, success, durationMs }), { label: 'performanceTracker' })
     logger.debug({ modelId, taskType, success, durationMs }, 'Model outcome recorded');
   }
 }

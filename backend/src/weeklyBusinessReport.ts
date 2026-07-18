@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { sendTelegramMessage } from './telegramClient';
 import { getPortfolioSummary } from './portfolioAnalytics';
@@ -58,7 +59,7 @@ async function generateWeeklyReport(): Promise<void> {
       month: 'long', day: 'numeric', year: 'numeric',
     });
 
-    await sendTelegramMessage([
+    await safeFire(sendTelegramMessage([
       `🛡️ Sentinel Weekly Report — ${weekOf}`,
       ``,
       `TECHNICAL`,
@@ -72,7 +73,7 @@ async function generateWeeklyReport(): Promise<void> {
       velocity,
       ``,
       ...costLines,
-    ].filter((l: string | null) => l !== null).join('\n'), null, null).catch(() => {});
+    ].filter((l: string | null) => l !== null).join('\n'), null, null), { label: 'weeklyBusinessReport' })
 
     logger.info('Weekly business report sent');
   } catch (err: any) {

@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import axios from 'axios';
 import logger from './logger';
 import { upsertOwaspItem } from './securityDb';
@@ -94,7 +95,7 @@ Be conservative. Do not invent issues.`;
   }
 
   for (const item of evaluation) {
-    await upsertOwaspItem(repoName, item.id, item.status, item.notes).catch(() => {});
+    await safeFire(upsertOwaspItem(repoName, item.id, item.status, item.notes), { label: 'owaspChecker' })
   }
 
   // pass=full weight, partial=half, fail/unknown=0

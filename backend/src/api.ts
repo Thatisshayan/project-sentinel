@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 /**
  * Sentinel UI — REST API routes
  * Auth: x-sentinel-key header (SENTINEL_UI_KEY env var)
@@ -9,14 +10,29 @@ import dbClient from './dbClient';
 const { query } = dbClient;
 import logger from './logger';
 import { repoFullName } from './repoResolver';
+import { timingSafeEqual } from './utils/timingSafeCompare';
+import rateLimit from 'express-rate-limit';
 
 const router = express.Router();
+
+// ── Rate limiting ───────────────────────────────────────────────────────────
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+router.use(apiLimiter);
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
 router.use((req: any, res: any, next: any) => {
   const key = process.env['SENTINEL_UI_KEY'];
-  if (key && req.headers['x-sentinel-key'] !== key) {
+  const headerKey = req.headers['x-sentinel-key'];
+  if (key && (typeof headerKey !== 'string' || !timingSafeEqual(headerKey, key))) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
@@ -204,7 +220,7 @@ router.post('/command', async (req: any, res: any) => {
 
   // Log the user's message into agent_messages so the UI sees it
   const { logAgentMessage } = require('./agentDb');
-  await logAgentMessage('dashboard_user', fromName, text, 'info', null).catch(() => {});
+  await safeFire(logAgentMessage('dashboard_user', fromName, text, 'info', null), { label: 'api' })
 
   // Fire command through the real handler (non-blocking — response arrives via agent_messages poll)
   const { handleCommand } = require('./telegramCommands');

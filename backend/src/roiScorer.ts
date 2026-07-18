@@ -1,6 +1,8 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { getLatestMetrics, upsertTaskROI } from './businessDb';
 import { getAllLatestMetrics } from './portfolioDb';
+import dbClient from './dbClient';
 
 const PRIORITY_BONUS: Record<string, number> = { critical: 4, high: 3, medium: 1, low: 0 };
 
@@ -43,7 +45,7 @@ async function scoreTask(task: any, repoName: string, repoPriority: string): Pro
 
   const finalScore = Math.min(10, baseScore + priorityBonus + healthBonus + revenueBonus);
 
-  await upsertTaskROI({
+  await safeFire(upsertTaskROI({
     auditTaskId:  task.id,
     repoName,
     baseScore,
@@ -52,13 +54,13 @@ async function scoreTask(task: any, repoName: string, repoPriority: string): Pro
     revenueBonus,
     finalScore,
     scoringReason: reasons.join(', ') || 'standard scoring',
-  }).catch(() => {});
+  }), { label: 'roiScorer' })
 
   return finalScore;
 }
 
 async function scoreAllQueuedTasks(): Promise<void> {
-  const { query } = require('./dbClient') as { query: (...args: any[]) => Promise<any> };
+  const { query } = dbClient;
 
   const tasks = await query(`
     SELECT at.*, ac.repo_full_name
@@ -79,7 +81,7 @@ async function scoreAllQueuedTasks(): Promise<void> {
   for (const task of tasks.rows) {
     const repoName = task.repo_full_name?.split('/')[1];
     const priority = priorityMap[repoName] || 'medium';
-    await scoreTask(task, repoName, priority).catch(() => {});
+    await safeFire(scoreTask(task, repoName, priority), { label: 'roiScorer' })
   }
 
   logger.info({ count: tasks.rows.length }, 'ROI scoring complete');

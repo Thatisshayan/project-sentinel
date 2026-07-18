@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import { execAsync } from './utils/execAsync';
 import axios from 'axios';
 import logger from './logger';
@@ -76,7 +77,7 @@ async function scanDependencies(repoPath: string, repoFullName: string, scanId: 
       autoFixable,
     };
 
-    await insertSecurityIssue(issue).catch(() => {});
+    await safeFire(insertSecurityIssue(issue), { label: 'dependencyScanner' })
     issues.push(issue);
   }
 

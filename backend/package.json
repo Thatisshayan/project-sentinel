@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "jest --runInBand --forceExit",
     "test:coverage": "jest --runInBand --forceExit --coverage",
+    "test:integration": "echo 'Integration tests require Docker — run test-integration.yml workflow or install Docker locally'",
     "lint": "eslint src/ --max-warnings 1000",
     "format": "prettier --write src/"
   },
@@ -44,22 +45,6 @@
     "supertest": "6.3.4",
     "ts-node": "^10.9.2",
     "typescript": "^7.0.2"
-  },
-  "jest": {
-    "testEnvironment": "node",
-    "testMatch": [
-      "**/test/**/*.test.js",
-      "**/test/**/*.test.ts"
-    ],
-    "transform": {
-      "^.+\\.ts$": "@swc/jest"
-    },
-    "moduleNameMapper": {
-      "^(\\.{1,2}/.*)\\.js$": "$1"
-    },
-    "collectCoverageFrom": [
-      "src/**/*.{js,ts}"
-    ]
   },
   "engines": {
     "node": ">=20.0.0"

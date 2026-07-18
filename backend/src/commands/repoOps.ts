@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from '../utils/safeFire';
 import logger from '../logger';
 import { repoFullName } from '../repoResolver';
 import { sendTelegramMessage } from '../telegramClient';
@@ -207,7 +208,7 @@ async function handleSkipBatch(repoArg: string, batchNumArg: string, topicId: nu
     `Batch ${batchNumArg} skipped for ${repoArg}. Moving to next batch...`,
     null, topicId
   );
-  processNextBatch(repoFullName(repoArg), repoArg, topicId).catch(() => {});
+  fireAndForget(processNextBatch(repoFullName(repoArg), repoArg, topicId), { label: 'repoOps' })
   return true;
 }
 
@@ -365,10 +366,10 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       }
       const { runSecurityScan } = require('../securityScanner') as { runSecurityScan: (...args: any[]) => Promise<any> };
       await sendTelegramMessage(`Running security scan on ${parts[2]}...`, null, topicId);
-      runSecurityScan({
+      fireAndForget(runSecurityScan({
         repoFullName: repoFullName(parts[2]),
         repoName: parts[2], commitSha: 'HEAD', topicId,
-      }).catch(() => {});
+      }), { label: 'repoOps' })
       return true;
     }
     case 'security-patch': {
@@ -379,7 +380,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       const { getOpenIssues: getIssues } = require('../securityDb') as { getOpenIssues: (...args: any[]) => Promise<any[]> };
       const { applySecurityPatches }     = require('../securityPatcher') as { applySecurityPatches: (...args: any[]) => Promise<any> };
       const patchIssues = await getIssues(repoFullName(parts[2]));
-      applySecurityPatches(repoFullName(parts[2]), parts[2], patchIssues, topicId).catch(() => {});
+      fireAndForget(applySecurityPatches(repoFullName(parts[2]), parts[2], patchIssues, topicId), { label: 'repoOps' })
       return true;
     }
     case 'security-approve': {
@@ -460,7 +461,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
     case 'pause': {
       try {
         const { cancelAutoApprove } = require('../autoApprover') as { cancelAutoApprove: () => Promise<boolean> };
-        await cancelAutoApprove().catch(() => {});
+        await safeFire(cancelAutoApprove(), { label: 'repoOps' })
       } catch {}
       try {
         await dbQuery(`UPDATE agent_registry SET status='paused' WHERE status='idle'`);

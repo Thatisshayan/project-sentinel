@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import axios from 'axios';
 import logger from './logger';
 import { getGithubOrg } from './repoResolver';
@@ -262,7 +263,7 @@ Respond with ONLY valid JSON:
       ],
     ]);
   } catch {
-    await sendTelegramMessage(sprintText, null, null).catch(() => {});
+    await safeFire(sendTelegramMessage(sprintText, null, null), { label: 'sprintPlanner' })
   }
 
   try {

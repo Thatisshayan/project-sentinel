@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { sendAsAgent } from './agentBots';
 import { handleMessage } from './telegramAI';
@@ -56,11 +57,11 @@ async function handleAgentReply(message: any, agentId: string, topicId: number):
 
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message, agentId }, 'Agent reply handling failed');
-    await sendAsAgent(
+    await safeFire(sendAsAgent(
       agentId,
       'Sorry, I had trouble processing that. Try again or use /sentinel agents.',
       messageId
-    ).catch(() => {});
+    ), { label: 'agentReplies' })
   }
 }
 

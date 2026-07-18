@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { getCapacityStatus } from './capacityManager';
 import { sendTelegramMessage } from './telegramClient';
@@ -74,12 +75,12 @@ async function runSelfScaler(): Promise<any> {
     if (decisions.length > 0) {
       await persistOverrides();
       logger.info({ decisions, usagePct, queuedSafe }, 'Self-scaler adjusted limits');
-      await sendTelegramMessage(
+      await safeFire(sendTelegramMessage(
         `Project Sentinel — Auto-Scaled\n\n${decisions.join('\n')}\n\n` +
         `Budget: $${capacity.monthlySpend.toFixed(2)}/$${capacity.monthlyBudget} (${usagePct}%)\n` +
         `Queued tasks: ${queuedSafe}`,
         null, null
-      ).catch(() => {});
+      ), { label: 'selfScaler' })
     } else {
       logger.info({ usagePct, queuedSafe, batch: getEffectiveBatchSize(), daily: getEffectiveDailyLimit() }, 'Self-scaler: no changes needed');
     }

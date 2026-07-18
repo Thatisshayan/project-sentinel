@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { getAllAgents } from './agentDb';
 import dbClient from './dbClient';
@@ -64,10 +65,10 @@ async function runAgentStandup(): Promise<void> {
       const line = getStandupLine(agent.agent_id, stats);
 
       await sendAsAgent(agent.agent_id, line, null).catch(async () => {
-        await sendTelegramMessage(
+        await safeFire(sendTelegramMessage(
           `${agent.emoji || '🤖'} ${agent.agent_label}: ${line}`,
           null, AGENT_ROOM_TOPIC()
-        ).catch(() => {});
+        ), { label: 'agentStandup' })
       });
 
       // Small delay so messages don't stack instantly

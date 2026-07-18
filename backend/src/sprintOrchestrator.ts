@@ -1,14 +1,16 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
-const { sendTelegramMessage }  = require('./telegramClient');
-const { executeBatch }         = require('./taskBuilder');
-const { createPullRequest }    = require('./prCreator');
-const { findNotionProject }    = require('./notionClient');
-const { recordWeeklyVelocity,
-        getVelocityReport }    = require('./velocityTracker');
-const {
+import { sendTelegramMessage } from './telegramClient';
+import { executeBatch } from './taskBuilder';
+import { createPullRequest } from './prCreator';
+import { findNotionProject } from './notionClient';
+import { recordWeeklyVelocity, getVelocityReport } from './velocityTracker';
+import {
   getCurrentSprint, getSprintById, updateSprint,
   getNextSprintTask, updateSprintTask, getSprintTasks,
-} = require('./sprintDb');
+} from './sprintDb';
+import { updateAuditTask } from './auditDb';
+import { updateNotionTaskStatus } from './auditTaskWriter';
 
 // ── Approve ───────────────────────────────────────────────────────────────────
 
@@ -16,18 +18,18 @@ async function approveSprint(topicId: number | null): Promise<void> {
   const sprint = await getCurrentSprint();
 
   if (!sprint) {
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       'No sprint proposal found. Sentinel generates one every Sunday at 8pm.',
       null, topicId
-    ).catch(() => {});
+    ), { label: 'sprintOrchestrator' })
     return;
   }
 
   if (sprint.status !== 'proposed') {
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       `Sprint is already ${sprint.status}. Use /sentinel sprint-status to check progress.`,
       null, topicId
-    ).catch(() => {});
+    ), { label: 'sprintOrchestrator' })
     return;
   }
 
@@ -36,7 +38,7 @@ async function approveSprint(topicId: number | null): Promise<void> {
     approved_at: new Date().toISOString(),
   });
 
-  await sendTelegramMessage([
+  await safeFire(sendTelegramMessage([
     `Project Sentinel — Sprint Approved ✅`,
     ``,
     `Week of ${sprint.week_start} — ${sprint.total_tasks} tasks queued`,
@@ -44,7 +46,7 @@ async function approveSprint(topicId: number | null): Promise<void> {
     ``,
     `/sentinel sprint-status — check progress anytime`,
     `/sentinel pause-sprint  — pause execution`,
-  ].join('\n'), null, topicId).catch(() => {});
+  ].join('\n'), null, topicId), { label: 'sprintOrchestrator' })
 
   logger.info({ sprintId: sprint.id }, 'Sprint approved — starting execution');
   executeNextSprintTask(sprint.id, topicId).catch((err: any) =>
@@ -54,7 +56,7 @@ async function approveSprint(topicId: number | null): Promise<void> {
 
 // ── Task execution loop ───────────────────────────────────────────────────────
 
-async function executeNextSprintTask(sprintId: string, topicId: number | null): Promise<void> {
+async function executeNextSprintTask(sprintId: number, topicId: number | null): Promise<void> {
   const sprint = await getSprintById(sprintId);
   if (!sprint || sprint.status !== 'executing') return;
 
@@ -126,7 +128,6 @@ async function executeNextSprintTask(sprintId: string, topicId: number | null): 
 
     // Sync with audit task if this sprint task was created from an audit task
     if (task.audit_task_id) {
-      const { updateAuditTask, updateNotionTaskStatus } = require('./auditDb');
       await updateAuditTask(task.audit_task_id, {
         status: 'build_check',
         branch_name: batchResult.taskBranch,
@@ -135,7 +136,7 @@ async function executeNextSprintTask(sprintId: string, topicId: number | null): 
         pr_url: prUrl,
         pr_number: prUrl ? parseInt(prUrl.split('/').pop() as string) : null,
       }).catch((err: any) => logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task'));
-      await updateNotionTaskStatus(task.audit_task_id, 'build_check', { prUrl, commitUrl: batchResult.commitUrl }).catch(() => {});
+      await safeFire(updateNotionTaskStatus(task.audit_task_id, 'build_check', { prUrl, commitUrl: batchResult.commitUrl }), { label: 'sprintOrchestrator' })
     }
 
     const freshSprint = await getSprintById(sprintId);
@@ -143,7 +144,7 @@ async function executeNextSprintTask(sprintId: string, topicId: number | null): 
       completed_tasks: (freshSprint.completed_tasks || 0) + 1,
     });
 
-    await sendTelegramMessage([
+    await safeFire(sendTelegramMessage([
       `Sprint Task ${task.execution_order}/${sprint.total_tasks} Done ✅`,
       ``,
       `Repo: ${task.repo_name}`,
@@ -151,7 +152,7 @@ async function executeNextSprintTask(sprintId: string, topicId: number | null): 
       prUrl ? `PR: ${prUrl}` : '',
       ``,
       `${sprint.total_tasks - task.execution_order} tasks remaining this sprint.`,
-    ].filter(Boolean).join('\n'), null, topicId).catch(() => {});
+    ].filter(Boolean).join('\n'), null, topicId), { label: 'sprintOrchestrator' })
 
     // Continue to next task after a brief pause
     setTimeout(() => {
@@ -174,7 +175,7 @@ async function executeNextSprintTask(sprintId: string, topicId: number | null): 
       failed_tasks: (freshSprint.failed_tasks || 0) + 1,
     });
 
-    await sendTelegramMessage([
+    await safeFire(sendTelegramMessage([
       `Sprint Paused ⏸️`,
       ``,
       `Task ${task.execution_order}/${sprint.total_tasks} failed: ${task.task_title}`,
@@ -183,13 +184,13 @@ async function executeNextSprintTask(sprintId: string, topicId: number | null): 
       ``,
       `/sentinel resume-sprint  — skip failed task and continue`,
       `/sentinel skip-sprint    — abandon this sprint`,
-    ].join('\n'), null, topicId).catch(() => {});
+    ].join('\n'), null, topicId), { label: 'sprintOrchestrator' })
   }
 }
 
 // ── Complete ──────────────────────────────────────────────────────────────────
 
-async function completeSprint(sprintId: string, topicId: number | null): Promise<void> {
+async function completeSprint(sprintId: number, topicId: number | null): Promise<void> {
   const sprint = await getSprintById(sprintId);
   const tasks  = await getSprintTasks(sprintId);
 
@@ -210,7 +211,7 @@ async function completeSprint(sprintId: string, topicId: number | null): Promise
   );
   const velocityReport = await getVelocityReport().catch(() => '');
 
-  await sendTelegramMessage([
+  await safeFire(sendTelegramMessage([
     `Project Sentinel — Sprint Complete 🏁`,
     ``,
     `Week of ${sprint.week_start}`,
@@ -219,7 +220,7 @@ async function completeSprint(sprintId: string, topicId: number | null): Promise
     velocityReport,
     ``,
     `Next sprint proposal arrives Sunday at 8pm.`,
-  ].filter(Boolean).join('\n'), null, topicId).catch(() => {});
+  ].filter(Boolean).join('\n'), null, topicId), { label: 'sprintOrchestrator' })
 
   logger.info({ sprintId, done, failed, skipped }, 'Sprint complete');
 }
@@ -230,10 +231,10 @@ async function getSprintStatus(topicId: number | null): Promise<void> {
   const sprint = await getCurrentSprint();
 
   if (!sprint) {
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       'No active sprint. Next proposal: Sunday at 8pm Toronto.',
       null, topicId
-    ).catch(() => {});
+    ), { label: 'sprintOrchestrator' })
     return;
   }
 
@@ -247,7 +248,7 @@ async function getSprintStatus(topicId: number | null): Promise<void> {
     `${STATUS_EMOJI[t.status] || '⚪'} ${t.repo_name}: ${t.task_title}`
   ).join('\n');
 
-  await sendTelegramMessage([
+  await safeFire(sendTelegramMessage([
     `Sprint Status — Week of ${sprint.week_start}`,
     `Status: ${sprint.status}`,
     ``,
@@ -255,7 +256,7 @@ async function getSprintStatus(topicId: number | null): Promise<void> {
     ``,
     taskLines,
     tasks.length > 10 ? `...and ${tasks.length - 10} more` : '',
-  ].filter(Boolean).join('\n'), null, topicId).catch(() => {});
+  ].filter(Boolean).join('\n'), null, topicId), { label: 'sprintOrchestrator' })
 }
 
 // ── Pause / Resume ────────────────────────────────────────────────────────────
@@ -263,20 +264,20 @@ async function getSprintStatus(topicId: number | null): Promise<void> {
 async function pauseSprint(topicId: number | null): Promise<void> {
   const sprint = await getCurrentSprint();
   if (!sprint || sprint.status !== 'executing') {
-    await sendTelegramMessage('No executing sprint to pause.', null, topicId).catch(() => {});
+    await safeFire(sendTelegramMessage('No executing sprint to pause.', null, topicId), { label: 'sprintOrchestrator' })
     return;
   }
   await updateSprint(sprint.id, { status: 'paused' });
-  await sendTelegramMessage(
+  await safeFire(sendTelegramMessage(
     'Sprint paused. Use /sentinel resume-sprint to continue.',
     null, topicId
-  ).catch(() => {});
+  ), { label: 'sprintOrchestrator' })
 }
 
 async function resumeSprint(topicId: number | null): Promise<void> {
   const sprint = await getCurrentSprint();
   if (!sprint || sprint.status !== 'paused') {
-    await sendTelegramMessage('No paused sprint to resume.', null, topicId).catch(() => {});
+    await safeFire(sendTelegramMessage('No paused sprint to resume.', null, topicId), { label: 'sprintOrchestrator' })
     return;
   }
 
@@ -288,10 +289,10 @@ async function resumeSprint(topicId: number | null): Promise<void> {
   }
 
   await updateSprint(sprint.id, { status: 'executing' });
-  await sendTelegramMessage(
+  await safeFire(sendTelegramMessage(
     'Sprint resumed — skipping failed task and continuing.',
     null, topicId
-  ).catch(() => {});
+  ), { label: 'sprintOrchestrator' })
 
   executeNextSprintTask(sprint.id, topicId).catch((err: any) =>
     logger.error({ err: err.stack ?? err.message }, 'Sprint resume failed')

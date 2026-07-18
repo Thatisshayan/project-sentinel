@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import { query } from './dbClient';
 import logger from './logger';
 
@@ -21,10 +22,10 @@ async function initConversationSchema(): Promise<void> {
 }
 
 async function saveMessage(topicId: string | number, fromName: string, message: string, response: string | null, agentId: string | null = null): Promise<void> {
-  await query(`
+  await safeFire(query(`
     INSERT INTO conversation_history (topic_id, from_name, message, response, agent_id)
     VALUES ($1, $2, $3, $4, $5)
-  `, [String(topicId || 'main'), fromName, message, response, agentId]).catch(() => {});
+  `, [String(topicId || 'main'), fromName, message, response, agentId]), { label: 'conversationMemory' })
 }
 
 async function getHistory(topicId: string | number, limit = 15): Promise<any[]> {

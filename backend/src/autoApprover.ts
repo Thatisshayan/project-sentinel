@@ -2,12 +2,12 @@ import logger from './logger';
 import { getRedisConnection } from './queueClient';
 import { sendTelegramMessage } from './telegramClient';
 import { approveSprint } from './sprintOrchestrator';
+import { loadSettings } from './settingsLoader';
 
 const AUTO_APPROVE_DELAY_MS = 2 * 60 * 60 * 1000; // 2 hours
 const REDIS_KEY = 'sentinel:sprint:pending-auto-approve';
 
 async function scheduleAutoApprove(sprintId: string | number, topicId: string | null): Promise<void> {
-  const { loadSettings } = require('./settingsLoader') as { loadSettings: () => Promise<any> };
   const settings = await loadSettings();
 
   if (!settings.auto_approve_tasks) return;

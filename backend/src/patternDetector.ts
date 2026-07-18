@@ -1,3 +1,4 @@
+import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { query } from './dbClient';
 import { upsertPattern, getOpenPatterns } from './portfolioDb';
@@ -72,10 +73,10 @@ async function detectPatterns(): Promise<any[]> {
       `· ${p.description} (${p.repos.length} repos: ${p.repos.map((r: string) => r.split('/')[1]).join(', ')})`
     ).join('\n');
 
-    await sendTelegramMessage(
+    await safeFire(sendTelegramMessage(
       `Project Sentinel — Portfolio Patterns Detected 🔍\n\n${lines}\n\nThese issues affect multiple repos. Consider a batch fix.`,
       null, null
-    ).catch(() => {});
+    ), { label: 'patternDetector' })
   }
 
   logger.info({ detected: detected.length }, 'Pattern detection complete');
