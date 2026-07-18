@@ -197,8 +197,41 @@ async function getPortfolioSecuritySummary(): Promise<any[]> {
   return r.rows;
 }
 
+/**
+ * Portfolio-wide count of issues newly found within the last `days` days,
+ * grouped by severity. Used by the monthly security report.
+ */
+async function getIssuesFoundSince(days: number): Promise<Array<{ severity: string; count: number }>> {
+  const r = await query(`
+    SELECT severity, COUNT(*)::int AS count
+    FROM security_issues
+    WHERE found_at > NOW() - ($1 || ' days')::INTERVAL
+    GROUP BY severity
+    ORDER BY CASE severity
+      WHEN 'critical' THEN 1 WHEN 'high' THEN 2
+      WHEN 'medium'   THEN 3 WHEN 'low'  THEN 4 ELSE 5
+    END
+  `, [days]);
+  return r.rows;
+}
+
+/**
+ * Portfolio-wide count of issues resolved (status changed away from 'open')
+ * within the last `days` days. Used by the monthly security report to show
+ * whether the backlog is shrinking or growing.
+ */
+async function getIssuesResolvedSince(days: number): Promise<number> {
+  const r = await query(`
+    SELECT COUNT(*)::int AS count
+    FROM security_issues
+    WHERE status != 'open' AND resolved_at > NOW() - ($1 || ' days')::INTERVAL
+  `, [days]);
+  return r.rows[0]?.count || 0;
+}
+
 export = {
   initSecuritySchema, createSecurityScan, updateSecurityScan,
   insertSecurityIssue, getOpenIssues, upsertSecurityScore,
   upsertOwaspItem, getLatestSecurityScore, getPortfolioSecuritySummary,
+  getIssuesFoundSince, getIssuesResolvedSince,
 };
