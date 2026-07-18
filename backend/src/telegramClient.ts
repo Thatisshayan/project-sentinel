@@ -1,5 +1,6 @@
 import https from 'https';
 import logger from './logger';
+import { loadSettings } from './settingsLoader';
 
 const MAX_LENGTH = 4096;
 
@@ -45,7 +46,6 @@ async function sendTelegramMessage(text: string, repoName: string | null, explic
   // Check if telegram alerts are enabled in settings (unless forceSend)
   if (!forceSend) {
     try {
-      const { loadSettings } = require('./settingsLoader');
       const settings = await loadSettings();
       if (!settings.telegram_alerts) {
         logger.debug('Telegram alerts disabled in settings');

@@ -1,6 +1,6 @@
 # Project Sentinel
 
-> **⚠️ REBUILD IN PROGRESS — Phase 0/7 active.**
+> **⚠️ REBUILD IN PROGRESS — Phase 6/7 active.**
 > Current status: `STATUS.md` | Plan: `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md`
 > Audit: `2026-07-16-DeepCodebaseAudit.md`
 > Before contributing, read `AGENTS.md` and check current phase requirements.

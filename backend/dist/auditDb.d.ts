@@ -1,0 +1,51 @@
+declare function initAuditSchema(): Promise<void>;
+declare function getAuditCycle(repoFullName: string, commitSha: string): Promise<any | null>;
+declare function getActiveCycleForRepo(repoFullName: string): Promise<any | null>;
+declare function getLastCompletedAudit(repoFullName: string): Promise<any | null>;
+declare function createAuditCycle(data: {
+    repoFullName: string;
+    commitSha: string;
+    projectName?: string;
+}): Promise<any | null>;
+declare function updateAuditCycle(id: number, updates: Record<string, any>): Promise<any | null>;
+declare function getQueuedTaskCount(repoFullName: string): Promise<number>;
+declare function createAuditTask(data: {
+    auditCycleId: number;
+    repoFullName: string;
+    taskNumber: number;
+    title: string;
+    description?: string;
+    priority?: string;
+    category?: string;
+    affectedFiles?: string[];
+    complexity?: string;
+    safeToAutoExecute?: boolean;
+    safetyReason?: string;
+    acceptanceCriteria?: string;
+    batchNumber?: number;
+    builderAgent?: string;
+}): Promise<any | null>;
+declare function getNextBatch(repoFullName: string, batchSize: number): Promise<any[]>;
+declare function updateAuditTask(id: number, updates: Record<string, any>): Promise<any | null>;
+declare function checkDuplicateTask(repoFullName: string, title: string): Promise<boolean>;
+declare function countTasksExecutedToday(repoFullName: string): Promise<number>;
+declare function stopAllTasksForRepo(repoFullName: string): Promise<void>;
+declare function markTasksDoneForBranch(repoFullName: string, branchName: string): Promise<void>;
+declare const _default: {
+    initAuditSchema: typeof initAuditSchema;
+    getAuditCycle: typeof getAuditCycle;
+    getActiveCycleForRepo: typeof getActiveCycleForRepo;
+    getLastCompletedAudit: typeof getLastCompletedAudit;
+    createAuditCycle: typeof createAuditCycle;
+    updateAuditCycle: typeof updateAuditCycle;
+    getQueuedTaskCount: typeof getQueuedTaskCount;
+    createAuditTask: typeof createAuditTask;
+    getNextBatch: typeof getNextBatch;
+    updateAuditTask: typeof updateAuditTask;
+    checkDuplicateTask: typeof checkDuplicateTask;
+    countTasksExecutedToday: typeof countTasksExecutedToday;
+    stopAllTasksForRepo: typeof stopAllTasksForRepo;
+    markTasksDoneForBranch: typeof markTasksDoneForBranch;
+};
+export = _default;
+//# sourceMappingURL=auditDb.d.ts.map

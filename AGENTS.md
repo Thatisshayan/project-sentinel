@@ -29,13 +29,12 @@ For full details, see [RemoteCliControl/AGENTS.md](../RemoteCliControl/AGENTS.md
 
 ## Project Sentinel-Specific Context
 
-**Project Status**: ⚠️ REBUILD IN PROGRESS — Phase 0/7 active
+**Project Status**: ⚠️ REBUILD IN PROGRESS — Phase 6/7 active
 
 **Key Notes**:
-- TypeScript migration in progress
-- Codebase hardening and testing underway
-- Changes must follow the active rebuild plan's conventions
-- Before making ANY changes, read `STATUS.md` and the rebuild plan
+- Phase 6 (Architecture Refactoring) in progress — 6.4 complete, 6.5 pending
+- Inline require() → top-level imports done (12 files, 156 tests pass)
+- Ready for Phase 7 after Railway deployment verification
 
 ---
 

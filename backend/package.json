@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "jest --runInBand --forceExit",
     "test:coverage": "jest --runInBand --forceExit --coverage",
+    "test:integration": "echo 'Integration tests require Docker — run test-integration.yml workflow or install Docker locally'",
     "lint": "eslint src/ --max-warnings 1000",
     "format": "prettier --write src/"
   },

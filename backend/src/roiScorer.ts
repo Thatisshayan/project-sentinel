@@ -2,6 +2,7 @@ import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { getLatestMetrics, upsertTaskROI } from './businessDb';
 import { getAllLatestMetrics } from './portfolioDb';
+import dbClient from './dbClient';
 
 const PRIORITY_BONUS: Record<string, number> = { critical: 4, high: 3, medium: 1, low: 0 };
 
@@ -59,7 +60,7 @@ async function scoreTask(task: any, repoName: string, repoPriority: string): Pro
 }
 
 async function scoreAllQueuedTasks(): Promise<void> {
-  const { query } = require('./dbClient') as { query: (...args: any[]) => Promise<any> };
+  const { query } = dbClient;
 
   const tasks = await query(`
     SELECT at.*, ac.repo_full_name

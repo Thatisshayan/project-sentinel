@@ -1,6 +1,6 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
-import { acquireFileLocks, releaseFileLocks, releaseExpiredLocks } from './agentDb';
+import { acquireFileLocks, releaseFileLocks, releaseExpiredLocks, getActiveAgents } from './agentDb';
 import { announceConflict, sendConflictKeyboard } from './agentRoom';
 import { repoFullName as resolveRepoFullName } from './repoResolver';
 
@@ -55,7 +55,6 @@ function getDependentRepos(repoFullName: string): string[] {
 }
 
 async function checkDependencyConflicts(repoFullName: string): Promise<{ hasConflict: boolean; reason?: string }> {
-  const { getActiveAgents } = require('./agentDb') as { getActiveAgents: () => Promise<any[]> };
   const dependents          = getDependentRepos(repoFullName);
   if (dependents.length === 0) return { hasConflict: false };
 

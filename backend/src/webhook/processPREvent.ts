@@ -2,6 +2,7 @@ import { safeFire } from '../utils/safeFire';
 import { sendTelegramMessage } from '../telegramClient';
 import logger from '../logger';
 import dbClient from '../dbClient';
+import { updateNotionTaskStatus } from '../auditTaskWriter';
 
 const { query } = dbClient;
 
@@ -34,12 +35,9 @@ export async function processPREvent(payload: any): Promise<void> {
     const taskIds = updated?.rows || [];
     logger.info({ count: taskIds.length, repoFullName }, 'Tasks marked done after PR merge');
 
-    try {
-      const { updateNotionTaskStatus } = require('../auditTaskWriter');
-      for (const row of taskIds) {
-        await safeFire(updateNotionTaskStatus(row.notion_page_id, 'done', { prUrl }), { label: 'webhook' })
-      }
-    } catch {}
+    for (const row of taskIds) {
+      await safeFire(updateNotionTaskStatus(row.notion_page_id, 'done', { prUrl }), { label: 'webhook' })
+    }
 
     await safeFire(sendTelegramMessage([
       `Project Sentinel — PR Merged ✅`,

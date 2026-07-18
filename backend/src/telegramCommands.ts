@@ -33,6 +33,9 @@ import { generateWeeklyReport } from './weeklyBusinessReport';
 import { getRepoBusinessSummary } from './businessMetrics';
 import { getCorrelationSummary } from './correlationEngine';
 import { scoreAllQueuedTasks } from './roiScorer';
+import { showMainMenu } from './telegramMenus';
+import { sendDailyReport } from './dailyReport';
+import { getCostReport } from './costTracker';
 import { detectAgentReply, handleAgentReply } from './agentReplies';
 import {
   getPendingConflict,
@@ -89,7 +92,6 @@ async function handleCommand(text: string, chatId: number, topicId: number | nul
 
   // Top-level commands Telegram's native "/" menu can send directly
   if (command === '/start' || command === '/menu') {
-    const { showMainMenu } = require('./telegramMenus');
     await showMainMenu(chatId, topicId ?? null);
     return true;
   }
@@ -132,8 +134,7 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
   if (data.startsWith('skip:')) {
     await safeFire(answerCallback(queryId), { label: 'telegramCommands' })
     const repoName = data.replace('skip:', '');
-    const { stopAllTasksForRepo: stopRepo } = require('./auditDb');
-    await stopRepo(repoFullName(repoName));
+    await stopAllTasksForRepo(repoFullName(repoName));
     await safeFire(sendTelegramMessage(`Audit skipped for ${repoName}.`, null, threadId), { label: 'telegramCommands' })
     return true;
   }
@@ -247,21 +248,16 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
     const action = data.replace('menu:', '');
     try {
       if (action === 'report') {
-        const { sendDailyReport } = require('./dailyReport');
         await sendDailyReport();
       } else if (action === 'costs') {
-        const { getCostReport } = require('./costTracker');
         const r = await getCostReport();
         await sendTelegramMessage(r.formatted, null, threadId);
       } else if (action === 'agents') {
-        const { getAgentRoomSummary: getARS } = require('./agentRoom');
-        const s = await getARS();
+        const s = await getAgentRoomSummary();
         await sendTelegramMessage(s, null, threadId);
       } else if (action === 'sprint') {
-        const { getSprintStatus } = require('./sprintOrchestrator');
         await getSprintStatus(threadId);
       } else if (action === 'selfaudit') {
-        const { runSelfAudit } = require('./selfAuditor');
         await sendTelegramMessage('Triggering self-audit...', null, threadId);
         fireAndForget(runSelfAudit(), { label: 'telegramCommands' })
       } else if (action === 'security') {

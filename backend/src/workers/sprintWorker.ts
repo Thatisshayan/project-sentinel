@@ -4,6 +4,7 @@ import { runSelfAudit } from '../selfAuditor';
 import { checkAndHeal } from '../selfHealer';
 import { generateSprintProposal } from '../sprintPlanner';
 import { recordWeeklyVelocity } from '../velocityTracker';
+import { getSprintStatus } from '../sprintOrchestrator';
 import logger from '../logger';
 
 const SENTINEL_TZ = process.env['SENTINEL_TIMEZONE'] || 'America/Toronto';
@@ -38,7 +39,6 @@ export function startSprintWorker(): Worker | null {
       await generateSprintProposal();
     }
     if (job.name === 'midweek') {
-      const { getSprintStatus } = require('../sprintOrchestrator');
       await getSprintStatus(null);
     }
     if (job.name === 'self-audit') {

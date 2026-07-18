@@ -1,23 +1,24 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
-const { runAudit }           = require('./claudeCodeAudit');
-const { writeTasksToNotion,
-        updateNotionTaskStatus } = require('./auditTaskWriter');
-const { executeBatch }       = require('./taskBuilder');
-const { createPullRequest }  = require('./prCreator');
-const { sendTelegramMessage } = require('./telegramClient');
-const { findNotionProject }   = require('./notionClient');
-const {
+import { runAudit } from './claudeCodeAudit';
+import { writeTasksToNotion, updateNotionTaskStatus } from './auditTaskWriter';
+import { executeBatch } from './taskBuilder';
+import { createPullRequest } from './prCreator';
+import { sendTelegramMessage } from './telegramClient';
+import { findNotionProject } from './notionClient';
+import {
   createAuditCycle, updateAuditCycle,
   getActiveCycleForRepo, getLastCompletedAudit,
   getQueuedTaskCount, getNextBatch,
   updateAuditTask, countTasksExecutedToday,
   stopAllTasksForRepo, markTasksDoneForBranch,
-} = require('./auditDb');
-const { getBuilderConfig, getFallbackBuilder } = require('./builderRouter');
-const { reportFailure, reportSuccess } = require('./selfHealer');
-const { trackModelCall }               = require('./performanceTracker');
-const { isRepoLocked }                 = require('./repoLock');
+} from './auditDb';
+import { getBuilderConfig, getFallbackBuilder } from './builderRouter';
+import { reportFailure, reportSuccess } from './selfHealer';
+import { trackModelCall } from './performanceTracker';
+import { isRepoLocked } from './repoLock';
+import { loadSettings } from './settingsLoader';
+import dbClient from './dbClient';
 
 const AUDIT_ENABLED      = (): boolean => process.env['AUDIT_AGENT_ENABLED']   !== 'false';
 const BUILDER_ENABLED    = (): boolean => process.env['BUILDER_AGENT_ENABLED'] !== 'false';
@@ -32,8 +33,6 @@ try {
 
 const BATCH_SIZE  = (): number => getEffectiveBatchSize();
 const DAILY_LIMIT = (): number => getEffectiveDailyLimit();
-
-const { loadSettings } = require('./settingsLoader');
 
 const COOLDOWN_HOURS     = async (): Promise<number> => {
   const settings = await loadSettings();
@@ -163,7 +162,7 @@ async function triggerAudit(payload: any): Promise<void> {
       'medium',
       () => runAudit({
         repoFullName, repoName, projectName,
-        commitSha, commitMessage, branchName: branchName || 'main',
+        commitSha, branchName: branchName || 'main',
       })
     );
     await reportSuccess('auditOrchestrator');
@@ -478,10 +477,10 @@ async function handleBuildPassedAfterSentinelMerge(repoFullName: string, repoNam
 
 // ── APPROVAL TIMEOUT ──────────────────────────────────────────────────────────
 
-function scheduleApprovalTimeout(cycleId: string, repoFullName: string, repoName: string, topicId: number | null): void {
+function scheduleApprovalTimeout(cycleId: number, repoFullName: string, repoName: string, topicId: number | null): void {
   setTimeout(async () => {
     try {
-      const { query } = require('./dbClient');
+      const { query } = dbClient;
       const r = await query(
         'SELECT * FROM audit_cycles WHERE id=$1 AND status=$2',
         [cycleId, 'awaiting_approval']

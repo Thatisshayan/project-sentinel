@@ -22,7 +22,7 @@
 | 3: Security Hardening | **COMPLETE** 🔒 | 100% | Can overlap with Phases 1-2 |
 | 4: Test Coverage Blitz | **COMPLETE** 🧪 | ~100% (infra + unit suites; integration deferred D-002) | Needs Phase 0 + 1 |
 | 5: Catch Pattern Elimination | **COMPLETE** 🧹 | 100% (5.1–5.3 done; integration verify on Docker runner, see D-002) | Needs Phase 2 + 4 |
-| 6: Architecture Refactoring | **IN PROGRESS** 🏗️ | ~30% (6.1–6.2 done; 6.3 deferred D-005; 6.4–6.5 pending) | Needs Phase 4 + 5 |
+| 6: Architecture Refactoring | **IN PROGRESS** 🏗️ | ~50% (6.1–6.4 done; 6.3 deferred D-005; 6.5 pending) | Needs Phase 4 + 5 |
 | 7: Operational Excellence | Pending | 0% | Can start after Phase 3 |
 
 ## Phase 0 — Completed Tasks
@@ -101,11 +101,11 @@
   - `workers.ts` reduced to a named-reexport barrel (public surface unchanged → `index.ts` import untouched). `tsc --noEmit` clean; 156 tests pass.
 - 6.2: Split `webhook.ts` (365 LOC) ✅ — extracted into `src/webhook/`:
   - `messages.ts` (buildSuccessMessage / buildUnknownRepoMessage / buildErrorMessage)
-  - `processWebhook.ts` (push handler; preserves lazy `require()` cycle-breakers for `securityScanner`, `crossRepoCoordinator`, `@notionhq/client`)
-  - `processPREvent.ts` (PR merged/rejected handler; preserves lazy `require('./auditTaskWriter')`)
+  - `processWebhook.ts` (push handler; preserved lazy `require()` cycle-breakers for `securityScanner`, `crossRepoCoordinator`, `@notionhq/client`)
+  - `processPREvent.ts` (PR merged/rejected handler; converted to top-level import)
   - `webhook.ts` reduced to router + `verifySignature` + `export = router` (public surface unchanged → `index.ts` `require('./webhook')` untouched). `tsc --noEmit` clean; 156 tests pass.
 - 6.3: Centralize 4 AI provider call patterns into `ai/client.ts` — ⏸️ **DEFERRED (D-005)**: high refactor risk (divergent per-caller defaults + provider-specific output stripping/JSON parsing); do per-caller, not via blind script. Revisit after 6.4/6.5.
-- 6.4: Inline `require()` → top-level imports — ⏳ Pending (CAUTION: many are lazy cycle-breakers; convert per-file, not via blind script)
+- 6.4: Inline `require()` → top-level imports ✅ — converted 12 files, verified tsc+jest after each (156 tests pass). Preserved intentional cycle-breakers (agentRoom↔agentBots, safeFire→sentry, dailyReportWorker optional modules).
 - 6.5: Consolidate duplicated UI utilities — ⏳ Pending
 
 ## TS Files on main (76 files)

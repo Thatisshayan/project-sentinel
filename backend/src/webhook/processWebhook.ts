@@ -9,6 +9,9 @@ import dbClient from '../dbClient';
 import { upsertRepoMetrics } from '../portfolioDb';
 import { refreshRepoMetrics } from '../portfolioAnalytics';
 import { buildSuccessMessage, buildUnknownRepoMessage, buildErrorMessage } from './messages';
+import { Client } from '@notionhq/client';
+import { runSecurityScan } from '../securityScanner';
+import { notifyDependents } from '../crossRepoCoordinator';
 
 const { query } = dbClient;
 
@@ -51,10 +54,9 @@ export async function processWebhook(payload: any): Promise<void> {
     logger.warn({ repoName }, 'No matching Notion project');
     let suggestionNote = '';
     try {
-      const { Client } = require('@notionhq/client');
       const nc = new Client({ auth: process.env['NOTION_API_KEY'] });
       const resp = await nc.databases.query({
-        database_id: process.env['NOTION_DATABASE_ID'],
+        database_id: process.env['NOTION_DATABASE_ID'] as string,
         page_size: 20,
       }).catch(() => null);
       if (resp?.results?.length) {
@@ -116,7 +118,6 @@ export async function processWebhook(payload: any): Promise<void> {
 
   if (notionProject && data.riskLevel === 'High') {
     try {
-      const { runSecurityScan } = require('../securityScanner');
       runSecurityScan({
         repoFullName:  data.repoFullName,
         repoName:      data.repoName,
@@ -154,7 +155,6 @@ export async function processWebhook(payload: any): Promise<void> {
   );
 
   try {
-    const { notifyDependents } = require('../crossRepoCoordinator');
     fireAndForget(notifyDependents(repoName, data.commitSha, data.authorName), { label: 'webhook' })
   } catch {}
 }

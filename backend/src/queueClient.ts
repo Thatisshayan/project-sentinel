@@ -1,6 +1,8 @@
 import { Queue, Worker, QueueEvents } from 'bullmq';
 import IORedis from 'ioredis';
 import logger from './logger';
+import { sendTelegramMessage } from './telegramClient';
+import dbClient from './dbClient';
 
 let connection: IORedis | null = null;
 let lastRedisAlertAt = 0;
@@ -16,7 +18,6 @@ function getRedisConnection(): IORedis | null {
       const now = Date.now();
       if (now - lastRedisAlertAt > 5 * 60 * 1000) {
         lastRedisAlertAt = now;
-        const { sendTelegramMessage } = require('./telegramClient') as { sendTelegramMessage: (...args: any[]) => Promise<any> };
         sendTelegramMessage(
           `Project Sentinel — Redis Error ⚠️\n\nBullMQ jobs (build-poll, debug) may not process until Redis recovers.\nError: ${err.message}`,
           null, null, true
@@ -80,7 +81,7 @@ async function enqueueBuildCheck(data: any): Promise<any> {
   const jobId = `build-check:${data.repoFullName}:${data.commitSha}`;
 
   try {
-    const { query: dbQuery } = require('./dbClient') as { query: (...args: any[]) => Promise<any> };
+    const { query: dbQuery } = dbClient;
     await dbQuery(`
       INSERT INTO build_poll_jobs (job_id, repo_full_name, commit_sha, status)
       VALUES ($1, $2, $3, 'pending')

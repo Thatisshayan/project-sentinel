@@ -1,0 +1,75 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+const safeFire_1 = require("./utils/safeFire");
+const logger_1 = __importDefault(require("./logger"));
+const agentDb_1 = require("./agentDb");
+const dbClient_1 = __importDefault(require("./dbClient"));
+const agentBots_1 = require("./agentBots");
+const agentPersonality_1 = require("./agentPersonality");
+const telegramClient_1 = require("./telegramClient");
+const { query } = dbClient_1.default;
+const AGENT_ROOM_TOPIC = () => parseInt(process.env['AGENT_ROOM_TOPIC_ID'] || '494');
+async function getRealAgentStats(agentId) {
+    const [taskRows, cycleRows] = await Promise.all([
+        query(`
+      SELECT
+        COUNT(CASE WHEN status IN ('done','build_check') THEN 1 END)::int AS done,
+        COUNT(CASE WHEN status = 'failed' THEN 1 END)::int                AS failed,
+        COUNT(CASE WHEN status = 'queued' THEN 1 END)::int                AS queued,
+        COUNT(pr_url)::int                                                 AS prs
+      FROM audit_tasks
+      WHERE builder_agent = $1
+        AND created_at > NOW() - INTERVAL '7 days'
+    `, [agentId]).catch(() => ({ rows: [{}] })),
+        query(`
+      SELECT COUNT(*)::int AS audits
+      FROM audit_cycles
+      WHERE audit_agent = $1
+        AND created_at > NOW() - INTERVAL '7 days'
+    `, [agentId]).catch(() => ({ rows: [{}] })),
+    ]);
+    return {
+        done: parseInt(taskRows.rows[0]?.done || 0),
+        failed: parseInt(taskRows.rows[0]?.failed || 0),
+        queued: parseInt(taskRows.rows[0]?.queued || 0),
+        prs: parseInt(taskRows.rows[0]?.prs || 0),
+        audits: parseInt(cycleRows.rows[0]?.audits || 0),
+    };
+}
+async function runAgentStandup() {
+    logger_1.default.info('Running agent standup');
+    try {
+        const agents = await (0, agentDb_1.getAllAgents)();
+        for (const agent of agents) {
+            if (agent.status === 'disabled')
+                continue;
+            const real = await getRealAgentStats(agent.agent_id).catch(() => ({}));
+            const stats = {
+                tasks: real.done || 0,
+                done: real.done || 0,
+                failed: real.failed || 0,
+                prs: real.prs || 0,
+                audits: real.audits || 0,
+                queued: real.queued || 0,
+                tasksGenerated: 0,
+                debugs: 0,
+                issues: 0,
+                complex: 0,
+            };
+            const line = (0, agentPersonality_1.getStandupLine)(agent.agent_id, stats);
+            await (0, agentBots_1.sendAsAgent)(agent.agent_id, line, null).catch(async () => {
+                await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(`${agent.emoji || '🤖'} ${agent.agent_label}: ${line}`, null, AGENT_ROOM_TOPIC()), { label: 'agentStandup' });
+            });
+            // Small delay so messages don't stack instantly
+            await new Promise(r => setTimeout(r, 1500));
+        }
+        logger_1.default.info('Agent standup complete');
+    }
+    catch (err) {
+        logger_1.default.error({ err: err.stack ?? err.message }, 'Agent standup failed');
+    }
+}
+module.exports = { runAgentStandup };
+//# sourceMappingURL=agentStandup.js.map

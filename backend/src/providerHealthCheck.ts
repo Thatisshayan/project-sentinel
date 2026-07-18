@@ -1,6 +1,8 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
 import axios from 'axios';
 import logger from './logger';
+import { sendTelegramMessage } from './telegramClient';
+import { markAgentError } from './agentDb';
 
 interface ProviderProbe {
   name: string;
@@ -66,7 +68,6 @@ async function probeAIProviders(): Promise<string[]> {
   // Alert if any keys are definitely invalid (401/403)
   const invalidProviders = results.filter(r => r.includes('✗'));
   if (invalidProviders.length > 0) {
-    const { sendTelegramMessage } = require('./telegramClient');
     await safeFire(sendTelegramMessage(
       `🔴 Sentinel AI Provider Alert\n\n` +
       `${invalidProviders.length} provider(s) have invalid API keys:\n` +
@@ -76,7 +77,6 @@ async function probeAIProviders(): Promise<string[]> {
     ), { label: 'providerHealthCheck' })
 
     // Mark affected agents as error so the UI shows truth instead of idle
-    const { markAgentError } = require('./agentDb');
     const PROVIDER_AGENT_MAP: Record<string, string[]> = {
       'NVIDIA NIM':       ['nvidia', 'qwen_coder', 'llama_fast'],
       'Gemini':           ['gemini'],

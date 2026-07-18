@@ -1,6 +1,9 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
 import axios from 'axios';
 import logger from './logger';
+import {
+  logApiCost, getDailyCost, getWeeklyCost, getMonthlyCost, getCostByRepo,
+} from './portfolioDb';
 
 const COSTPILOT_API_URL = (): string | undefined => process.env['COSTPILOT_API_URL'];
 const COSTPILOT_API_KEY = (): string | undefined => process.env['COSTPILOT_API_KEY'];
@@ -11,7 +14,6 @@ function isConfigured(): boolean {
 
 async function logCost(data: any): Promise<void> {
   if (!isConfigured()) {
-    const { logApiCost } = require('./portfolioDb') as { logApiCost: (d: any) => Promise<void> };
     await safeFire(logApiCost(data), { label: 'costpilotClient' })
     return;
   }
@@ -42,18 +44,12 @@ async function logCost(data: any): Promise<void> {
     );
   } catch (err: any) {
     logger.warn({ err: err.message }, 'CostPilot unavailable — using local tracker');
-    const { logApiCost } = require('./portfolioDb') as { logApiCost: (d: any) => Promise<void> };
     await safeFire(logApiCost(data), { label: 'costpilotClient' })
   }
 }
 
 async function getSpendSummary(period = 'today'): Promise<any> {
   if (!isConfigured()) {
-    const { getDailyCost, getWeeklyCost, getMonthlyCost } = require('./portfolioDb') as {
-      getDailyCost: () => Promise<number>;
-      getWeeklyCost: () => Promise<number>;
-      getMonthlyCost: () => Promise<number>;
-    };
     const [daily, weekly, monthly] = await Promise.all([getDailyCost(), getWeeklyCost(), getMonthlyCost()]);
     return { daily, weekly, monthly, source: 'local' };
   }
@@ -75,7 +71,6 @@ async function getSpendSummary(period = 'today'): Promise<any> {
 
 async function getRepoBreakdown(days = 7): Promise<any[]> {
   if (!isConfigured()) {
-    const { getCostByRepo } = require('./portfolioDb') as { getCostByRepo: (d: number) => Promise<any[]> };
     return getCostByRepo(days).catch(() => []);
   }
 

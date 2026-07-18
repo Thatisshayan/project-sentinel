@@ -1,0 +1,1 @@
+{"version":3,"file":"costpilotClient.d.ts","sourceRoot":"","sources":["../src/costpilotClient.ts"],"names":[],"mappings":"AAUA,iBAAS,YAAY,IAAI,OAAO,CAE/B;AAED,iBAAe,OAAO,CAAC,IAAI,EAAE,GAAG,GAAG,OAAO,CAAC,IAAI,CAAC,CAkC/C;AAED,iBAAe,eAAe,CAAC,MAAM,SAAU,GAAG,OAAO,CAAC,GAAG,CAAC,CAmB7D;AAED,iBAAe,gBAAgB,CAAC,IAAI,SAAI,GAAG,OAAO,CAAC,GAAG,EAAE,CAAC,CAkBxD"}

@@ -1,6 +1,8 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { getLatestMetrics, recordPRImpact, updatePRImpact } from './businessDb';
+import { sendTelegramMessage } from './telegramClient';
+import dbClient from './dbClient';
 
 async function snapshotBeforeMerge(repoFullName: string, prNumber: string | number, prUrl: string): Promise<any> {
   const repoName = repoFullName.split('/')[1] || '';
@@ -38,7 +40,6 @@ async function checkPostMergeImpact(impactId: any, repoName: string): Promise<vo
     logger.info({ impactId, score }, 'PR impact analysis complete');
 
     if (Math.abs(parseFloat(String(score))) >= 5) {
-      const { sendTelegramMessage } = require('./telegramClient') as { sendTelegramMessage: (...args: any[]) => Promise<any> };
       const direction = parseFloat(String(score)) > 0 ? 'positive ✅' : 'negative ⚠️';
 
       const deltaLines = Object.entries(delta).map(([key, d]: [string, any]) =>
@@ -59,7 +60,7 @@ async function checkPostMergeImpact(impactId: any, repoName: string): Promise<vo
 }
 
 async function getCorrelationSummary(repoName: string): Promise<any> {
-  const { query } = require('./dbClient') as { query: (...args: any[]) => Promise<any> };
+  const { query } = dbClient;
 
   const r = await query(`
     SELECT

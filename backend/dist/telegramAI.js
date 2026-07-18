@@ -1,0 +1,483 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+const safeFire_1 = require("./utils/safeFire");
+const sdk_1 = __importDefault(require("@anthropic-ai/sdk"));
+const axios_1 = __importDefault(require("axios"));
+const logger_1 = __importDefault(require("./logger"));
+const portfolioAnalytics_1 = require("./portfolioAnalytics");
+const portfolioDb_1 = require("./portfolioDb");
+const telegramClient_1 = require("./telegramClient");
+const costTracker_1 = require("./costTracker");
+const dailyReport_1 = require("./dailyReport");
+const auditOrchestrator_1 = require("./auditOrchestrator");
+const auditDb_1 = require("./auditDb");
+const sprintOrchestrator_1 = require("./sprintOrchestrator");
+const velocityTracker_1 = require("./velocityTracker");
+const agentRoom_1 = require("./agentRoom");
+const agentDb_1 = require("./agentDb");
+const notionClient_1 = require("./notionClient");
+const conversationMemory_1 = require("./conversationMemory");
+const CHAT_MODEL = process.env['CHAT_MODEL'] || 'mistralai/mistral-nemotron';
+async function storeRedisContext(topicId, sender, message) {
+    try {
+        const { getRedisConnection } = require('./queueClient');
+        const redis = getRedisConnection();
+        if (!redis)
+            return;
+        const key = `sentinel:context:${topicId || 'general'}`;
+        await redis.lpush(key, `[${sender}] ${message.substring(0, 200)}`);
+        await redis.ltrim(key, 0, 9);
+        await redis.expire(key, 3600);
+    }
+    catch (e) {
+        logger_1.default.warn({ err: e.message }, 'Redis context store failed');
+    }
+}
+async function getRedisContext(topicId) {
+    try {
+        const { getRedisConnection } = require('./queueClient');
+        const redis = getRedisConnection();
+        if (!redis)
+            return [];
+        const key = `sentinel:context:${topicId || 'general'}`;
+        const messages = await redis.lrange(key, 0, 9);
+        return messages.reverse(); // oldest first
+    }
+    catch (e) {
+        logger_1.default.warn({ err: e.message }, 'Redis context fetch failed');
+        return [];
+    }
+}
+// Normalize AI-generated repo names (e.g. "projectSentinel") to canonical kebab names
+function resolveRepoName(input) {
+    const { canonicalizeRepoName } = require('./repoResolver');
+    return canonicalizeRepoName(input);
+}
+// Pick which agent should "speak" for a given message in the agent room
+function pickSpeakingAgent(messageText) {
+    const t = messageText.toLowerCase();
+    if (/\b(code|fix|build|pr|implement|function|bug|error)\b/.test(t))
+        return 'qwen_coder';
+    if (/\b(audit|analy|review|secur|score|report)\b/.test(t))
+        return 'nvidia';
+    if (/\b(debug|fail|broke|crash|log)\b/.test(t))
+        return 'gemini';
+    if (/\b(fast|quick|simple|check|status)\b/.test(t))
+        return 'deepseek';
+    return 'nvidia'; // Nemotron is the default speaker
+}
+const SYSTEM_PROMPT = `You are Project Sentinel, an autonomous DevOps AI managing a portfolio of 12 GitHub repositories for a solo founder named Shayan based in Toronto.
+
+You have full visibility into all repos, their build status, pending tasks, and recent activity. You can take actions on Shayan's behalf.
+
+AVAILABLE ACTIONS (respond with JSON action objects):
+- { "action": "execute_tasks", "repo": "<repoName>" }
+- { "action": "trigger_audit", "repo": "<repoName>" }
+- { "action": "stop_repo", "repo": "<repoName>" }
+- { "action": "send_report" }
+- { "action": "show_costs" }
+- { "action": "approve_sprint" }
+- { "action": "sprint_status" }
+- { "action": "velocity_report" }
+- { "action": "show_agents" }
+- { "action": "agent_status", "agent": "<agentId>" }
+- { "action": "assign_repo", "repo": "<repoName>", "agent": "<agentId>" }
+- { "action": "stop_agent", "agent": "<agentId>" }
+- { "action": "create_task", "repo": "<repoName>", "title": "<task title>", "description": "<detailed description>", "priority": "critical|high|medium|low" }
+- { "action": "answer", "message": "<your response>" }
+
+NATURAL LANGUAGE TRIGGERS:
+- "assign <repo> to <agent>"         → action: assign_repo
+- "swap <repo> to <agent>"           → action: assign_repo
+- "what is <agent> doing?"           → action: agent_status
+- "what is <agent> working on?"      → action: agent_status
+- "stop <agent>"                     → action: stop_agent
+- "add dark mode to <repo>"          → action: create_task (convert the request to a concrete task)
+- "fix the login bug in <repo>"      → action: create_task
+- "I need <feature> in <repo>"       → action: create_task
+- "build <feature>"                  → action: create_task
+- "start working on <repo>"          → action: execute_tasks
+- "run the tasks for <repo>"         → action: execute_tasks
+- "execute <repo>"                   → action: execute_tasks
+- "go on <repo>"                     → action: execute_tasks
+- "<agent> work on <repo>"           → action: execute_tasks
+- "start the task for <repo>"        → action: execute_tasks
+- "<agent> start <repo>"             → action: execute_tasks
+- "audit <repo>"                     → action: trigger_audit
+- "good morning" / "morning"         → action: send_report
+- "what needs attention?"            → action: send_report
+- "what's urgent?" / "what's broken" → action: send_report
+- "daily update" / "status update"   → action: send_report
+- "what are we working on?"          → action: show_agents
+- "who is working?"                  → action: show_agents
+- "how much have we spent?"          → action: show_costs
+- "cost update"                      → action: show_costs
+
+REPO NAMES (always use exact spelling in the "repo" field — never invent camelCase):
+acc, tapcash, AlphonsoEcosystem, session-guard, costpilot, shiporex, aegis, mint, agents-ops-board, founder-social-club, obsidian-studio, obsidian-media, project-sentinel
+
+AGENT IDs: nvidia, qwen_coder, qwen_coder_dash, llama_fast, gemini, qwen_max, qwen_plus, qwen_turbo, deepseek, opencode
+
+AGENT PERSONALITIES:
+- nvidia (Nemotron):  Deep reasoning, audit analysis, portfolio intelligence
+- qwen_coder:         Code specialist, PR author, implementation tasks
+- gemini:             Debugging, log analysis, creative problem-solving
+- deepseek:           Fast execution, routine tasks, quick lookups
+- llama_fast:         Ultra fast, low complexity batch tasks
+
+RULES:
+1. Always respond with a JSON object containing an "action" field.
+2. For questions or information requests, use action: "answer".
+3. Never take destructive actions without explicit instruction.
+4. Be concise. Shayan is busy. No fluff.
+5. If asked about a specific repo, focus on that repo's data.
+6. If asked to "focus on" or "prioritize" a repo, execute its tasks.
+7. Address Shayan by name occasionally but not every message.
+8. Tone: direct, confident, like a sharp technical co-founder.
+9. When AGENT ROOM CONTEXT is provided, you know exactly what every agent is doing right now — use it.
+
+Respond ONLY with valid JSON. No preamble. No markdown.`;
+async function buildContext() {
+    try {
+        const [summary, patterns, dailyCost, monthlyCost] = await Promise.all([
+            (0, portfolioAnalytics_1.getPortfolioSummary)(),
+            (0, portfolioDb_1.getOpenPatterns)(),
+            (0, portfolioDb_1.getDailyCost)(),
+            (0, portfolioDb_1.getMonthlyCost)(),
+        ]);
+        const repoStates = summary.metrics.map((m) => `${m.repo_name}: health=${m.health_score}/10 status=${m.build_status} priority=${m.priority} tasks_queued=${m.tasks_queued}`).join('\n');
+        return `CURRENT PORTFOLIO STATE:
+Health average: ${summary.avgHealth}/10
+Healthy repos: ${summary.healthy.length}
+Broken repos: ${summary.broken.length} — ${summary.broken.map((m) => m.repo_name).join(', ')}
+
+REPO DETAILS:
+${repoStates}
+
+PATTERNS DETECTED: ${patterns.length}
+${patterns.slice(0, 3).map((p) => `- ${p.description} (${(p.affected_repos || []).length} repos)`).join('\n')}
+
+API COSTS: $${dailyCost.toFixed(2)} today, $${monthlyCost.toFixed(2)} this month`;
+    }
+    catch {
+        return 'Portfolio context unavailable — database may be initialising.';
+    }
+}
+// Calls the best available AI provider in priority order.
+// Never uses Anthropic unless explicitly set — free providers first.
+async function callChatAPI(prompt) {
+    if (process.env['NVIDIA_API_KEY']) {
+        const response = await axios_1.default.post('https://integrate.api.nvidia.com/v1/chat/completions', {
+            model: CHAT_MODEL,
+            messages: [
+                { role: 'system', content: SYSTEM_PROMPT },
+                { role: 'user', content: prompt },
+            ],
+            max_tokens: 1000,
+            temperature: 0.3,
+        }, {
+            headers: { Authorization: `Bearer ${process.env['NVIDIA_API_KEY']}`, 'Content-Type': 'application/json' },
+            timeout: 30000,
+        });
+        return response.data.choices[0]?.message?.content || '';
+    }
+    if (process.env['GEMINI_API_KEY']) {
+        const response = await axios_1.default.post('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+            model: 'gemini-2.0-flash',
+            messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],
+            max_tokens: 1000,
+        }, {
+            headers: { Authorization: `Bearer ${process.env['GEMINI_API_KEY']}`, 'Content-Type': 'application/json' },
+            timeout: 30000,
+        });
+        return response.data.choices[0]?.message?.content || '';
+    }
+    if (process.env['DASHSCOPE_API_KEY']) {
+        const response = await axios_1.default.post(`${process.env['DASHSCOPE_BASE_URL'] || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}/chat/completions`, {
+            model: 'qwen-max',
+            messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],
+            max_tokens: 1000,
+        }, {
+            headers: { Authorization: `Bearer ${process.env['DASHSCOPE_API_KEY']}`, 'Content-Type': 'application/json' },
+            timeout: 30000,
+        });
+        return response.data.choices[0]?.message?.content || '';
+    }
+    if (process.env['DEEPSEEK_API_KEY']) {
+        const response = await axios_1.default.post('https://api.deepseek.com/chat/completions', {
+            model: 'deepseek-chat',
+            messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],
+            max_tokens: 1000,
+        }, {
+            headers: { Authorization: `Bearer ${process.env['DEEPSEEK_API_KEY']}`, 'Content-Type': 'application/json' },
+            timeout: 30000,
+        });
+        return response.data.choices[0]?.message?.content || '';
+    }
+    if (process.env['ANTHROPIC_API_KEY']) {
+        const model = CHAT_MODEL.startsWith('claude') ? CHAT_MODEL : 'claude-sonnet-4-6';
+        const client = new sdk_1.default({ apiKey: process.env['ANTHROPIC_API_KEY'] });
+        const res = await client.messages.create({
+            model, max_tokens: 1000, system: SYSTEM_PROMPT,
+            messages: [{ role: 'user', content: prompt }],
+        });
+        return res.content[0]?.text || '';
+    }
+    throw new Error('No AI provider configured — set NVIDIA_API_KEY, GEMINI_API_KEY, DASHSCOPE_API_KEY, or DEEPSEEK_API_KEY');
+}
+async function handleMessage(messageText, fromName, topicId, roomContext, targetAgentId, agentContext, replyToMessageId) {
+    const hasKey = process.env['NVIDIA_API_KEY'] || process.env['GEMINI_API_KEY'] ||
+        process.env['DASHSCOPE_API_KEY'] || process.env['DEEPSEEK_API_KEY'] ||
+        process.env['ANTHROPIC_API_KEY'];
+    if (!hasKey) {
+        logger_1.default.warn('No AI API key configured — AI responses disabled');
+        return;
+    }
+    // In the agent room without a direct target, pick the best agent to respond
+    const isAgentRoom = topicId != null &&
+        String(topicId) === String(process.env['AGENT_ROOM_TOPIC_ID']);
+    const speakingAgent = targetAgentId ||
+        (isAgentRoom ? pickSpeakingAgent(messageText) : null);
+    logger_1.default.info({ from: fromName, text: messageText.substring(0, 80), speakingAgent }, 'AI handling Telegram message');
+    // Store this incoming message in Redis context window (non-blocking)
+    (0, safeFire_1.fireAndForget)(storeRedisContext(topicId, fromName, messageText), { label: 'telegramAI' });
+    try {
+        const [context, history, recentActivity] = await Promise.all([
+            buildContext(),
+            (0, conversationMemory_1.getHistory)(topicId ?? 0, 15).catch(() => []),
+            getRedisContext(topicId),
+        ]);
+        const historySection = (0, conversationMemory_1.formatHistoryForPrompt)(history);
+        const recentSection = recentActivity.length > 0
+            ? `\nRecent activity in this chat:\n${recentActivity.join('\n')}\n`
+            : '';
+        const agentSection = roomContext
+            ? `\nAGENT ROOM CONTEXT:\n${roomContext}\n`
+            : '';
+        const directAddressSection = agentContext
+            ? `\nADDITIONAL CONTEXT — You are being directly addressed:\n${agentContext}\n`
+            : '';
+        const AGENT_IDS = ['nvidia', 'qwen_coder', 'qwen_coder_dash', 'llama_fast', 'gemini', 'qwen_max', 'qwen_turbo', 'deepseek', 'qwen_plus', 'opencode'];
+        const mentionedIds = AGENT_IDS.filter(id => messageText.toLowerCase().includes(`@${id}`));
+        let mentionSection = '';
+        if (mentionedIds.length > 0) {
+            const agents = await (0, agentDb_1.getAllAgents)().catch(() => []);
+            const lines = mentionedIds.map(id => {
+                const a = agents.find((x) => x.agent_id === id);
+                if (!a)
+                    return `@${id}: not registered`;
+                return a.status === 'working'
+                    ? `@${id}: working on ${a.repo_full_name?.split('/')[1]} — ${a.task_title}`
+                    : `@${id}: idle (${a.completed_tasks} done, ${a.failed_tasks} failed)`;
+            }).join('\n');
+            mentionSection = `\nMENTIONED AGENTS:\n${lines}\n`;
+        }
+        let personalityPrefix = '';
+        if (speakingAgent) {
+            try {
+                const { getPersonalityPrompt } = require('./agentPersonality');
+                const personality = getPersonalityPrompt(speakingAgent);
+                if (personality)
+                    personalityPrefix = `${personality}\n\n`;
+            }
+            catch { }
+        }
+        const prompt = `${personalityPrefix}${context}${historySection}${recentSection}${agentSection}${directAddressSection}${mentionSection}\nMessage from ${fromName}: ${messageText}`;
+        const raw = await callChatAPI(prompt) ||
+            '{"action":"answer","message":"Sorry, I had trouble understanding that."}';
+        await (0, costTracker_1.trackChatCost)(prompt.length, raw.length);
+        let parsed;
+        try {
+            const cleaned = raw
+                .replace(/<think>[\s\S]*?<\/think>/gi, '')
+                .replace(/```json?|```/g, '')
+                .trim();
+            const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+            parsed = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
+        }
+        catch {
+            // Strip think blocks so they don't leak into Telegram messages
+            const visibleRaw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+            parsed = { action: 'answer', message: visibleRaw };
+        }
+        const responseText = parsed.action === 'answer' ? parsed.message : null;
+        // Save to memory (non-blocking)
+        (0, safeFire_1.fireAndForget)((0, conversationMemory_1.saveMessage)(topicId ?? 0, fromName, messageText, responseText, speakingAgent), { label: 'telegramAI' });
+        // Store Sentinel's response in the Redis context window too
+        if (responseText) {
+            (0, safeFire_1.fireAndForget)(storeRedisContext(topicId, `Sentinel${speakingAgent ? `/${speakingAgent}` : ''}`, responseText), { label: 'telegramAI' });
+        }
+        // Route response through the speaking agent's bot when possible
+        if (speakingAgent && parsed.action === 'answer' && parsed.message) {
+            const { sendAsAgent } = require('./agentBots');
+            await sendAsAgent(speakingAgent, parsed.message, replyToMessageId).catch(async () => {
+                await executeAction(parsed, topicId);
+            });
+        }
+        else {
+            await executeAction(parsed, topicId);
+        }
+    }
+    catch (err) {
+        logger_1.default.error({ err: err.stack ?? err.message }, 'AI response failed');
+        await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)('Having trouble processing that. Try a slash command instead.', null, topicId), { label: 'telegramAI' });
+    }
+}
+const REPO_REQUIRED_ACTIONS = ['execute_tasks', 'trigger_audit', 'stop_repo', 'assign_repo', 'create_task'];
+async function executeAction(action, topicId) {
+    const resolved = action.repo ? resolveRepoName(action.repo) : null;
+    const repoName = resolved?.repoName || null;
+    const repoFullNameVal = resolved?.repoFullName || null;
+    // If the AI named a repo that doesn't match anything real, refuse instead of
+    // guessing a fake full name
+    if (action.repo && !resolved && REPO_REQUIRED_ACTIONS.includes(action.action)) {
+        const { REPO_LIST } = require('./portfolioAnalytics');
+        const known = [...REPO_LIST.map((r) => r.repoName), 'project-sentinel'].join(', ');
+        await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(`I don't recognize repo "${action.repo}". Known repos: ${known}`, null, topicId), { label: 'telegramAI' });
+        return;
+    }
+    switch (action.action) {
+        case 'execute_tasks':
+            if (!repoFullNameVal)
+                break;
+            await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(`Starting task execution for ${repoName}...`, null, topicId), { label: 'telegramAI' });
+            (0, auditOrchestrator_1.executeApprovedTasks)(repoFullNameVal, repoName, topicId)
+                .catch((err) => logger_1.default.error({ err: err.stack ?? err.message }, 'AI execute failed'));
+            break;
+        case 'trigger_audit':
+            if (!repoFullNameVal)
+                break;
+            await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(`Triggering audit for ${repoName}...`, null, topicId), { label: 'telegramAI' });
+            (0, auditOrchestrator_1.triggerAudit)({
+                repoFullName: repoFullNameVal, repoName,
+                projectName: repoName, commitSha: `manual-${Date.now()}`,
+                commitMessage: '[manual-audit]', branchName: 'main',
+                authorName: 'Human', authorEmail: '', topicId,
+            }).catch((err) => logger_1.default.error({ err: err.stack ?? err.message }, 'AI audit failed'));
+            break;
+        case 'stop_repo':
+            if (!repoFullNameVal)
+                break;
+            await (0, auditDb_1.stopAllTasksForRepo)(repoFullNameVal);
+            await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(`All tasks and audits stopped for ${repoName}.`, null, topicId), { label: 'telegramAI' });
+            break;
+        case 'send_report':
+            await (0, dailyReport_1.sendDailyReport)();
+            break;
+        case 'show_costs': {
+            const { getCostReport } = require('./costTracker');
+            const report = await getCostReport();
+            await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(report.formatted, null, topicId), { label: 'telegramAI' });
+            break;
+        }
+        case 'approve_sprint':
+            (0, safeFire_1.fireAndForget)((0, sprintOrchestrator_1.approveSprint)(topicId), { label: 'telegramAI' });
+            break;
+        case 'sprint_status':
+            (0, safeFire_1.fireAndForget)((0, sprintOrchestrator_1.getSprintStatus)(topicId), { label: 'telegramAI' });
+            break;
+        case 'velocity_report': {
+            const report = await (0, velocityTracker_1.getVelocityReport)().catch(() => 'Velocity data unavailable.');
+            await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(report, null, topicId), { label: 'telegramAI' });
+            break;
+        }
+        case 'show_agents': {
+            const summary = await (0, agentRoom_1.getAgentRoomSummary)();
+            await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(summary, null, topicId), { label: 'telegramAI' });
+            break;
+        }
+        case 'agent_status': {
+            const agents = await (0, agentDb_1.getAllAgents)();
+            const target = agents.find((a) => a.agent_id === action.agent);
+            if (!target) {
+                await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(`Unknown agent: ${action.agent}`, null, topicId), { label: 'telegramAI' });
+                break;
+            }
+            const status = target.status === 'working'
+                ? `working on ${target.repo_full_name?.split('/')[1]} — ${target.task_title}`
+                : `idle (${target.completed_tasks} done, ${target.failed_tasks} failed)`;
+            await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(`${action.agent}: ${status}`, null, topicId), { label: 'telegramAI' });
+            break;
+        }
+        case 'assign_repo': {
+            if (!repoFullNameVal || !action.agent)
+                break;
+            const project = await (0, notionClient_1.findNotionProject)(repoName).catch(() => null);
+            if (!project) {
+                await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(`No Notion project found for ${repoName}.`, null, topicId), { label: 'telegramAI' });
+                break;
+            }
+            await (0, notionClient_1.updateBuilderAgent)(project.pageId, action.agent);
+            await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(`${repoName} assigned to ${action.agent} in Notion.`, null, topicId), { label: 'telegramAI' });
+            break;
+        }
+        case 'stop_agent': {
+            if (!action.agent)
+                break;
+            const agents = await (0, agentDb_1.getAllAgents)();
+            const target = agents.find((a) => a.agent_id === action.agent);
+            if (target?.repo_full_name) {
+                await (0, auditDb_1.stopAllTasksForRepo)(target.repo_full_name);
+            }
+            await (0, agentDb_1.setAgentIdle)(action.agent, false);
+            await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(`${action.agent} stopped and marked idle.`, null, topicId), { label: 'telegramAI' });
+            break;
+        }
+        case 'create_task': {
+            if (!action.repo || !action.title)
+                break;
+            const taskRepoName = repoName;
+            const taskRepoFull = repoFullNameVal;
+            try {
+                const { createAuditTask, createAuditCycle, getActiveCycleForRepo } = require('./auditDb');
+                let cycle = await getActiveCycleForRepo(taskRepoFull).catch(() => null);
+                if (!cycle) {
+                    cycle = await createAuditCycle({
+                        repoFullName: taskRepoFull,
+                        commitSha: `nl-task-${Date.now()}`,
+                        projectName: taskRepoName,
+                    }).catch(() => null);
+                }
+                if (cycle) {
+                    await createAuditTask({
+                        auditCycleId: cycle.id,
+                        repoFullName: taskRepoFull,
+                        taskNumber: 1,
+                        title: action.title,
+                        description: action.description || action.title,
+                        priority: action.priority || 'medium',
+                        estimatedComplexity: 'medium',
+                        affectedFiles: [],
+                        acceptanceCriteria: `Complete: ${action.title}`,
+                        safeToAutoExecute: false,
+                        batchNumber: 1,
+                    });
+                    await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)([
+                        `✅ Task created for ${taskRepoName}`,
+                        ``,
+                        `Title: ${action.title}`,
+                        `Priority: ${action.priority || 'medium'}`,
+                        `Status: queued (needs approval)`,
+                        ``,
+                        `Use /sentinel force-execute ${taskRepoName} to run it now.`,
+                    ].join('\n'), null, topicId), { label: 'telegramAI' });
+                }
+            }
+            catch (err) {
+                logger_1.default.error({ err: err.stack ?? err.message }, 'create_task action failed');
+                await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(`Failed to create task: ${err.message}`, null, topicId), { label: 'telegramAI' });
+            }
+            break;
+        }
+        case 'answer':
+        default:
+            if (action.message) {
+                await (0, safeFire_1.safeFire)((0, telegramClient_1.sendTelegramMessage)(action.message, null, topicId), { label: 'telegramAI' });
+            }
+            break;
+    }
+}
+module.exports = { handleMessage };
+//# sourceMappingURL=telegramAI.js.map

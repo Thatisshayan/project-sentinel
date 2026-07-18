@@ -1,15 +1,16 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
-const { sendTelegramMessage }  = require('./telegramClient');
-const { executeBatch }         = require('./taskBuilder');
-const { createPullRequest }    = require('./prCreator');
-const { findNotionProject }    = require('./notionClient');
-const { recordWeeklyVelocity,
-        getVelocityReport }    = require('./velocityTracker');
-const {
+import { sendTelegramMessage } from './telegramClient';
+import { executeBatch } from './taskBuilder';
+import { createPullRequest } from './prCreator';
+import { findNotionProject } from './notionClient';
+import { recordWeeklyVelocity, getVelocityReport } from './velocityTracker';
+import {
   getCurrentSprint, getSprintById, updateSprint,
   getNextSprintTask, updateSprintTask, getSprintTasks,
-} = require('./sprintDb');
+} from './sprintDb';
+import { updateAuditTask } from './auditDb';
+import { updateNotionTaskStatus } from './auditTaskWriter';
 
 // ── Approve ───────────────────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ async function approveSprint(topicId: number | null): Promise<void> {
 
 // ── Task execution loop ───────────────────────────────────────────────────────
 
-async function executeNextSprintTask(sprintId: string, topicId: number | null): Promise<void> {
+async function executeNextSprintTask(sprintId: number, topicId: number | null): Promise<void> {
   const sprint = await getSprintById(sprintId);
   if (!sprint || sprint.status !== 'executing') return;
 
@@ -127,7 +128,6 @@ async function executeNextSprintTask(sprintId: string, topicId: number | null): 
 
     // Sync with audit task if this sprint task was created from an audit task
     if (task.audit_task_id) {
-      const { updateAuditTask, updateNotionTaskStatus } = require('./auditDb');
       await updateAuditTask(task.audit_task_id, {
         status: 'build_check',
         branch_name: batchResult.taskBranch,
@@ -190,7 +190,7 @@ async function executeNextSprintTask(sprintId: string, topicId: number | null): 
 
 // ── Complete ──────────────────────────────────────────────────────────────────
 
-async function completeSprint(sprintId: string, topicId: number | null): Promise<void> {
+async function completeSprint(sprintId: number, topicId: number | null): Promise<void> {
   const sprint = await getSprintById(sprintId);
   const tasks  = await getSprintTasks(sprintId);
 

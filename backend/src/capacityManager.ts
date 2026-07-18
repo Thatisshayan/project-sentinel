@@ -1,4 +1,4 @@
-const { getMonthlyCost } = require('./portfolioDb');
+import { getMonthlyCost } from './portfolioDb';
 import logger from './logger';
 
 const MONTHLY_BUDGET         = (): number => parseFloat(process.env['SPRINT_MONTHLY_BUDGET'] || '30');

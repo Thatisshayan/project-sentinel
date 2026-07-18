@@ -1,15 +1,15 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
-const simpleGit  = require('simple-git');
-const tmp        = require('tmp');
-const { spawn } = require('child_process');
-const fs         = require('fs');
-const path       = require('path');
+import simpleGit from 'simple-git';
+import tmp from 'tmp';
+import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 import logger from './logger';
-const { runClaudeCodeForTask } = require('./claudeCodeRunner');
-const { getBuilderConfig, getAiderEnv } = require('./builderRouter');
-const { updateAuditTask }    = require('./auditDb');
-const { updateNotionTaskStatus } = require('./auditTaskWriter');
-const { execAsync } = require('./utils/execAsync');
+import { runClaudeCodeForTask } from './claudeCodeRunner';
+import { getBuilderConfig, getAiderEnv } from './builderRouter';
+import { updateAuditTask } from './auditDb';
+import { updateNotionTaskStatus } from './auditTaskWriter';
+import { execAsync } from './utils/execAsync';
 
 const AIDER_TIMEOUT_MS: number = parseInt(process.env['AIDER_TIMEOUT_MINUTES'] || '20', 10) * 60 * 1000;
 
