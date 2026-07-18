@@ -1,1 +1,0 @@
-{"version":3,"file":"messages.d.ts","sourceRoot":"","sources":["../../src/webhook/messages.ts"],"names":[],"mappings":"AAAA,wBAAgB,mBAAmB,CAAC,IAAI,EAAE,GAAG,EAAE,iBAAiB,EAAE,OAAO,GAAG,MAAM,CAyBjF;AAED,wBAAgB,uBAAuB,CAAC,IAAI,EAAE,GAAG,GAAG,MAAM,CAczD;AAED,wBAAgB,iBAAiB,CAAC,OAAO,EAAE,MAAM,EAAE,QAAQ,EAAE,MAAM,EAAE,MAAM,EAAE,GAAG,GAAG,MAAM,CAQxF"}

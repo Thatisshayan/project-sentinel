@@ -1,1 +1,0 @@
-{"version":3,"file":"repoResolver.d.ts","sourceRoot":"","sources":["../src/repoResolver.ts"],"names":[],"mappings":"AAAA,iBAAS,YAAY,IAAI,MAAM,CAI9B;AAED,iBAAS,YAAY,CAAC,QAAQ,EAAE,MAAM,GAAG,MAAM,CAE9C;AAED,iBAAS,oBAAoB,CAAC,KAAK,EAAE,MAAM,GAAG;IAAE,QAAQ,EAAE,MAAM,CAAC;IAAC,YAAY,EAAE,MAAM,CAAA;CAAE,GAAG,IAAI,CAQ9F"}
