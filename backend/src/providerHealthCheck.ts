@@ -86,7 +86,7 @@ async function probeAIProviders(): Promise<string[]> {
     for (const line of invalidProviders) {
       const provider = line.match(/✗ (.+?):/)?.[1];
       for (const agentId of (PROVIDER_AGENT_MAP[provider || ''] || [])) {
-        await safeFire(markAgentError(agentId, 'invalid_api_key'), { label: 'providerHealthCheck' })
+        await safeFire(markAgentError(agentId, 'invalid_api_key'), { label: 'providerHealthCheck', retryable: true })
       }
     }
   }

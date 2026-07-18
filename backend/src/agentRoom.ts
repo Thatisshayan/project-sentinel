@@ -261,7 +261,9 @@ async function buildStatusBoardText(): Promise<string> {
       const filled = Math.round(pct / 10);
       sprintLine = `Sprint: [${'█'.repeat(filled)}${'░'.repeat(10 - filled)}] ${pct}% (${done}/${total})`;
     }
-  } catch {}
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'Failed to build sprint status line — omitting from dashboard');
+  }
 
   const agentLines = agents.map((a: any) => {
     const emoji  = getEmoji(a.agent_id);
@@ -352,7 +354,9 @@ async function sendMorningBriefing(): Promise<void> {
       const filled = Math.round(pct / 10);
       sprintLine = `Sprint: [${'█'.repeat(filled)}${'░'.repeat(10 - filled)}] ${pct}% (${done}/${total})`;
     }
-  } catch {}
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'Failed to build sprint status line — omitting from dashboard');
+  }
 
   let focusLine = '';
   try {
@@ -362,7 +366,9 @@ async function sendMorningBriefing(): Promise<void> {
       (!min || m.health_score < min.health_score) ? m : min, null
     );
     if (focus) focusLine = `🎯 Focus: ${focus.repo_name} (health ${focus.health_score}/10)`;
-  } catch {}
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'Failed to build focus line — omitting from dashboard');
+  }
 
   const idle    = agents.filter((a: any) => a.status === 'idle').length;
   const working = agents.filter((a: any) => a.status === 'working').length;

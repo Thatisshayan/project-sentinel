@@ -145,7 +145,7 @@ async function runSecurityScan(data: ScanData) {
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message, repoFullName }, 'Security scan failed');
     if (scan?.id) {
-      await safeFire(updateSecurityScan(scan.id, { status: 'failed' }), { label: 'securityScanner' })
+      await safeFire(updateSecurityScan(scan.id, { status: 'failed' }), { label: 'securityScanner', retryable: true })
     }
     return null;
   } finally {

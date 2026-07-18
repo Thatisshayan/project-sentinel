@@ -40,6 +40,7 @@ function getRedisConnection(): IORedis | null {
 
 let buildPollQueue: Queue | null = null;
 let debugQueue: Queue | null = null;
+let deadLetterQueue: Queue | null = null;
 
 function getBuildPollQueue(): Queue | null {
   const conn = getRedisConnection();
@@ -75,6 +76,43 @@ function getDebugQueue(): Queue | null {
     });
   }
   return debugQueue;
+}
+
+function getDeadLetterQueue(): Queue | null {
+  const conn = getRedisConnection();
+  if (!conn) {
+    return null;
+  }
+  if (!deadLetterQueue) {
+    deadLetterQueue = new Queue('dead-letter', {
+      connection: conn,
+      defaultJobOptions: {
+        attempts:    3,
+        backoff:     { type: 'exponential', delay: 5000 },
+        removeOnComplete: { count: 200 },
+        removeOnFail:     { count: 200 },
+      },
+    });
+  }
+  return deadLetterQueue;
+}
+
+/**
+ * Enqueue a failed retryable operation (from safeFire's `retryable: true`
+ * option) for later reprocessing. Falls back to a warn log when Redis isn't
+ * configured — same pattern as the other queues here — so this never throws
+ * back into the safeFire error path itself.
+ */
+async function enqueueDeadLetter(task: string, payload: unknown): Promise<any> {
+  const queue = getDeadLetterQueue();
+  if (!queue) {
+    logger.warn({ task }, 'REDIS_URL not configured — dead-letter job dropped, not queued');
+    return null;
+  }
+  return queue.add(task, { task, payload, failedAt: new Date().toISOString() }, {
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 5000 },
+  });
 }
 
 async function enqueueBuildCheck(data: any): Promise<any> {
@@ -124,8 +162,10 @@ export = {
   getRedisConnection,
   getBuildPollQueue,
   getDebugQueue,
+  getDeadLetterQueue,
   enqueueBuildQueue: enqueueBuildCheck,
   enqueueBuildCheck,
   enqueueDebug,
+  enqueueDeadLetter,
 };
 

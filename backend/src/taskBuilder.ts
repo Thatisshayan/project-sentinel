@@ -193,16 +193,16 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
 async function installDependencies(repoPath: string): Promise<void> {
   try {
     if (fs.existsSync(path.join(repoPath, 'package-lock.json'))) {
-      await execAsync('npm ci --prefer-offline --no-audit', { cwd: repoPath, timeout: 180000 });
+      await execAsync('npm ci --prefer-offline --no-audit', { cwd: repoPath, timeout: 180000, scoped: true });
       logger.info({ repoPath }, 'npm ci complete');
     } else if (fs.existsSync(path.join(repoPath, 'package.json'))) {
-      await execAsync('npm install --no-audit', { cwd: repoPath, timeout: 180000 });
+      await execAsync('npm install --no-audit', { cwd: repoPath, timeout: 180000, scoped: true });
       logger.info({ repoPath }, 'npm install complete');
     } else if (fs.existsSync(path.join(repoPath, 'requirements.txt'))) {
-      await execAsync('pip install -r requirements.txt -q', { cwd: repoPath, timeout: 120000 });
+      await execAsync('pip install -r requirements.txt -q', { cwd: repoPath, timeout: 120000, scoped: true });
       logger.info({ repoPath }, 'pip install complete');
     } else if (fs.existsSync(path.join(repoPath, 'go.mod'))) {
-      await execAsync('go mod download', { cwd: repoPath, timeout: 120000 });
+      await execAsync('go mod download', { cwd: repoPath, timeout: 120000, scoped: true });
       logger.info({ repoPath }, 'go mod download complete');
     }
   } catch (err: any) {

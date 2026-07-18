@@ -269,7 +269,7 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
       } else if (action === 'approvals') {
         const { showApprovalsMenu } = require('./telegramMenus');
         let sprintPending = false;
-        try { const { isPendingAutoApprove } = require('./autoApprover'); sprintPending = await isPendingAutoApprove().catch(() => false); } catch {}
+        try { const { isPendingAutoApprove } = require('./autoApprover'); sprintPending = await isPendingAutoApprove().catch(() => false); } catch (err: any) { logger.warn({ err: err.message }, 'autoApprover module failed to load — sprintPending defaults to false'); }
         await showApprovalsMenu(chatId, threadId, { sprint: sprintPending, selfAudit: false, security: null });
       } else if (action === 'last') {
         const { getRecentMessages } = require('./agentDb');
@@ -334,7 +334,7 @@ async function handleCallbackQuery(callbackQuery: any): Promise<boolean> {
         const { approveSprint } = require('./sprintOrchestrator');
         fireAndForget(approveSprint(threadId), { label: 'telegramCommands' })
       } else if (approveAction === 'skip-sprint') {
-        try { const { cancelAutoApprove } = require('./autoApprover'); await cancelAutoApprove(); } catch {}
+        try { const { cancelAutoApprove } = require('./autoApprover'); await cancelAutoApprove(); } catch (err: any) { logger.warn({ err: err.message }, 'cancelAutoApprove failed'); }
         const { getCurrentSprint, updateSprint } = require('./sprintDb');
         const sprint = await getCurrentSprint().catch(() => null);
         if (sprint) await updateSprint(sprint.id, { status: 'skipped' });

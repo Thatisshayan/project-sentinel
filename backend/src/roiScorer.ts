@@ -54,7 +54,7 @@ async function scoreTask(task: any, repoName: string, repoPriority: string): Pro
     revenueBonus,
     finalScore,
     scoringReason: reasons.join(', ') || 'standard scoring',
-  }), { label: 'roiScorer' })
+  }), { label: 'roiScorer', retryable: true })
 
   return finalScore;
 }

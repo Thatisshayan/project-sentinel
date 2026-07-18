@@ -77,7 +77,7 @@ async function scanDependencies(repoPath: string, repoFullName: string, scanId: 
       autoFixable,
     };
 
-    await safeFire(insertSecurityIssue(issue), { label: 'dependencyScanner' })
+    await safeFire(insertSecurityIssue(issue), { label: 'dependencyScanner', retryable: true })
     issues.push(issue);
   }
 
