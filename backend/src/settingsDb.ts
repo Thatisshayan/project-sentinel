@@ -22,6 +22,12 @@ async function initSettingsSchema(): Promise<void> {
     );
   `);
 
+  // CREATE TABLE IF NOT EXISTS above is a no-op against an already-existing
+  // table, so columns added to the DDL after the table was first created on
+  // a live database never actually land there. Backfill them idempotently.
+  await query(`ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS batch_size_override  INTEGER;`);
+  await query(`ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS daily_limit_override INTEGER;`);
+
   // Ensure only one row exists (singleton pattern)
   const existing = await query(`SELECT COUNT(*) as cnt FROM system_settings`);
   if (parseInt(existing.rows[0].cnt, 10) === 0) {
