@@ -14,10 +14,24 @@ let pool: Pool | null = null;
  * anything else (an external/public DATABASE_URL) still defaults to
  * strict validation unless a CA is explicitly supplied.
  */
+function isRailwayInternalHost(databaseUrl: string): boolean {
+  try {
+    // Parse the actual hostname rather than substring-matching the whole
+    // connection string — .includes('.railway.internal') would also match
+    // a malicious/misconfigured URL like
+    // postgresql://user:pass@evil.com/.railway.internal (path) or
+    // postgresql://.railway.internal@evil.com/db (userinfo).
+    const { hostname } = new URL(databaseUrl);
+    return hostname === 'railway.internal' || hostname.endsWith('.railway.internal');
+  } catch {
+    return false;
+  }
+}
+
 function resolveSslConfig(): boolean | { ca?: string; rejectUnauthorized: boolean } {
   if (process.env['NODE_ENV'] !== 'production') return false;
 
-  const isRailwayInternal = (process.env['DATABASE_URL'] || '').includes('.railway.internal');
+  const isRailwayInternal = isRailwayInternalHost(process.env['DATABASE_URL'] || '');
   const caCert = process.env['DATABASE_CA_CERT'];
 
   if (caCert) return { ca: caCert, rejectUnauthorized: true };
