@@ -55,4 +55,40 @@ describe('dbClient.resolveSslConfig', () => {
     const dbClient = require('../src/dbClient');
     expect(dbClient.resolveSslConfig()).toEqual({ rejectUnauthorized: true });
   });
+
+  it('is not fooled by ".railway.internal" appearing in the path/userinfo of a non-Railway host (CodeRabbit finding)', () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.DATABASE_CA_CERT;
+    const dbClient = require('../src/dbClient');
+
+    process.env.DATABASE_URL = 'postgresql://user:pass@evil.com:5432/.railway.internal';
+    expect(dbClient.resolveSslConfig()).toEqual({ rejectUnauthorized: true });
+
+    process.env.DATABASE_URL = 'postgresql://user.railway.internal:pass@evil.com:5432/db';
+    expect(dbClient.resolveSslConfig()).toEqual({ rejectUnauthorized: true });
+  });
+
+  it('matches the bare "railway.internal" host, not just subdomains', () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.DATABASE_CA_CERT;
+    process.env.DATABASE_URL = 'postgresql://user:pass@railway.internal:5432/db';
+    const dbClient = require('../src/dbClient');
+    expect(dbClient.resolveSslConfig()).toEqual({ rejectUnauthorized: false });
+  });
+
+  it('does not match a host that merely ends with the same characters but is a different domain (e.g. notrailway.internal)', () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.DATABASE_CA_CERT;
+    process.env.DATABASE_URL = 'postgresql://user:pass@notrailway.internal:5432/db';
+    const dbClient = require('../src/dbClient');
+    expect(dbClient.resolveSslConfig()).toEqual({ rejectUnauthorized: true });
+  });
+
+  it('falls back to strict when DATABASE_URL fails to parse as a URL', () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.DATABASE_CA_CERT;
+    process.env.DATABASE_URL = 'not a valid url';
+    const dbClient = require('../src/dbClient');
+    expect(dbClient.resolveSslConfig()).toEqual({ rejectUnauthorized: true });
+  });
 });
