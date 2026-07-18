@@ -163,8 +163,9 @@ describe('POST /webhook/github', () => {
     const calls = sendTelegramMessage.mock.calls;
     expect(calls.length).toBeGreaterThan(0);
     const msg = calls[0][0];
-    expect(msg).toContain('Unknown repo received');
+    expect(msg).toContain('New repo pushed');
     expect(msg).toContain('tapcash');
+    expect(msg).toContain('/sentinel repos scan');
   });
 
   test('skips duplicate commits', async () => {
