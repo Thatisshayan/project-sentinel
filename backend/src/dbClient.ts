@@ -3,15 +3,33 @@ import logger from './logger';
 
 let pool: Pool | null = null;
 
+/**
+ * Railway's managed Postgres/Redis are reachable at *.railway.internal
+ * over Railway's private network — traffic never touches the public
+ * internet, and Railway does not expose an easily-pinnable CA for their
+ * managed internal databases. Strict cert validation there just fails
+ * with "self-signed certificate in certificate chain" (confirmed live in
+ * production on 2026-07-18 — see git history), not a real MITM exposure.
+ * Only relax validation for that specific, network-isolated case;
+ * anything else (an external/public DATABASE_URL) still defaults to
+ * strict validation unless a CA is explicitly supplied.
+ */
+function resolveSslConfig(): boolean | { ca?: string; rejectUnauthorized: boolean } {
+  if (process.env['NODE_ENV'] !== 'production') return false;
+
+  const isRailwayInternal = (process.env['DATABASE_URL'] || '').includes('.railway.internal');
+  const caCert = process.env['DATABASE_CA_CERT'];
+
+  if (caCert) return { ca: caCert, rejectUnauthorized: true };
+  if (isRailwayInternal) return { rejectUnauthorized: false };
+  return { rejectUnauthorized: true };
+}
+
 function getPool(): Pool | null {
   if (!pool && process.env['DATABASE_URL']) {
     pool = new Pool({
       connectionString: process.env['DATABASE_URL'],
-      ssl: process.env['NODE_ENV'] === 'production'
-        ? process.env['DATABASE_CA_CERT']
-          ? { ca: process.env['DATABASE_CA_CERT'], rejectUnauthorized: true }
-          : { rejectUnauthorized: true }
-        : false,
+      ssl: resolveSslConfig(),
       max: 10,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
@@ -175,5 +193,6 @@ export = {
   incrementAttempt,
   updateDebugAttempt,
   stopDebugAttempts,
+  resolveSslConfig,
 };
 
