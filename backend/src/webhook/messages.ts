@@ -32,12 +32,13 @@ export function buildUnknownRepoMessage(data: any): string {
     `🆕 New repo pushed to: ${repoName}`,
     ``,
     `I don't have this one set up yet, so I skipped it — nothing was lost.`,
-    `Branch: ${branchName}`,
-    `Latest commit: ${commitMessage}`,
     ``,
     `To start tracking it, reply:`,
     `/sentinel repos scan`,
     `(this scans GitHub and adds any new repos automatically)`,
+    ``,
+    `Branch: ${branchName}`,
+    `Latest commit: ${commitMessage}`,
   ].join('\n');
 }
 

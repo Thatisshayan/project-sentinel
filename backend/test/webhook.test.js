@@ -166,6 +166,9 @@ describe('POST /webhook/github', () => {
     expect(msg).toContain('New repo pushed');
     expect(msg).toContain('tapcash');
     expect(msg).toContain('/sentinel repos scan');
+    expect(msg).toContain('nothing was lost');
+    expect(msg).toContain('Branch: main');
+    expect(msg).toContain('test: verify phase 1');
   });
 
   test('skips duplicate commits', async () => {
