@@ -60,6 +60,10 @@ describe('pickSpeakingAgent', () => {
     // list of every inflected form.
     expect(pickSpeakingAgent('run a full analysis')).toBe('nvidia');
     expect(pickSpeakingAgent('check security')).toBe('nvidia');
+    expect(pickSpeakingAgent('the analyte sample')).toBe('nvidia');
+    expect(pickSpeakingAgent('securitize this asset')).toBe('nvidia');
+    expect(pickSpeakingAgent('use the debugger')).toBe('gemini');
+    expect(pickSpeakingAgent('enable failover')).toBe('gemini');
   });
 
   it('code/fix/build words still route to qwen_coder and take priority over the analy/debug rules', () => {

@@ -175,12 +175,26 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
     // then silently no-op on every task after that — the sprint would stall
     // after task 2. Keying on the just-completed task's id keeps each
     // scheduling attempt distinct while still being deterministic/traceable.
+    // Caught (not thrown) deliberately: this function can itself be invoked
+    // as a BullMQ job handler for a prior SPRINT_CONTINUE_JOB, and letting an
+    // enqueue failure propagate would make BullMQ retry the whole function
+    // from the top — re-fetching the "next" task and re-sending the
+    // "task done" notification a second time, neither of which is
+    // idempotent. A full recovery workflow is out of scope here; at
+    // minimum, make the failure visible so a human knows the sprint has
+    // silently stalled instead of a debug-only log line.
     await enqueueScheduledJob(
       SPRINT_CONTINUE_JOB,
       { sprintId, topicId },
       SPRINT_CONTINUE_DELAY_MS,
       `sprint-continue:${sprintId}:${task.id}`
-    );
+    ).catch((err: any) => {
+      logger.error({ err: err.message, sprintId, taskId: task.id }, 'Failed to schedule sprint continuation — sprint has stalled');
+      return fireAndForget(sendTelegramMessage(
+        `⚠️ Project Sentinel — could not schedule the next sprint task (sprint ${sprintId}). Run /sentinel run-sprint to resume manually.`,
+        null, topicId
+      ), { label: 'sprintOrchestrator' });
+    });
 
   } else {
     const reason = batchResult.reason || 'Unknown failure';

@@ -263,6 +263,19 @@ describe('POST /webhook/github', () => {
     expect(unmarkProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
   });
 
+  test('does NOT release the claim for a permanent Notion error (bad auth) — a redelivery retry cannot fix that anyway', async () => {
+    const permanentErr = new Error('API token is invalid.');
+    permanentErr.code = 'unauthorized';
+    findNotionProject.mockRejectedValue(permanentErr);
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(payload))
+      .send(payload);
+    await wait(200);
+    expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(unmarkProcessed).not.toHaveBeenCalled();
+  });
+
   test('claims the commit as processed before the Notion search runs — closes the redelivery race window', async () => {
     // The whole point of today's fix: a near-simultaneous redelivery arriving
     // while the first request is still awaiting Notion must see the claim

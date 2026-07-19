@@ -491,22 +491,32 @@ async function handleBuildPassedAfterSentinelMerge(repoFullName: string, repoNam
 // ── APPROVAL TIMEOUT ──────────────────────────────────────────────────────────
 
 async function checkApprovalTimeout(cycleId: number, repoFullName: string, repoName: string, topicId: number | null): Promise<void> {
-  try {
-    const { query } = dbClient;
-    const r = await query(
-      'SELECT * FROM audit_cycles WHERE id=$1 AND status=$2',
-      [cycleId, 'awaiting_approval']
-    );
-    if (r.rows.length === 0) return;
-    await updateAuditCycle(cycleId, { status: 'skipped' });
-    await safeFire(sendTelegramMessage(
-      `Project Sentinel — Audit Expired ⏱️\n\nRepo: ${repoName}\nNo response in ${APPROVAL_TIMEOUT_H()}h.\nTasks remain in Notion as Queued.\n/sentinel audit ${repoName} to re-audit.`,
-      null,
-      topicId
-    ), { label: 'auditOrchestrator' })
-  } catch (err: any) {
-    logger.warn({ err: err.message }, 'Approval timeout handler error');
-  }
+  const { query } = dbClient;
+
+  // Atomic conditional UPDATE instead of SELECT-then-UPDATE: a separate
+  // SELECT + UPDATE has a TOCTOU window where a human approval between the
+  // two could flip the cycle's status, and this timeout would then
+  // overwrite that approval as 'skipped'. Guarding the UPDATE itself on
+  // status='awaiting_approval' means it only ever affects a cycle that is
+  // still genuinely pending when the write happens.
+  const r = await query(
+    `UPDATE audit_cycles SET status = 'skipped'
+     WHERE id = $1 AND status = 'awaiting_approval'
+     RETURNING id`,
+    [cycleId]
+  );
+  if (r.rows.length === 0) return;
+
+  // Notification failure is non-fatal — the state transition above already
+  // succeeded and must not be retried. A DB error above, by contrast, is
+  // deliberately NOT caught here: this runs inside a BullMQ job handler,
+  // and letting it throw lets BullMQ's own retry/backoff actually retry the
+  // state transition instead of silently leaving the cycle stuck forever.
+  await safeFire(sendTelegramMessage(
+    `Project Sentinel — Audit Expired ⏱️\n\nRepo: ${repoName}\nNo response in ${APPROVAL_TIMEOUT_H()}h.\nTasks remain in Notion as Queued.\n/sentinel audit ${repoName} to re-audit.`,
+    null,
+    topicId
+  ), { label: 'auditOrchestrator' })
 }
 
 // Persisted via BullMQ rather than a bare setTimeout — a bare 24h timer is
@@ -519,7 +529,19 @@ function scheduleApprovalTimeout(cycleId: number, repoFullName: string, repoName
     { cycleId, repoFullName, repoName, topicId },
     APPROVAL_TIMEOUT_H() * 60 * 60 * 1000,
     `audit-approval-timeout:${cycleId}`
-  ).catch((err: any) => logger.warn({ err: err.message, cycleId }, 'Failed to schedule approval timeout'));
+  ).catch((err: any) => {
+    // Unlike a job handler failing (which BullMQ retries automatically),
+    // this call happens inline in triggerAudit — if it fails, no expiry
+    // timer for this cycle exists at all, silently, with nothing left to
+    // retry it. A full "recover and re-arm" workflow is out of scope here;
+    // at minimum, make the failure visible instead of a debug-only log line
+    // so a human knows this cycle has no automatic expiry.
+    logger.error({ err: err.message, cycleId }, 'Failed to schedule approval timeout — cycle has no automatic expiry');
+    fireAndForget(sendTelegramMessage(
+      `⚠️ Project Sentinel — could not schedule the approval timeout for ${repoName} (cycle ${cycleId}). This audit will not auto-expire; approve or skip it manually.`,
+      null, topicId
+    ), { label: 'auditOrchestrator' });
+  });
 }
 
 export = {

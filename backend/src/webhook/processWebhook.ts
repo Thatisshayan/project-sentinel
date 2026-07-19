@@ -14,6 +14,17 @@ import { notifyDependents } from '../crossRepoCoordinator';
 
 const { query } = dbClient;
 
+// Notion API error codes that a redelivery retry cannot fix — a bad
+// integration token, a database the integration isn't shared with, or a
+// restricted resource will fail identically every time. Everything else
+// (rate limits, 5xx, network errors with no .code at all) is treated as
+// retryable, since retrying is the whole point of releasing the claim.
+const PERMANENT_NOTION_ERROR_CODES = new Set(['unauthorized', 'restricted_resource', 'object_not_found']);
+
+function isPermanentNotionError(err: any): boolean {
+  return PERMANENT_NOTION_ERROR_CODES.has(err?.code);
+}
+
 export async function processWebhook(payload: any): Promise<void> {
   let data: any;
   try {
@@ -50,7 +61,9 @@ export async function processWebhook(payload: any): Promise<void> {
     notionProject = await findNotionProject(repoNameLower);
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message, repoName }, 'Notion search threw an error');
-    await unmarkProcessed(repoName, commitSha);
+    if (!isPermanentNotionError(err)) {
+      await unmarkProcessed(repoName, commitSha);
+    }
     await safeFire(sendTelegramMessage(
       buildErrorMessage('Notion search failed', repoName, err.message),
       repoName
@@ -76,7 +89,9 @@ export async function processWebhook(payload: any): Promise<void> {
     await updateNotionProject(notionProject.pageId, data);
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message, repoName }, 'Notion update failed');
-    await unmarkProcessed(repoName, commitSha);
+    if (!isPermanentNotionError(err)) {
+      await unmarkProcessed(repoName, commitSha);
+    }
     await safeFire(sendTelegramMessage(
       buildErrorMessage('Notion update failed', repoName, err.message),
       repoName
