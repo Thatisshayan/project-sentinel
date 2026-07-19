@@ -102,6 +102,21 @@ async function getLastCompletedAudit(repoFullName: string): Promise<any | null> 
   return r.rows[0] || null;
 }
 
+/**
+ * Most recent PRIOR audit's health score for a repo (excluding the cycle
+ * just created) — used to show a health trend (↑/↓/→) in the audit-complete
+ * Telegram message so a human can see whether things are getting better or
+ * worse at a glance, not just the current absolute score.
+ */
+async function getPreviousHealthScore(repoFullName: string, excludeCycleId: number): Promise<number | null> {
+  const r = await query(`
+    SELECT health_score FROM audit_cycles
+    WHERE repo_full_name = $1 AND id != $2 AND health_score IS NOT NULL
+    ORDER BY created_at DESC LIMIT 1
+  `, [repoFullName, excludeCycleId]);
+  return r.rows[0]?.health_score ?? null;
+}
+
 async function createAuditCycle(data: { repoFullName: string; commitSha: string; projectName?: string }): Promise<any | null> {
   const r = await query(`
     INSERT INTO audit_cycles
@@ -230,6 +245,7 @@ export = {
   getAuditCycle,
   getActiveCycleForRepo,
   getLastCompletedAudit,
+  getPreviousHealthScore,
   createAuditCycle,
   updateAuditCycle,
   getQueuedTaskCount,

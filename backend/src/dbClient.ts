@@ -170,15 +170,39 @@ async function incrementAttempt(repoFullName: string, commitSha: string, debugge
   return r.rows[0] || null;
 }
 
+// Every column `updateDebugAttempt` is allowed to write — mirrors the
+// mutable (non-identity, non-timestamp) columns in the debug_attempts
+// table above. Building a SET clause straight from Object.keys(updates)
+// was safe only by accident (every call site so far has passed hardcoded
+// literal keys); the next caller that passes a dynamic/user-influenced key
+// would have been a SQL injection point via the column name itself, since
+// column identifiers can't be parameterized the way values can.
+const DEBUG_ATTEMPT_UPDATABLE_COLUMNS = new Set([
+  'attempt_number', 'max_attempts', 'status', 'debugger_used',
+  'fix_commit_sha', 'fix_commit_url', 'fix_branch', 'fix_pr_url',
+  'failure_reason', 'build_provider', 'build_url',
+  'high_risk', 'high_risk_reason',
+]);
+
 async function updateDebugAttempt(
   repoFullName: string,
   commitSha: string,
   updates: Record<string, any>
 ): Promise<any | null> {
-  const fields = Object.keys(updates)
+  const keys = Object.keys(updates);
+  const rejected = keys.filter(k => !DEBUG_ATTEMPT_UPDATABLE_COLUMNS.has(k));
+  if (rejected.length > 0) {
+    logger.error({ rejected, repoFullName, commitSha }, 'updateDebugAttempt: rejected non-allowlisted column(s)');
+  }
+  const allowedKeys = keys.filter(k => DEBUG_ATTEMPT_UPDATABLE_COLUMNS.has(k));
+  if (allowedKeys.length === 0) {
+    return null;
+  }
+
+  const fields = allowedKeys
     .map((k, i) => `${k} = $${i + 3}`)
     .join(', ');
-  const values = Object.values(updates);
+  const values = allowedKeys.map(k => updates[k]);
 
   const r = await query(
     `UPDATE debug_attempts

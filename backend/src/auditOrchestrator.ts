@@ -8,7 +8,7 @@ import { sendTelegramMessage } from './telegramClient';
 import { findNotionProject } from './notionClient';
 import {
   createAuditCycle, updateAuditCycle,
-  getActiveCycleForRepo, getLastCompletedAudit,
+  getActiveCycleForRepo, getLastCompletedAudit, getPreviousHealthScore,
   getQueuedTaskCount, getNextBatch,
   updateAuditTask, countTasksExecutedToday,
   stopAllTasksForRepo, markTasksDoneForBranch,
@@ -213,9 +213,36 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
   });
 
   const EMOJI: Record<string, string> = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' };
-  const taskLines = auditResult.tasks.map((t: any) =>
-    `${t.taskNumber}. ${EMOJI[t.priority]||'⚪'} ${t.title}${t.safeToAutoExecute?'':' 🔒'}`
-  ).join('\n');
+
+  // Priority breakdown — at-a-glance severity mix, not just a raw total.
+  const priorityCounts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+  for (const t of auditResult.tasks) priorityCounts[t.priority] = (priorityCounts[t.priority] || 0) + 1;
+  const priorityBreakdown = (['critical', 'high', 'medium', 'low'] as const)
+    .filter(p => (priorityCounts[p] ?? 0) > 0)
+    .map(p => `${EMOJI[p]} ${priorityCounts[p]} ${p}`)
+    .join('  ·  ');
+
+  // Health trend vs. the last audit for this repo — an absolute "6/10" tells
+  // you nothing about direction; the delta does.
+  const previousHealthScore = await getPreviousHealthScore(repoFullName, cycle.id).catch(() => null);
+  const healthTrend = previousHealthScore == null
+    ? ''
+    : (() => {
+        const delta = auditResult.overallHealthScore - previousHealthScore;
+        const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+        return ` (${arrow} ${delta > 0 ? '+' : ''}${delta} vs last audit)`;
+      })();
+
+  // Each task gets its category and, for locked (needs-review) tasks, the
+  // safety reason the audit gave — that's the exact information a human
+  // needs to actually decide whether to approve, not just "this one's
+  // locked" with no context.
+  const taskLines = auditResult.tasks.map((t: any) => {
+    const lockNote = t.safeToAutoExecute
+      ? ''
+      : `\n   🔒 ${t.safetyReason || 'flagged for manual review'}`;
+    return `${t.taskNumber}. ${EMOJI[t.priority] || '⚪'} [${t.category || 'general'}] ${t.title}${lockNote}`;
+  }).join('\n');
 
   const failNote = writeResult.failed.length  > 0
     ? `\n⚠️ ${writeResult.failed.length} task(s) failed to write to Notion` : '';
@@ -228,12 +255,12 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
     `Project: ${projectName || repoName}`,
     `Repo: ${repoName}`,
     `Commit: ${commitSha.substring(0, 7)}`,
-    `Health Score: ${auditResult.overallHealthScore}/10`,
+    `Health Score: ${auditResult.overallHealthScore}/10${healthTrend}`,
     `Builder: ${builderConfig.label}`,
     ``,
     auditResult.auditSummary,
     ``,
-    `${totalCount} tasks generated:`,
+    `${totalCount} tasks generated${priorityBreakdown ? ` (${priorityBreakdown})` : ''}:`,
     taskLines,
     ``,
     `🔓 Safe to auto-execute: ${safeCount} (${batchCount} batch${batchCount!==1?'es':''} of ${BATCH_SIZE()})`,
@@ -242,18 +269,32 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
     notionProject ? `\nNotion: ${notionProject.url}` : '',
   ].filter(l => l !== null).join('\n');
 
+  // Telegram's real message length limit is 4096 chars. sendMenu() (used
+  // below for the inline-button path) swallows its own axios errors
+  // internally and never throws — so an oversized message wouldn't just
+  // fail loudly, it would silently no-op with only a warn-level log, and
+  // the try/catch fallback to sendTelegramMessage here would never fire
+  // (nothing was thrown to catch). Truncating up front, the same way
+  // sendTelegramMessage's own fallback already does, means this can't
+  // silently swallow the whole report on a repo with many tasks/long
+  // safety reasons.
+  const TELEGRAM_MAX_LENGTH = 4096;
+  const safeAuditText = auditText.length > TELEGRAM_MAX_LENGTH
+    ? auditText.substring(0, TELEGRAM_MAX_LENGTH - 30) + '\n\n[message truncated]'
+    : auditText;
+
   // Send with inline approval buttons
   try {
     const { sendMenu } = require('./telegramMenus');
     const chatId = process.env['TELEGRAM_CHAT_ID'];
-    await sendMenu(chatId, topicId, auditText, [
+    await sendMenu(chatId, topicId, safeAuditText, [
       [
         { text: `✅ Execute ${safeCount} safe tasks`, callback_data: `execute:${repoName}` },
         { text: `⏭ Skip`,                            callback_data: `skip:${repoName}`    },
       ],
     ]);
   } catch {
-    await safeFire(sendTelegramMessage(auditText, null, topicId), { label: 'auditOrchestrator' })
+    await safeFire(sendTelegramMessage(safeAuditText, null, topicId), { label: 'auditOrchestrator' })
   }
 
   scheduleApprovalTimeout(cycle.id, repoFullName, repoName, topicId);
