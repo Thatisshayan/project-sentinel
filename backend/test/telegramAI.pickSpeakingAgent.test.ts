@@ -40,6 +40,28 @@ describe('pickSpeakingAgent', () => {
     expect(pickSpeakingAgent('check the log')).toBe('gemini');
   });
 
+  it('does NOT over-match a complete word that merely contains a routing term as a prefix', () => {
+    // audit/review/score/report/broke/crash/log are already whole words with
+    // no continuation problem (unlike analy/secur/debug/fail), so they keep
+    // \b on both sides. Testable specifically via the gemini group, since
+    // nvidia is *also* the default fallback — "not nvidia" can't prove a
+    // miss there (it'd be nvidia either way), but gemini isn't the default,
+    // so this genuinely proves "crashpad" doesn't match the "crash" term.
+    expect(pickSpeakingAgent('the crashpad absorbed it')).not.toBe('gemini');
+  });
+
+  it('does still allow the stem-matching terms (analy/secur/debug/fail) to over-match somewhat — documented trade-off, not a bug', () => {
+    // Unlike audit/review/score/report/broke/crash/log, these four keep \w*
+    // instead of an exact match because the original bug was specifically
+    // that \b right after the bare stem never matches "analyze"/"analysis"/
+    // "security"/"debugging"/"failed". Accepting some extra breadth here
+    // (e.g. a hypothetical word starting with "fail") is the intentional
+    // trade-off that fixes the real words without needing a maintained
+    // list of every inflected form.
+    expect(pickSpeakingAgent('run a full analysis')).toBe('nvidia');
+    expect(pickSpeakingAgent('check security')).toBe('nvidia');
+  });
+
   it('code/fix/build words still route to qwen_coder and take priority over the analy/debug rules', () => {
     expect(pickSpeakingAgent('fix this bug')).toBe('qwen_coder');
     expect(pickSpeakingAgent('implement a function')).toBe('qwen_coder');

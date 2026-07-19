@@ -92,10 +92,15 @@ async function checkAuditRules(data: any): Promise<{ pass: boolean; reason?: str
 
 // ── MAIN AUDIT TRIGGER ────────────────────────────────────────────────────────
 
-async function triggerAudit(payload: any): Promise<void> {
+interface TriggerAuditResult {
+  started: boolean;
+  reason?: string;
+}
+
+async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
   if (!AUDIT_ENABLED()) {
     logger.info('Audit disabled via AUDIT_AGENT_ENABLED=false');
-    return;
+    return { started: false, reason: 'audit_disabled' };
   }
 
   const {
@@ -103,20 +108,20 @@ async function triggerAudit(payload: any): Promise<void> {
     commitMessage, branchName, authorName, authorEmail, topicId,
   } = payload;
 
-  if (!commitSha || !repoFullName) return;
+  if (!commitSha || !repoFullName) return { started: false, reason: 'missing_commit_or_repo' };
 
   // Phase 10 — repo lock guard
   const lock = await isRepoLocked(repoName).catch(() => null);
   if (lock) {
     logger.info({ repoName, reason: lock.reason }, 'Repo locked — audit skipped');
-    return;
+    return { started: false, reason: 'repo_locked' };
   }
 
   // Skip explicit opt-out prefixes
   const SKIP = ['[skip-audit]', '[no-audit]', 'chore:', 'docs:'];
   if (SKIP.some(p => (commitMessage || '').startsWith(p))) {
     logger.info({ repoName }, 'Audit skipped via commit message flag');
-    return;
+    return { started: false, reason: 'commit_message_flag' };
   }
 
   // Run all 4 rules
@@ -124,17 +129,20 @@ async function triggerAudit(payload: any): Promise<void> {
     repoFullName, repoName, authorName, authorEmail,
     branchName, commitMessage, topicId,
   });
-  if (!check.pass) return;
+  if (!check.pass) return { started: false, reason: check.reason };
 
   // Prevent duplicate cycles
   const active = await getActiveCycleForRepo(repoFullName);
   if (active) {
     logger.info({ repoFullName, cycleId: active.id }, 'Audit already active');
-    return;
+    return { started: false, reason: 'audit_already_active' };
   }
 
   const cycle = await createAuditCycle({ repoFullName, commitSha, projectName });
-  if (!cycle) { logger.warn({ repoFullName }, 'Could not create audit cycle'); return; }
+  if (!cycle) {
+    logger.warn({ repoFullName }, 'Could not create audit cycle');
+    return { started: false, reason: 'cycle_creation_failed' };
+  }
 
   logger.info({ repoFullName, cycleId: cycle.id }, 'Audit cycle started');
 
@@ -177,7 +185,9 @@ async function triggerAudit(payload: any): Promise<void> {
       null,
       topicId
     ), { label: 'auditOrchestrator' })
-    return;
+    // A cycle WAS created (the process genuinely started) — it just failed
+    // partway through, unlike the earlier early-returns where nothing began.
+    return { started: true, reason: 'audit_run_failed' };
   }
 
   // Write tasks to Notion and PostgreSQL
@@ -249,6 +259,7 @@ async function triggerAudit(payload: any): Promise<void> {
   scheduleApprovalTimeout(cycle.id, repoFullName, repoName, topicId);
   logger.info({ repoFullName, cycleId: cycle.id, tasks: totalCount, safe: safeCount,
     batches: batchCount }, 'Audit complete — awaiting approval');
+  return { started: true };
 }
 
 // ── EXECUTE APPROVED TASKS ────────────────────────────────────────────────────

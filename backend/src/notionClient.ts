@@ -268,7 +268,18 @@ async function createNotionProject(data: { repoName: string; priority?: string; 
     logger.info({ repoName, pageId: page.id }, 'Notion project page created');
     return page.id;
   } catch (err: any) {
-    logger.warn({ err: err.message, repoName }, 'Full-property Notion page create failed — retrying with minimal fields');
+    // Only retry with a reduced property set when the failure is a schema
+    // mismatch (e.g. 'Priority'/'Builder Agent' doesn't exist as a select
+    // option or property in this database) — that's the one case a smaller
+    // payload can actually fix. For anything else (rate limit, auth,
+    // timeout, transient 5xx), retrying with fewer fields would silently
+    // create a degraded page instead of surfacing the real failure.
+    if (err.code !== 'validation_error') {
+      logger.error({ err: err.message, code: err.code, repoName },
+        'Notion project page creation failed (non-schema error) — not retrying with reduced fields');
+      return null;
+    }
+    logger.warn({ err: err.message, repoName }, 'Full-property Notion page create failed schema validation — retrying with minimal fields');
   }
 
   try {

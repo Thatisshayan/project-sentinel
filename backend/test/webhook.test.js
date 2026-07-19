@@ -44,6 +44,7 @@ jest.mock('../src/portfolioDb', () => ({
 jest.mock('../src/deduplication', () => ({
   isAlreadyProcessed: jest.fn().mockResolvedValue(false),
   markAsProcessed:    jest.fn().mockResolvedValue(undefined),
+  unmarkProcessed:    jest.fn().mockResolvedValue(undefined),
 }));
 
 const crypto    = require('crypto');
@@ -55,7 +56,8 @@ const { findNotionProject,
         updateNotionProject }           = require('../src/notionClient');
 const { sendTelegramMessage }           = require('../src/telegramClient');
 const { isAlreadyProcessed,
-        markAsProcessed }               = require('../src/deduplication');
+        markAsProcessed,
+        unmarkProcessed }               = require('../src/deduplication');
 const { upsertRepoMetrics }             = require('../src/portfolioDb');
 
 const app = express();
@@ -214,17 +216,21 @@ describe('POST /webhook/github', () => {
     expect(msg).toContain('Notion update failed');
   });
 
-  test('does NOT mark the commit as processed when Notion update fails — a webhook redelivery must be able to retry', async () => {
+  test('releases the processed-claim when Notion update fails — a webhook redelivery must be able to retry', async () => {
+    // Claimed immediately (before Notion) to close the redelivery race
+    // window, then released on this specific failure path — net effect is
+    // still "not processed," just via claim+release instead of never-claim.
     updateNotionProject.mockRejectedValue(new Error('Notion API 500'));
     await request(app)
       .post('/webhook/github')
       .set('x-hub-signature-256', sign(payload))
       .send(payload);
     await wait(200);
-    expect(markAsProcessed).not.toHaveBeenCalled();
+    expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(unmarkProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
   });
 
-  test('DOES mark the commit as processed when Notion update succeeds (regression guard against re-breaking dedup)', async () => {
+  test('DOES leave the commit marked as processed when Notion update succeeds (regression guard against re-breaking dedup)', async () => {
     updateNotionProject.mockResolvedValue(undefined);
     await request(app)
       .post('/webhook/github')
@@ -232,9 +238,10 @@ describe('POST /webhook/github', () => {
       .send(payload);
     await wait(200);
     expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(unmarkProcessed).not.toHaveBeenCalled();
   });
 
-  test('DOES mark the commit as processed for an unknown-repo push, so the warning is not resent on every redelivery', async () => {
+  test('DOES leave the commit marked as processed for an unknown-repo push, so the warning is not resent on every redelivery', async () => {
     findNotionProject.mockResolvedValue(null);
     await request(app)
       .post('/webhook/github')
@@ -242,16 +249,41 @@ describe('POST /webhook/github', () => {
       .send(payload);
     await wait(200);
     expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(unmarkProcessed).not.toHaveBeenCalled();
   });
 
-  test('does NOT mark the commit as processed when the Notion search itself throws', async () => {
+  test('releases the processed-claim when the Notion search itself throws', async () => {
     findNotionProject.mockRejectedValue(new Error('Notion API 500'));
     await request(app)
       .post('/webhook/github')
       .set('x-hub-signature-256', sign(payload))
       .send(payload);
     await wait(200);
-    expect(markAsProcessed).not.toHaveBeenCalled();
+    expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(unmarkProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+  });
+
+  test('claims the commit as processed before the Notion search runs — closes the redelivery race window', async () => {
+    // The whole point of today's fix: a near-simultaneous redelivery arriving
+    // while the first request is still awaiting Notion must see the claim
+    // already in place, not slip through and reprocess everything twice.
+    // Verified via call order (not a mid-flight timing race, which proved
+    // flaky in this test environment) — deterministic regardless of how
+    // long the Notion call actually takes.
+    const callOrder = [];
+    markAsProcessed.mockImplementation(async () => { callOrder.push('markAsProcessed'); });
+    findNotionProject.mockImplementation(async () => {
+      callOrder.push('findNotionProject');
+      return { pageId: 'page-abc-123', projectName: 'TapCash', url: 'https://notion.so/tapcash' };
+    });
+
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(payload))
+      .send(payload);
+    await wait(200);
+
+    expect(callOrder).toEqual(['markAsProcessed', 'findNotionProject']);
   });
 });
 

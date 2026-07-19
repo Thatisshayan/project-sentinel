@@ -167,11 +167,19 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
     // than a bare setTimeout — a bare timer is lost on process restart
     // (which this system triggers on its own PR merges), silently stranding
     // the sprint in 'executing' with remaining tasks that never run.
+    //
+    // jobId MUST be unique per scheduling attempt, not per sprint: BullMQ's
+    // add() with a jobId that already exists (even completed) returns the
+    // existing job instead of creating a new delayed one. A jobId keyed only
+    // on sprintId would let the very first continuation schedule correctly,
+    // then silently no-op on every task after that — the sprint would stall
+    // after task 2. Keying on the just-completed task's id keeps each
+    // scheduling attempt distinct while still being deterministic/traceable.
     await enqueueScheduledJob(
       SPRINT_CONTINUE_JOB,
       { sprintId, topicId },
       SPRINT_CONTINUE_DELAY_MS,
-      `sprint-continue:${sprintId}`
+      `sprint-continue:${sprintId}:${task.id}`
     );
 
   } else {

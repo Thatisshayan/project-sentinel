@@ -25,7 +25,17 @@ const ALLOWED_PATH_PATTERNS: RegExp[] = [
   /^\/api\/settings\/update$/,
 ];
 
+// The regex patterns' [\w.-]+ segments technically accept a literal "." or
+// ".." as the whole segment value (e.g. /api/repo/../audit matches the
+// /api/repo/[\w.-]+/audit pattern as written). fetch()'s URL normalization
+// then collapses that to a different path than what was validated — reject
+// dot-only path segments outright before the allowlist check runs.
+function hasDotSegment(path: string): boolean {
+  return path.split("/").some((segment) => segment === "." || segment === "..");
+}
+
 function isAllowedPath(path: string): boolean {
+  if (hasDotSegment(path)) return false;
   return ALLOWED_PATH_PATTERNS.some((p) => p.test(path));
 }
 

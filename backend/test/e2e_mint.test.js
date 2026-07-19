@@ -67,6 +67,7 @@ jest.mock('../src/portfolioDb', () => ({
 jest.mock('../src/deduplication', () => ({
   isAlreadyProcessed: jest.fn().mockResolvedValue(false),
   markAsProcessed:    jest.fn().mockResolvedValue(undefined),
+  unmarkProcessed:    jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../src/claudeCodeAudit', () => ({

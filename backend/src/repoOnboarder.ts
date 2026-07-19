@@ -40,7 +40,12 @@ async function onboardRepo(repoName: string): Promise<void> {
     authorName:    'Sentinel',
     authorEmail:   '',
     topicId:       null,
-  }).then(() => true).catch((err: any) => {
+  }).then((result: any) => {
+    if (!result.started) {
+      logger.warn({ repoName, reason: result.reason }, 'First audit did not start');
+    }
+    return result.started;
+  }).catch((err: any) => {
     logger.warn({ err: err.message, repoName }, 'First audit failed');
     return false;
   });

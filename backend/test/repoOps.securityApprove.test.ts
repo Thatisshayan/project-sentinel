@@ -48,13 +48,17 @@ describe('/sentinel security-approve', () => {
     expect(message).toContain('3 open issue(s) marked resolved');
   });
 
-  it('reports 0 and does not throw when the DB call fails', async () => {
+  it('reports a distinct DB-failure message (not "0 issues resolved") and does not throw when the DB call fails', async () => {
+    // Regression guard (CodeRabbit finding on PR #33): silently coercing a
+    // rejected DB call to count=0 produced the exact same message as a
+    // genuine zero-issue success, masking real DB failures from the founder.
     resolveAllOpenIssuesMock.mockRejectedValue(new Error('db down'));
     await expect(
       handleRepoOpsCmd('security-approve', ['/sentinel', 'security-approve', 'tapcash'], null, 42)
     ).resolves.toBe(true);
 
     const [message] = sendTelegramMessageMock.mock.calls[0];
-    expect(message).toContain('0 open issue(s) marked resolved');
+    expect(message).toContain('could not be recorded');
+    expect(message).not.toContain('open issue(s) marked resolved');
   });
 });

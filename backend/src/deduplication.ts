@@ -46,4 +46,15 @@ async function markAsProcessed(repoName: string, commitSha: string): Promise<voi
   }
 }
 
-export = { isAlreadyProcessed, markAsProcessed };
+/**
+ * Releases a claim made by markAsProcessed() — used when processing failed
+ * in a way that should allow a webhook redelivery to retry (e.g. a
+ * transient Notion API error), so the claim-then-release pattern in
+ * processWebhook.ts doesn't leave a commit permanently marked "processed"
+ * despite nothing actually succeeding.
+ */
+async function unmarkProcessed(repoName: string, commitSha: string): Promise<void> {
+  store.delete(makeKey(repoName, commitSha));
+}
+
+export = { isAlreadyProcessed, markAsProcessed, unmarkProcessed };

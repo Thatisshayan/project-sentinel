@@ -3,7 +3,7 @@ import logger from '../logger';
 import { extractPayload } from '../extractPayload';
 import { findNotionProject, updateNotionProject, appendChangelog } from '../notionClient';
 import { sendTelegramMessage } from '../telegramClient';
-import { isAlreadyProcessed, markAsProcessed } from '../deduplication';
+import { isAlreadyProcessed, markAsProcessed, unmarkProcessed } from '../deduplication';
 import { enqueueBuildCheck } from '../queueClient';
 import dbClient from '../dbClient';
 import { upsertRepoMetrics } from '../portfolioDb';
@@ -36,11 +36,21 @@ export async function processWebhook(payload: any): Promise<void> {
     return;
   }
 
+  // Claim immediately (not after Notion succeeds) so a near-simultaneous
+  // redelivery during the Notion round-trip can't slip past the dedup check
+  // and fully re-run Notion updates, changelog appends, Telegram messages,
+  // security scans, and build-check enqueues. Released below on the specific
+  // failure paths that should allow a genuine retry (transient Notion
+  // errors) — everything else keeps the claim, matching the original intent
+  // of only retrying on errors that are actually worth retrying.
+  await markAsProcessed(repoName, commitSha);
+
   let notionProject: any;
   try {
     notionProject = await findNotionProject(repoNameLower);
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message, repoName }, 'Notion search threw an error');
+    await unmarkProcessed(repoName, commitSha);
     await safeFire(sendTelegramMessage(
       buildErrorMessage('Notion search failed', repoName, err.message),
       repoName
@@ -50,7 +60,6 @@ export async function processWebhook(payload: any): Promise<void> {
 
   if (!notionProject) {
     logger.warn({ repoName }, 'No matching Notion project');
-    await markAsProcessed(repoName, commitSha);
     await safeFire(sendTelegramMessage(buildUnknownRepoMessage(data), repoName), { label: 'webhook' })
     return;
   }
@@ -67,14 +76,13 @@ export async function processWebhook(payload: any): Promise<void> {
     await updateNotionProject(notionProject.pageId, data);
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message, repoName }, 'Notion update failed');
+    await unmarkProcessed(repoName, commitSha);
     await safeFire(sendTelegramMessage(
       buildErrorMessage('Notion update failed', repoName, err.message),
       repoName
     ), { label: 'webhook' })
     return;
   }
-
-  await markAsProcessed(repoName, commitSha);
 
   let changelogAppended = false;
   try {
