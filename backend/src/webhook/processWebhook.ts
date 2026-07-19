@@ -3,7 +3,7 @@ import logger from '../logger';
 import { extractPayload } from '../extractPayload';
 import { findNotionProject, updateNotionProject, appendChangelog } from '../notionClient';
 import { sendTelegramMessage } from '../telegramClient';
-import { isAlreadyProcessed, markAsProcessed } from '../deduplication';
+import { isAlreadyProcessed, markAsProcessed, unmarkProcessed } from '../deduplication';
 import { enqueueBuildCheck } from '../queueClient';
 import dbClient from '../dbClient';
 import { upsertRepoMetrics } from '../portfolioDb';
@@ -13,6 +13,17 @@ import { runSecurityScan } from '../securityScanner';
 import { notifyDependents } from '../crossRepoCoordinator';
 
 const { query } = dbClient;
+
+// Notion API error codes that a redelivery retry cannot fix — a bad
+// integration token, a database the integration isn't shared with, or a
+// restricted resource will fail identically every time. Everything else
+// (rate limits, 5xx, network errors with no .code at all) is treated as
+// retryable, since retrying is the whole point of releasing the claim.
+const PERMANENT_NOTION_ERROR_CODES = new Set(['unauthorized', 'restricted_resource', 'object_not_found']);
+
+function isPermanentNotionError(err: any): boolean {
+  return PERMANENT_NOTION_ERROR_CODES.has(err?.code);
+}
 
 export async function processWebhook(payload: any): Promise<void> {
   let data: any;
@@ -35,6 +46,14 @@ export async function processWebhook(payload: any): Promise<void> {
     logger.info({ repoName, commitSha: commitSha.substring(0, 7) }, 'Duplicate — skipping');
     return;
   }
+
+  // Claim immediately (not after Notion succeeds) so a near-simultaneous
+  // redelivery during the Notion round-trip can't slip past the dedup check
+  // and fully re-run Notion updates, changelog appends, Telegram messages,
+  // security scans, and build-check enqueues. Released below on the specific
+  // failure paths that should allow a genuine retry (transient Notion
+  // errors) — everything else keeps the claim, matching the original intent
+  // of only retrying on errors that are actually worth retrying.
   await markAsProcessed(repoName, commitSha);
 
   let notionProject: any;
@@ -42,6 +61,9 @@ export async function processWebhook(payload: any): Promise<void> {
     notionProject = await findNotionProject(repoNameLower);
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message, repoName }, 'Notion search threw an error');
+    if (!isPermanentNotionError(err)) {
+      await unmarkProcessed(repoName, commitSha);
+    }
     await safeFire(sendTelegramMessage(
       buildErrorMessage('Notion search failed', repoName, err.message),
       repoName
@@ -67,6 +89,9 @@ export async function processWebhook(payload: any): Promise<void> {
     await updateNotionProject(notionProject.pageId, data);
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message, repoName }, 'Notion update failed');
+    if (!isPermanentNotionError(err)) {
+      await unmarkProcessed(repoName, commitSha);
+    }
     await safeFire(sendTelegramMessage(
       buildErrorMessage('Notion update failed', repoName, err.message),
       repoName

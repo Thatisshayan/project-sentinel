@@ -57,7 +57,7 @@
 | 3.1 | Timing-safe auth comparisons (SENTINEL_UI_KEY, DEBUGGER_SHARED_SECRET) | CRITICAL | ✅ Done (commit `35d6e52`) |
 | 3.2 | Fix SSL certificate validation (rejectUnauthorized: false → true) | CRITICAL | ✅ Done (commit `2a68f42`) |
 | 3.3 | Add rate limiting to all API routes | HIGH | ✅ Done |
-| 3.4 | Harden UI action proxy (path whitelist, CSRF, origin validation) | HIGH | ✅ Done |
+| 3.4 | Harden UI action proxy (path whitelist, CSRF, origin validation) | HIGH | ✅ Done — **correction 2026-07-19:** the original whitelist (commit `b0838cd`) was a literal-string `Set` that blocked several routes the UI itself calls (couldn't match dynamic `:id`/`:name` segments at all, and named some static routes wrong). Fixed 2026-07-19 (commit `db9fcd6`) with a regex allowlist verified against every `callAction()` call site in `ui/`. See P2-15. |
 | 3.5 | Scope environment for child processes (don't spread entire process.env) | MEDIUM | ✅ Done |
 | 3.6 | Add origin/CSRF check to all 5 UI proxy routes | MEDIUM | ✅ Done |
 
@@ -74,7 +74,7 @@
 | 4.2 | Write tests for security cluster (securityScanner, securityPatcher, owaspChecker, secretScanner, dependencyScanner) | CRITICAL | ⏳ Pending |
 | 4.3 | Write tests for core pipeline (workers, sprintOrchestrator, sprintPlanner, taskBuilder, webhook) | CRITICAL | ⏳ Pending |
 | 4.4 | Write tests for all remaining untested modules (29 files) | HIGH | ⏳ Pending |
-| 4.5 | Add regression tests for 12 already-fixed bugs | MEDIUM | ⏳ Pending |
+| 4.5 | Add regression tests for already-fixed bugs | MEDIUM | ✅ Done 2026-07-19 — unit tests added for the bare-`setTimeout` fixes (`scheduledJobsWorker.test.ts`, covers autoApprover/correlationEngine/sprintOrchestrator/auditOrchestrator), `createNotionProject`/onboarding honesty (`repoOnboarder.onboardRepo.test.ts`), and the `telegramAI` complexity field-name bug (`telegramAI.createTask.test.ts`). Older bugs from the June JS-era scan and the rest of the July `ConfirmedBugs.md` pass 1 list do not have dedicated regression tests. |
 | 4.6 | Set up UI test infrastructure (Vitest + React Testing Library) | MEDIUM | ⏳ Pending |
 
 ---
@@ -140,4 +140,4 @@ These are data-flow / configuration issues, not code bugs. They persist until th
 
 | # | Issue | Status |
 |---|-------|--------|
-| P2-15 | Three dashboard buttons call non-existent backend routes (bulk audit/scan/patch) | Pending |
+| P2-15 | ~~Three dashboard buttons call non-existent backend routes (bulk audit/scan/patch)~~ — **corrected & fixed 2026-07-19:** the backend routes exist and work; the real bug was `ui/app/api/action/route.ts`'s literal-string allowlist blocking them (and several other buttons: per-repo audit, per-agent toggle, security-issue patch, self-audit, pause-sprint). Fixed with a regex allowlist, commit `db9fcd6`. **Not verified in a running browser** — fix confirmed by static route-matching + `tsc`, not a live click-through. | Fixed (unverified live) |

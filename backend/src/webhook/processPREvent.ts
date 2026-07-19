@@ -3,6 +3,8 @@ import { sendTelegramMessage } from '../telegramClient';
 import logger from '../logger';
 import dbClient from '../dbClient';
 import { updateNotionTaskStatus } from '../auditTaskWriter';
+import { resolveIssuesByPr } from '../securityDb';
+import { resolveDebugAttemptByPr } from '../dbClient';
 
 const { query } = dbClient;
 
@@ -23,6 +25,22 @@ export async function processPREvent(payload: any): Promise<void> {
   logger.info({ repoFullName, prNumber, merged, branch: branchName }, 'Sentinel PR closed');
 
   if (merged) {
+    if (branchName.startsWith('sentinel/security-patch-')) {
+      await resolveIssuesByPr(repoFullName, prUrl).catch((err: any) =>
+        logger.warn({ err: err.message, repoFullName, prUrl }, 'Failed to resolve security issues after merge')
+      );
+    }
+
+    if (branchName.startsWith('sentinel/fix-')) {
+      const resolved = await resolveDebugAttemptByPr(repoFullName, prUrl).catch((err: any) => {
+        logger.warn({ err: err.message, repoFullName, prUrl }, 'Failed to resolve debug attempt after merge');
+        return null;
+      });
+      if (resolved) {
+        logger.info({ repoFullName, prUrl }, 'Debug attempt marked resolved after merge');
+      }
+    }
+
     const updated = await query(`
       UPDATE audit_tasks
       SET status = 'done', updated_at = NOW()

@@ -49,6 +49,8 @@ async function initSecuritySchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_security_issues_repo
       ON security_issues (repo_full_name, severity, status, found_at DESC);
   `);
+  await query(`ALTER TABLE security_issues ADD COLUMN IF NOT EXISTS pr_url TEXT;`);
+  await query(`ALTER TABLE security_issues ADD COLUMN IF NOT EXISTS branch_name TEXT;`);
   await query(`
     CREATE TABLE IF NOT EXISTS security_scores (
       id              SERIAL PRIMARY KEY,
@@ -229,9 +231,52 @@ async function getIssuesResolvedSince(days: number): Promise<number> {
   return r.rows[0]?.count || 0;
 }
 
+/**
+ * Marks issues as having a patch PR open, awaiting merge confirmation.
+ * Called right after a security-patch PR is opened for these issues.
+ */
+async function markIssuesPatchPending(issueIds: number[], prUrl: string, branchName: string): Promise<void> {
+  if (issueIds.length === 0) return;
+  await query(`
+    UPDATE security_issues
+    SET status = 'patch_pending', pr_url = $2, branch_name = $3
+    WHERE id = ANY($1::int[]) AND status = 'open'
+  `, [issueIds, prUrl, branchName]);
+}
+
+/**
+ * Marks issues resolved once their patch PR is confirmed merged
+ * (called from the PR-merged webhook handler).
+ */
+/**
+ * Marks all currently-open issues for a repo resolved — used by
+ * '/sentinel security-approve <repo>' when the founder confirms they've
+ * manually reviewed and merged fixes outside the auto-patch flow.
+ */
+async function resolveAllOpenIssues(repoFullName: string): Promise<number> {
+  const r = await query(`
+    UPDATE security_issues
+    SET status = 'resolved', resolved_at = NOW()
+    WHERE repo_full_name = $1 AND status = 'open'
+    RETURNING id
+  `, [repoFullName]);
+  return r.rows.length;
+}
+
+async function resolveIssuesByPr(repoFullName: string, prUrl: string): Promise<number> {
+  const r = await query(`
+    UPDATE security_issues
+    SET status = 'resolved', resolved_at = NOW()
+    WHERE repo_full_name = $1 AND pr_url = $2 AND status != 'resolved'
+    RETURNING id
+  `, [repoFullName, prUrl]);
+  return r.rows.length;
+}
+
 export = {
   initSecuritySchema, createSecurityScan, updateSecurityScan,
   insertSecurityIssue, getOpenIssues, upsertSecurityScore,
   upsertOwaspItem, getLatestSecurityScore, getPortfolioSecuritySummary,
   getIssuesFoundSince, getIssuesResolvedSince,
+  markIssuesPatchPending, resolveIssuesByPr, resolveAllOpenIssues,
 };

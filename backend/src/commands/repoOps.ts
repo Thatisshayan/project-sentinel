@@ -384,8 +384,23 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       return true;
     }
     case 'security-approve': {
+      if (!parts[2]) {
+        await sendTelegramMessage('Usage: /sentinel security-approve <repo>', null, topicId);
+        return true;
+      }
+      const { resolveAllOpenIssues } = require('../securityDb') as { resolveAllOpenIssues: (repo: string) => Promise<number> };
+      let count = 0;
+      let dbFailed = false;
+      try {
+        count = await resolveAllOpenIssues(repoFullName(parts[2]));
+      } catch (err: any) {
+        logger.warn({ err: err.message, repo: parts[2] }, 'resolveAllOpenIssues failed');
+        dbFailed = true;
+      }
       await sendTelegramMessage(
-        `Security approval for ${parts[2] || 'repo'} noted.\nReview and merge the open PR on GitHub.`,
+        dbFailed
+          ? `⚠️ Security approval for ${parts[2]} could not be recorded — database error. Please retry.`
+          : `Security approval for ${parts[2]} noted — ${count} open issue(s) marked resolved.\nMake sure the fix is actually merged on GitHub.`,
         null, topicId
       );
       return true;
@@ -394,9 +409,9 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       const { query: dbq } = require('../dbClient') as { query: (...args: any[]) => Promise<any> };
       const [seen, allMetrics] = await Promise.all([
         dbq(`
-          SELECT repo_name, MAX(processed_at) as last_seen, COUNT(*) as events
-          FROM processed_commits
-          WHERE processed_at > NOW() - INTERVAL '7 days'
+          SELECT repo_name, MAX(last_commit_at) as last_seen, COUNT(*) as snapshots
+          FROM portfolio_metrics
+          WHERE last_commit_at > NOW() - INTERVAL '7 days'
           GROUP BY repo_name
           ORDER BY last_seen DESC
           LIMIT 20
@@ -408,13 +423,17 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       const allNames  = allMetrics.rows.map((r: any) => r.repo_name.toLowerCase());
       const missing   = allNames.filter((n: string) => !seenNames.has(n));
 
+      // portfolio_metrics is an append-only snapshot table written by both the
+      // webhook handler and the periodic metrics sync — this count reflects
+      // metric snapshots, not discrete webhook deliveries, so it must not be
+      // labeled "events" (that overstates what's actually being measured).
       const receivingLines = seen.rows.map((r: any) =>
-        `✅ ${r.repo_name} — last event ${new Date(r.last_seen).toLocaleDateString('en-CA')} (${r.events} events)`
+        `✅ ${r.repo_name} — last activity ${new Date(r.last_seen).toLocaleDateString('en-CA')} (${r.snapshots} metric snapshot(s) in 7d)`
       );
-      const missingLines = missing.map((n: string) => `❌ ${n} — no webhook events in 7 days`);
+      const missingLines = missing.map((n: string) => `❌ ${n} — no metric activity in 7 days`);
 
       await sendTelegramMessage([
-        `Webhook Status (last 7 days)`,
+        `Webhook Status (last 7 days, inferred from metric activity)`,
         ``,
         ...receivingLines,
         ...(missingLines.length ? ['', 'Missing webhooks:', ...missingLines] : []),

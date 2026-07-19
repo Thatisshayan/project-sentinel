@@ -19,6 +19,8 @@ import { trackModelCall } from './performanceTracker';
 import { isRepoLocked } from './repoLock';
 import { loadSettings } from './settingsLoader';
 import dbClient from './dbClient';
+import { enqueueScheduledJob } from './queueClient';
+import { AUDIT_APPROVAL_TIMEOUT_JOB } from './workers/scheduledJobsWorker';
 
 const AUDIT_ENABLED      = (): boolean => process.env['AUDIT_AGENT_ENABLED']   !== 'false';
 const BUILDER_ENABLED    = (): boolean => process.env['BUILDER_AGENT_ENABLED'] !== 'false';
@@ -90,10 +92,15 @@ async function checkAuditRules(data: any): Promise<{ pass: boolean; reason?: str
 
 // ── MAIN AUDIT TRIGGER ────────────────────────────────────────────────────────
 
-async function triggerAudit(payload: any): Promise<void> {
+interface TriggerAuditResult {
+  started: boolean;
+  reason?: string;
+}
+
+async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
   if (!AUDIT_ENABLED()) {
     logger.info('Audit disabled via AUDIT_AGENT_ENABLED=false');
-    return;
+    return { started: false, reason: 'audit_disabled' };
   }
 
   const {
@@ -101,20 +108,20 @@ async function triggerAudit(payload: any): Promise<void> {
     commitMessage, branchName, authorName, authorEmail, topicId,
   } = payload;
 
-  if (!commitSha || !repoFullName) return;
+  if (!commitSha || !repoFullName) return { started: false, reason: 'missing_commit_or_repo' };
 
   // Phase 10 — repo lock guard
   const lock = await isRepoLocked(repoName).catch(() => null);
   if (lock) {
     logger.info({ repoName, reason: lock.reason }, 'Repo locked — audit skipped');
-    return;
+    return { started: false, reason: 'repo_locked' };
   }
 
   // Skip explicit opt-out prefixes
   const SKIP = ['[skip-audit]', '[no-audit]', 'chore:', 'docs:'];
   if (SKIP.some(p => (commitMessage || '').startsWith(p))) {
     logger.info({ repoName }, 'Audit skipped via commit message flag');
-    return;
+    return { started: false, reason: 'commit_message_flag' };
   }
 
   // Run all 4 rules
@@ -122,17 +129,20 @@ async function triggerAudit(payload: any): Promise<void> {
     repoFullName, repoName, authorName, authorEmail,
     branchName, commitMessage, topicId,
   });
-  if (!check.pass) return;
+  if (!check.pass) return { started: false, reason: check.reason };
 
   // Prevent duplicate cycles
   const active = await getActiveCycleForRepo(repoFullName);
   if (active) {
     logger.info({ repoFullName, cycleId: active.id }, 'Audit already active');
-    return;
+    return { started: false, reason: 'audit_already_active' };
   }
 
   const cycle = await createAuditCycle({ repoFullName, commitSha, projectName });
-  if (!cycle) { logger.warn({ repoFullName }, 'Could not create audit cycle'); return; }
+  if (!cycle) {
+    logger.warn({ repoFullName }, 'Could not create audit cycle');
+    return { started: false, reason: 'cycle_creation_failed' };
+  }
 
   logger.info({ repoFullName, cycleId: cycle.id }, 'Audit cycle started');
 
@@ -175,7 +185,9 @@ async function triggerAudit(payload: any): Promise<void> {
       null,
       topicId
     ), { label: 'auditOrchestrator' })
-    return;
+    // A cycle WAS created (the process genuinely started) — it just failed
+    // partway through, unlike the earlier early-returns where nothing began.
+    return { started: true, reason: 'audit_run_failed' };
   }
 
   // Write tasks to Notion and PostgreSQL
@@ -247,6 +259,7 @@ async function triggerAudit(payload: any): Promise<void> {
   scheduleApprovalTimeout(cycle.id, repoFullName, repoName, topicId);
   logger.info({ repoFullName, cycleId: cycle.id, tasks: totalCount, safe: safeCount,
     batches: batchCount }, 'Audit complete — awaiting approval');
+  return { started: true };
 }
 
 // ── EXECUTE APPROVED TASKS ────────────────────────────────────────────────────
@@ -326,7 +339,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
       ``,
       `Repo: ${repoName}`,
       `Unsafe tasks remain in Notion for manual review.`,
-      `Next audit available in ${COOLDOWN_HOURS()}h after next human commit.`,
+      `Next audit available in ${await COOLDOWN_HOURS()}h after next human commit.`,
     ].join('\n'), null, topicId), { label: 'auditOrchestrator' })
     return;
   }
@@ -477,25 +490,58 @@ async function handleBuildPassedAfterSentinelMerge(repoFullName: string, repoNam
 
 // ── APPROVAL TIMEOUT ──────────────────────────────────────────────────────────
 
+async function checkApprovalTimeout(cycleId: number, repoFullName: string, repoName: string, topicId: number | null): Promise<void> {
+  const { query } = dbClient;
+
+  // Atomic conditional UPDATE instead of SELECT-then-UPDATE: a separate
+  // SELECT + UPDATE has a TOCTOU window where a human approval between the
+  // two could flip the cycle's status, and this timeout would then
+  // overwrite that approval as 'skipped'. Guarding the UPDATE itself on
+  // status='awaiting_approval' means it only ever affects a cycle that is
+  // still genuinely pending when the write happens.
+  const r = await query(
+    `UPDATE audit_cycles SET status = 'skipped'
+     WHERE id = $1 AND status = 'awaiting_approval'
+     RETURNING id`,
+    [cycleId]
+  );
+  if (r.rows.length === 0) return;
+
+  // Notification failure is non-fatal — the state transition above already
+  // succeeded and must not be retried. A DB error above, by contrast, is
+  // deliberately NOT caught here: this runs inside a BullMQ job handler,
+  // and letting it throw lets BullMQ's own retry/backoff actually retry the
+  // state transition instead of silently leaving the cycle stuck forever.
+  await safeFire(sendTelegramMessage(
+    `Project Sentinel — Audit Expired ⏱️\n\nRepo: ${repoName}\nNo response in ${APPROVAL_TIMEOUT_H()}h.\nTasks remain in Notion as Queued.\n/sentinel audit ${repoName} to re-audit.`,
+    null,
+    topicId
+  ), { label: 'auditOrchestrator' })
+}
+
+// Persisted via BullMQ rather than a bare setTimeout — a bare 24h timer is
+// lost on process restart (which this system triggers on its own merges),
+// silently stranding the audit cycle in 'awaiting_approval' forever with no
+// expiry ever firing.
 function scheduleApprovalTimeout(cycleId: number, repoFullName: string, repoName: string, topicId: number | null): void {
-  setTimeout(async () => {
-    try {
-      const { query } = dbClient;
-      const r = await query(
-        'SELECT * FROM audit_cycles WHERE id=$1 AND status=$2',
-        [cycleId, 'awaiting_approval']
-      );
-      if (r.rows.length === 0) return;
-      await updateAuditCycle(cycleId, { status: 'skipped' });
-      await safeFire(sendTelegramMessage(
-        `Project Sentinel — Audit Expired ⏱️\n\nRepo: ${repoName}\nNo response in ${APPROVAL_TIMEOUT_H()}h.\nTasks remain in Notion as Queued.\n/sentinel audit ${repoName} to re-audit.`,
-        null,
-        topicId
-      ), { label: 'auditOrchestrator' })
-    } catch (err: any) {
-      logger.warn({ err: err.message }, 'Approval timeout handler error');
-    }
-  }, APPROVAL_TIMEOUT_H() * 60 * 60 * 1000);
+  enqueueScheduledJob(
+    AUDIT_APPROVAL_TIMEOUT_JOB,
+    { cycleId, repoFullName, repoName, topicId },
+    APPROVAL_TIMEOUT_H() * 60 * 60 * 1000,
+    `audit-approval-timeout:${cycleId}`
+  ).catch((err: any) => {
+    // Unlike a job handler failing (which BullMQ retries automatically),
+    // this call happens inline in triggerAudit — if it fails, no expiry
+    // timer for this cycle exists at all, silently, with nothing left to
+    // retry it. A full "recover and re-arm" workflow is out of scope here;
+    // at minimum, make the failure visible instead of a debug-only log line
+    // so a human knows this cycle has no automatic expiry.
+    logger.error({ err: err.message, cycleId }, 'Failed to schedule approval timeout — cycle has no automatic expiry');
+    fireAndForget(sendTelegramMessage(
+      `⚠️ Project Sentinel — could not schedule the approval timeout for ${repoName} (cycle ${cycleId}). This audit will not auto-expire; approve or skip it manually.`,
+      null, topicId
+    ), { label: 'auditOrchestrator' });
+  });
 }
 
 export = {
@@ -503,5 +549,6 @@ export = {
   executeApprovedTasks,
   processNextBatch,
   handleBuildPassedAfterSentinelMerge,
+  checkApprovalTimeout,
 };
 

@@ -7,6 +7,7 @@ import axios from 'axios';
 import simpleGit from 'simple-git';
 import logger from './logger';
 import { sendTelegramMessage } from './telegramClient';
+import { markIssuesPatchPending } from './securityDb';
 
 const SENSITIVE_PATHS: string[] = [
   'auth','middleware','stripe','paypal','payout',
@@ -14,6 +15,7 @@ const SENSITIVE_PATHS: string[] = [
 ];
 
 interface SecurityIssue {
+  id: number;
   auto_fixable: boolean;
   issue_type: string;
   severity: string;
@@ -121,6 +123,10 @@ async function applySecurityPatches(repoFullName: string, repoName: string, issu
       ``,
       prUrl || 'PR created on GitHub',
     ].join('\n'), null, topicId), { label: 'securityPatcher' })
+
+    if (prUrl) {
+      await markIssuesPatchPending(autoFixable.map(i => i.id), prUrl, branchName);
+    }
 
     logger.info({ repoFullName, branchName, prUrl }, 'Security patch PR created');
 

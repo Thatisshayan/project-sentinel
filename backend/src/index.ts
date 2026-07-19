@@ -23,7 +23,7 @@ import { initSecuritySchema } from './securityDb';
 import { initConversationSchema } from './conversationMemory';
 import { initSettingsSchema } from './settingsDb';
 import { initSelfScaler } from './selfScaler';
-import { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAgentCleanupWorker } from './workers';
+import { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startAgentCleanupWorker, startScheduledJobsWorker } from './workers';
 import { registerDeadLetterEnqueuer } from './utils/safeFire';
 import { enqueueDeadLetter } from './queueClient';
 import { handleCommand, handleCallbackQuery } from './telegramCommands';
@@ -406,6 +406,7 @@ app.listen(PORT, () => {
     startDailyReportWorker();
     startSprintWorker();
     startAgentCleanupWorker();
+    startScheduledJobsWorker();
     logger.info('Workers started');
     registerDeadLetterEnqueuer(enqueueDeadLetter);
     logger.info('Dead-letter enqueuer registered');

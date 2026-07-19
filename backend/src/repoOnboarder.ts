@@ -13,19 +13,24 @@ async function onboardRepo(repoName: string): Promise<void> {
   logger.info({ repoName }, 'New repo detected — onboarding');
 
   const notionClient = require('./notionClient') as any;
+  let notionPageId: string | null = null;
   if (typeof notionClient.createNotionProject === 'function') {
-    await notionClient.createNotionProject({
-      repoName, priority: 'medium', builderAgent: 'qwen_coder', healthScore: 0,
-    }).catch((err: any) => logger.warn({ err: err.message, repoName }, 'Notion row creation failed'));
+    notionPageId = await notionClient.createNotionProject({
+      repoName, priority: 'medium', builderAgent: 'qwen_coder',
+    }).catch((err: any) => {
+      logger.warn({ err: err.message, repoName }, 'Notion row creation failed');
+      return null;
+    });
   } else {
     logger.warn({ repoName }, 'createNotionProject not available — add repo row to Notion manually');
   }
 
-  await registerWebhook(repoName).catch((err: any) =>
-    logger.warn({ err: err.message, repoName }, 'Webhook registration failed — register manually in GitHub')
-  );
+  const webhookRegistered = await registerWebhook(repoName).then(() => true).catch((err: any) => {
+    logger.warn({ err: err.message, repoName }, 'Webhook registration failed — register manually in GitHub');
+    return false;
+  });
 
-  await triggerAudit({
+  const auditTriggered = await triggerAudit({
     repoFullName:  repoFullName(repoName),
     repoName,
     projectName:   repoName,
@@ -35,17 +40,25 @@ async function onboardRepo(repoName: string): Promise<void> {
     authorName:    'Sentinel',
     authorEmail:   '',
     topicId:       null,
-  }).catch((err: any) => logger.warn({ err: err.message, repoName }, 'First audit failed'));
+  }).then((result: any) => {
+    if (!result.started) {
+      logger.warn({ repoName, reason: result.reason }, 'First audit did not start');
+    }
+    return result.started;
+  }).catch((err: any) => {
+    logger.warn({ err: err.message, repoName }, 'First audit failed');
+    return false;
+  });
 
   await sendTelegramMessage([
     `🆕 New repo onboarded: ${repoName}`,
-    `Notion row created ✅`,
-    `GitHub webhook registered ✅`,
-    `First audit triggered ✅`,
+    `Notion row created ${notionPageId ? '✅' : '❌ — add manually'}`,
+    `GitHub webhook registered ${webhookRegistered ? '✅' : '❌ — register manually'}`,
+    `First audit triggered ${auditTriggered ? '✅' : '❌ — see logs'}`,
     `Sentinel is now monitoring ${repoName}.`,
   ].join('\n'), null, null);
 
-  logger.info({ repoName }, 'Repo onboarding complete');
+  logger.info({ repoName, notionPageId, webhookRegistered, auditTriggered }, 'Repo onboarding complete');
 }
 
 async function checkAndOnboardNewRepos(): Promise<void> {

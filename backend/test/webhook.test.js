@@ -12,6 +12,11 @@ jest.mock('../src/notionClient', () => ({
 
 jest.mock('../src/dbClient', () => ({
   query: jest.fn().mockResolvedValue({ rows: [] }),
+  resolveDebugAttemptByPr: jest.fn().mockResolvedValue(null),
+}));
+
+jest.mock('../src/securityDb', () => ({
+  resolveIssuesByPr: jest.fn().mockResolvedValue(0),
 }));
 
 jest.mock('../src/auditTaskWriter', () => ({
@@ -39,6 +44,7 @@ jest.mock('../src/portfolioDb', () => ({
 jest.mock('../src/deduplication', () => ({
   isAlreadyProcessed: jest.fn().mockResolvedValue(false),
   markAsProcessed:    jest.fn().mockResolvedValue(undefined),
+  unmarkProcessed:    jest.fn().mockResolvedValue(undefined),
 }));
 
 const crypto    = require('crypto');
@@ -50,7 +56,8 @@ const { findNotionProject,
         updateNotionProject }           = require('../src/notionClient');
 const { sendTelegramMessage }           = require('../src/telegramClient');
 const { isAlreadyProcessed,
-        markAsProcessed }               = require('../src/deduplication');
+        markAsProcessed,
+        unmarkProcessed }               = require('../src/deduplication');
 const { upsertRepoMetrics }             = require('../src/portfolioDb');
 
 const app = express();
@@ -208,10 +215,94 @@ describe('POST /webhook/github', () => {
     expect(msg).toContain('❌');
     expect(msg).toContain('Notion update failed');
   });
+
+  test('releases the processed-claim when Notion update fails — a webhook redelivery must be able to retry', async () => {
+    // Claimed immediately (before Notion) to close the redelivery race
+    // window, then released on this specific failure path — net effect is
+    // still "not processed," just via claim+release instead of never-claim.
+    updateNotionProject.mockRejectedValue(new Error('Notion API 500'));
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(payload))
+      .send(payload);
+    await wait(200);
+    expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(unmarkProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+  });
+
+  test('DOES leave the commit marked as processed when Notion update succeeds (regression guard against re-breaking dedup)', async () => {
+    updateNotionProject.mockResolvedValue(undefined);
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(payload))
+      .send(payload);
+    await wait(200);
+    expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(unmarkProcessed).not.toHaveBeenCalled();
+  });
+
+  test('DOES leave the commit marked as processed for an unknown-repo push, so the warning is not resent on every redelivery', async () => {
+    findNotionProject.mockResolvedValue(null);
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(payload))
+      .send(payload);
+    await wait(200);
+    expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(unmarkProcessed).not.toHaveBeenCalled();
+  });
+
+  test('releases the processed-claim when the Notion search itself throws', async () => {
+    findNotionProject.mockRejectedValue(new Error('Notion API 500'));
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(payload))
+      .send(payload);
+    await wait(200);
+    expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(unmarkProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+  });
+
+  test('does NOT release the claim for a permanent Notion error (bad auth) — a redelivery retry cannot fix that anyway', async () => {
+    const permanentErr = new Error('API token is invalid.');
+    permanentErr.code = 'unauthorized';
+    findNotionProject.mockRejectedValue(permanentErr);
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(payload))
+      .send(payload);
+    await wait(200);
+    expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(unmarkProcessed).not.toHaveBeenCalled();
+  });
+
+  test('claims the commit as processed before the Notion search runs — closes the redelivery race window', async () => {
+    // The whole point of today's fix: a near-simultaneous redelivery arriving
+    // while the first request is still awaiting Notion must see the claim
+    // already in place, not slip through and reprocess everything twice.
+    // Verified via call order (not a mid-flight timing race, which proved
+    // flaky in this test environment) — deterministic regardless of how
+    // long the Notion call actually takes.
+    const callOrder = [];
+    markAsProcessed.mockImplementation(async () => { callOrder.push('markAsProcessed'); });
+    findNotionProject.mockImplementation(async () => {
+      callOrder.push('findNotionProject');
+      return { pageId: 'page-abc-123', projectName: 'TapCash', url: 'https://notion.so/tapcash' };
+    });
+
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(payload))
+      .send(payload);
+    await wait(200);
+
+    expect(callOrder).toEqual(['markAsProcessed', 'findNotionProject']);
+  });
 });
 
 describe('PR event handling (pull_request webhook)', () => {
-  const { query } = require('../src/dbClient');
+  const { query, resolveDebugAttemptByPr } = require('../src/dbClient');
+  const { resolveIssuesByPr } = require('../src/securityDb');
 
   const prPayload = {
     action: 'closed',
@@ -273,5 +364,97 @@ describe('PR event handling (pull_request webhook)', () => {
     const calls = sendTelegramMessage.mock.calls;
     expect(calls.length).toBeGreaterThan(0);
     expect(calls[calls.length - 1][0]).toContain('PR Rejected');
+  });
+
+  test('resolves security issues when a sentinel/security-patch- PR merges', async () => {
+    resolveIssuesByPr.mockClear();
+    query.mockResolvedValue({ rows: [] });
+    const securityPatchPR = {
+      ...prPayload,
+      pull_request: {
+        ...prPayload.pull_request,
+        head: { ref: 'sentinel/security-patch-1234567890' },
+        html_url: 'https://github.com/your-org/tapcash/pull/99',
+      },
+    };
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(securityPatchPR))
+      .set('x-github-event', 'pull_request')
+      .send(securityPatchPR);
+    await waitLong();
+    expect(resolveIssuesByPr).toHaveBeenCalledWith(
+      'your-org/tapcash',
+      'https://github.com/your-org/tapcash/pull/99'
+    );
+  });
+
+  test('does NOT try to resolve security issues for a non-security-patch sentinel branch', async () => {
+    resolveIssuesByPr.mockClear();
+    query.mockResolvedValue({ rows: [] });
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(prPayload))
+      .set('x-github-event', 'pull_request')
+      .send(prPayload);
+    await waitLong();
+    expect(resolveIssuesByPr).not.toHaveBeenCalled();
+  });
+
+  test('resolves a debug attempt when a sentinel/fix- PR merges', async () => {
+    resolveDebugAttemptByPr.mockClear();
+    query.mockResolvedValue({ rows: [] });
+    const debugFixPR = {
+      ...prPayload,
+      pull_request: {
+        ...prPayload.pull_request,
+        head: { ref: 'sentinel/fix-1-1234567890' },
+        html_url: 'https://github.com/your-org/tapcash/pull/100',
+      },
+    };
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(debugFixPR))
+      .set('x-github-event', 'pull_request')
+      .send(debugFixPR);
+    await waitLong();
+    expect(resolveDebugAttemptByPr).toHaveBeenCalledWith(
+      'your-org/tapcash',
+      'https://github.com/your-org/tapcash/pull/100'
+    );
+  });
+
+  test('does NOT try to resolve a debug attempt for a non-fix sentinel branch', async () => {
+    resolveDebugAttemptByPr.mockClear();
+    query.mockResolvedValue({ rows: [] });
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(prPayload))
+      .set('x-github-event', 'pull_request')
+      .send(prPayload);
+    await waitLong();
+    expect(resolveDebugAttemptByPr).not.toHaveBeenCalled();
+  });
+
+  test('does not attempt security/debug resolution when the PR is closed without merging, even on matching branches', async () => {
+    resolveIssuesByPr.mockClear();
+    resolveDebugAttemptByPr.mockClear();
+    query.mockResolvedValue({ rows: [] });
+    const rejectedSecurityPatch = {
+      ...prPayload,
+      pull_request: {
+        ...prPayload.pull_request,
+        merged: false,
+        head: { ref: 'sentinel/security-patch-1234567890' },
+      },
+    };
+    await request(app)
+      .post('/webhook/github')
+      .set('x-hub-signature-256', sign(rejectedSecurityPatch))
+      .set('x-github-event', 'pull_request')
+      .send(rejectedSecurityPatch);
+    await waitLong();
+    expect(resolveIssuesByPr).not.toHaveBeenCalled();
+    expect(resolveDebugAttemptByPr).not.toHaveBeenCalled();
   });
 });

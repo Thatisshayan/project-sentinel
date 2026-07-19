@@ -1,13 +1,18 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
-import { getDegradedComponents, recordComponentFailure, recordComponentSuccess } from './selfAuditDb';
+import { getDegradedComponents, recordComponentFailure, recordComponentSuccess, tryClaimSelfHealerAlert } from './selfAuditDb';
 import { sendTelegramMessage } from './telegramClient';
+
+const ALERT_COOLDOWN_MS = 5 * 60 * 1000;
 
 async function checkAndHeal(): Promise<void> {
   const degraded = await getDegradedComponents();
   if (degraded.length === 0) return;
 
   logger.warn({ count: degraded.length }, 'Degraded components detected');
+
+  const shouldAlert = await tryClaimSelfHealerAlert(ALERT_COOLDOWN_MS);
+  if (!shouldAlert) return;
 
   const lines = degraded.map((c: any) =>
     `· ${c.component_name}: ${c.failure_count} failures — ${(c.last_error || '').substring(0, 80)}`

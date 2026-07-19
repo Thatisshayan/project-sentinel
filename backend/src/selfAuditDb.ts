@@ -68,6 +68,22 @@ async function initSelfAuditSchema(): Promise<void> {
       ON component_health (component_name);
   `);
 
+  // Single-row table tracking the last portfolio-wide self-healing alert —
+  // backs a durable cooldown that survives process restarts, unlike an
+  // in-memory timestamp.
+  await query(`
+    CREATE TABLE IF NOT EXISTS self_healer_alert_state (
+      id             INTEGER PRIMARY KEY DEFAULT 1,
+      last_alert_at  TIMESTAMPTZ,
+      CONSTRAINT self_healer_alert_state_singleton CHECK (id = 1)
+    );
+  `);
+  await query(`
+    INSERT INTO self_healer_alert_state (id, last_alert_at)
+    VALUES (1, NULL)
+    ON CONFLICT (id) DO NOTHING
+  `);
+
   logger.info('Self-audit schema initialised');
 }
 
@@ -145,6 +161,24 @@ async function recordComponentSuccess(componentName: string): Promise<void> {
   `, [componentName]);
 }
 
+/**
+ * Atomically claims the self-healing alert slot if the cooldown has
+ * elapsed (or no alert has ever been sent), returning true if the caller
+ * should send the alert. Backed by Postgres so the cooldown survives a
+ * process restart — a bare in-memory timestamp resets to 0 on every
+ * redeploy, defeating the point of a cooldown.
+ */
+async function tryClaimSelfHealerAlert(cooldownMs: number): Promise<boolean> {
+  const r = await query(`
+    UPDATE self_healer_alert_state
+    SET last_alert_at = NOW()
+    WHERE id = 1
+      AND (last_alert_at IS NULL OR last_alert_at < NOW() - ($1 || ' milliseconds')::INTERVAL)
+    RETURNING id
+  `, [cooldownMs]);
+  return r.rows.length > 0;
+}
+
 async function getDegradedComponents(): Promise<any[]> {
   const r = await query(`
     SELECT * FROM component_health
@@ -185,6 +219,7 @@ export = {
   recordComponentFailure,
   recordComponentSuccess,
   getDegradedComponents,
+  tryClaimSelfHealerAlert,
   createSelfAuditCycle,
   updateSelfAuditCycle,
 };

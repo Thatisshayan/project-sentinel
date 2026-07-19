@@ -61,8 +61,16 @@ function resolveRepoName(input: string): any {
 function pickSpeakingAgent(messageText: string): string {
   const t = messageText.toLowerCase();
   if (/\b(code|fix|build|pr|implement|function|bug|error)\b/.test(t)) return 'qwen_coder';
-  if (/\b(audit|analy|review|secur|score|report)\b/.test(t))           return 'nvidia';
-  if (/\b(debug|fail|broke|crash|log)\b/.test(t))                      return 'gemini';
+  // Prefix (stem) matching is intentional only for analy/secur/debug/fail —
+  // full words like "analyze"/"analysis"/"security"/"debugging"/"failed"
+  // continue past a trailing \b, so it can't be used there (see regression
+  // test in telegramAI.pickSpeakingAgent.test.ts). The other terms in each
+  // group (audit/review/score/report, broke/crash/log) are already complete
+  // words with no such continuation problem, so they keep \b on both sides
+  // to avoid over-matching unrelated words like "reporter"/"scorecard"/
+  // "reviewable"/"crashpad".
+  if (/\b(audit|analy\w*|review|secur\w*|score|report)\b/.test(t))     return 'nvidia';
+  if (/\b(debug\w*|fail\w*|broke|crash|log)\b/.test(t))                return 'gemini';
   if (/\b(fast|quick|simple|check|status)\b/.test(t))                  return 'deepseek';
   return 'nvidia'; // Nemotron is the default speaker
 }
@@ -525,7 +533,7 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
             title:             action.title,
             description:       action.description || action.title,
             priority:          action.priority || 'medium',
-            estimatedComplexity: 'medium',
+            complexity:        'medium',
             affectedFiles:     [],
             acceptanceCriteria: `Complete: ${action.title}`,
             safeToAutoExecute: false,
@@ -560,5 +568,5 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
   }
 }
 
-export = { handleMessage };
+export = { handleMessage, pickSpeakingAgent, __test__executeAction: executeAction };
 

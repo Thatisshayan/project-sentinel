@@ -199,6 +199,23 @@ async function stopDebugAttempts(repoFullName: string): Promise<void> {
   );
 }
 
+/**
+ * Marks a debug attempt genuinely resolved once its fix PR is confirmed
+ * merged (called from the PR-merged webhook handler). This is the real
+ * terminal "fixed" state — 'fix_pending' only means a PR was opened, not
+ * that it was ever merged.
+ */
+async function resolveDebugAttemptByPr(repoFullName: string, prUrl: string): Promise<any | null> {
+  const r = await query(
+    `UPDATE debug_attempts
+     SET status = 'resolved', updated_at = NOW()
+     WHERE repo_full_name = $1 AND fix_pr_url = $2 AND status = 'fix_pending'
+     RETURNING *`,
+    [repoFullName, prUrl]
+  );
+  return r.rows[0] || null;
+}
+
 export = {
   query,
   initSchema,
@@ -207,6 +224,7 @@ export = {
   incrementAttempt,
   updateDebugAttempt,
   stopDebugAttempts,
+  resolveDebugAttemptByPr,
   resolveSslConfig,
 };
 

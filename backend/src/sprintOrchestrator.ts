@@ -11,6 +11,10 @@ import {
 } from './sprintDb';
 import { updateAuditTask } from './auditDb';
 import { updateNotionTaskStatus } from './auditTaskWriter';
+import { enqueueScheduledJob } from './queueClient';
+import { SPRINT_CONTINUE_JOB } from './workers/scheduledJobsWorker';
+
+const SPRINT_CONTINUE_DELAY_MS = 10000;
 
 // ── Approve ───────────────────────────────────────────────────────────────────
 
@@ -128,15 +132,20 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
 
     // Sync with audit task if this sprint task was created from an audit task
     if (task.audit_task_id) {
-      await updateAuditTask(task.audit_task_id, {
+      const updatedAuditTask = await updateAuditTask(task.audit_task_id, {
         status: 'build_check',
         branch_name: batchResult.taskBranch,
         commit_sha: batchResult.commitSha,
         commit_url: batchResult.commitUrl,
         pr_url: prUrl,
         pr_number: prUrl ? parseInt(prUrl.split('/').pop() as string) : null,
-      }).catch((err: any) => logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task'));
-      await safeFire(updateNotionTaskStatus(task.audit_task_id, 'build_check', { prUrl, commitUrl: batchResult.commitUrl }), { label: 'sprintOrchestrator', retryable: true })
+      }).catch((err: any) => {
+        logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task');
+        return null;
+      });
+      if (updatedAuditTask?.notion_page_id) {
+        await safeFire(updateNotionTaskStatus(updatedAuditTask.notion_page_id, 'build_check', { prUrl, commitUrl: batchResult.commitUrl }), { label: 'sprintOrchestrator', retryable: true })
+      }
     }
 
     const freshSprint = await getSprintById(sprintId);
@@ -154,12 +163,38 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
       `${sprint.total_tasks - task.execution_order} tasks remaining this sprint.`,
     ].filter(Boolean).join('\n'), null, topicId), { label: 'sprintOrchestrator' })
 
-    // Continue to next task after a brief pause
-    setTimeout(() => {
-      executeNextSprintTask(sprintId, topicId).catch((err: any) =>
-        logger.error({ err: err.stack ?? err.message }, 'Sprint continuation failed')
-      );
-    }, 10000);
+    // Continue to next task after a brief pause. Persisted via BullMQ rather
+    // than a bare setTimeout — a bare timer is lost on process restart
+    // (which this system triggers on its own PR merges), silently stranding
+    // the sprint in 'executing' with remaining tasks that never run.
+    //
+    // jobId MUST be unique per scheduling attempt, not per sprint: BullMQ's
+    // add() with a jobId that already exists (even completed) returns the
+    // existing job instead of creating a new delayed one. A jobId keyed only
+    // on sprintId would let the very first continuation schedule correctly,
+    // then silently no-op on every task after that — the sprint would stall
+    // after task 2. Keying on the just-completed task's id keeps each
+    // scheduling attempt distinct while still being deterministic/traceable.
+    // Caught (not thrown) deliberately: this function can itself be invoked
+    // as a BullMQ job handler for a prior SPRINT_CONTINUE_JOB, and letting an
+    // enqueue failure propagate would make BullMQ retry the whole function
+    // from the top — re-fetching the "next" task and re-sending the
+    // "task done" notification a second time, neither of which is
+    // idempotent. A full recovery workflow is out of scope here; at
+    // minimum, make the failure visible so a human knows the sprint has
+    // silently stalled instead of a debug-only log line.
+    await enqueueScheduledJob(
+      SPRINT_CONTINUE_JOB,
+      { sprintId, topicId },
+      SPRINT_CONTINUE_DELAY_MS,
+      `sprint-continue:${sprintId}:${task.id}`
+    ).catch((err: any) => {
+      logger.error({ err: err.message, sprintId, taskId: task.id }, 'Failed to schedule sprint continuation — sprint has stalled');
+      return fireAndForget(sendTelegramMessage(
+        `⚠️ Project Sentinel — could not schedule the next sprint task (sprint ${sprintId}). Run /sentinel run-sprint to resume manually.`,
+        null, topicId
+      ), { label: 'sprintOrchestrator' });
+    });
 
   } else {
     const reason = batchResult.reason || 'Unknown failure';
