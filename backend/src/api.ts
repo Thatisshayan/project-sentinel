@@ -387,24 +387,26 @@ router.post('/repo/:name/audit', async (req: any, res: any) => {
   }
 });
 
-router.post('/system/audit-all', async (req: any, res: any) => {
+router.post('/system/audit-all', (req: any, res: any) => {
   const { REPO_LIST }   = require('./portfolioAnalytics');
   const { triggerAudit } = require('./auditOrchestrator');
   const { getDefaultBranch } = require('./repoDiscovery');
   res.json({ ok: true, queued: REPO_LIST.length });
   for (const repo of REPO_LIST) {
-    const branchName = await getDefaultBranch(repo.repoFullName).catch(() => 'main');
-    triggerAudit({
-      repoFullName:  repo.repoFullName,
-      repoName:      repo.repoName,
-      projectName:   repo.repoName,
-      commitSha:     `manual-${Date.now()}`,
-      commitMessage: '[bulk-audit]',
-      branchName,
-      authorName:    'Dashboard',
-      authorEmail:   '',
-      topicId:       null,
-    }).catch((err: any) => logger.warn({ err: err.message, repo: repo.repoName }, 'Bulk audit item failed'));
+    getDefaultBranch(repo.repoFullName)
+      .catch(() => 'main')
+      .then((branchName: string) => triggerAudit({
+        repoFullName:  repo.repoFullName,
+        repoName:      repo.repoName,
+        projectName:   repo.repoName,
+        commitSha:     `manual-${Date.now()}`,
+        commitMessage: '[bulk-audit]',
+        branchName,
+        authorName:    'Dashboard',
+        authorEmail:   '',
+        topicId:       null,
+      }))
+      .catch((err: any) => logger.warn({ err: err.message, repo: repo.repoName }, 'Bulk audit item failed'));
   }
 });
 
