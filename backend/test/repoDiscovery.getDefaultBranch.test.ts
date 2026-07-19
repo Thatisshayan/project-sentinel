@@ -20,9 +20,19 @@ import { getDefaultBranch } from '../src/repoDiscovery';
  * live via a failed audit on a repo using a different default branch).
  */
 describe('repoDiscovery.getDefaultBranch', () => {
+  const originalGithubToken = process.env['GITHUB_TOKEN'];
+
   beforeEach(() => {
     jest.clearAllMocks();
     process.env['GITHUB_TOKEN'] = 'tok';
+  });
+
+  afterEach(() => {
+    if (originalGithubToken === undefined) {
+      delete process.env['GITHUB_TOKEN'];
+    } else {
+      process.env['GITHUB_TOKEN'] = originalGithubToken;
+    }
   });
 
   it('returns the repo\'s actual default branch on success', async () => {
