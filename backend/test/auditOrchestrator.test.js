@@ -36,6 +36,7 @@ jest.mock('../src/auditDb', () => ({
   updateAuditCycle:        jest.fn().mockResolvedValue(undefined),
   getActiveCycleForRepo:   jest.fn(),
   getLastCompletedAudit:   jest.fn().mockResolvedValue(null),
+  getPreviousHealthScore: jest.fn().mockResolvedValue(null),
   getQueuedTaskCount:      jest.fn().mockResolvedValue(0),
   getNextBatch:            jest.fn().mockResolvedValue([]),
   updateAuditTask:         jest.fn().mockResolvedValue(undefined),
@@ -76,7 +77,7 @@ const { sendTelegramMessage }            = require('../src/telegramClient');
 const { sendMenu }                       = require('../src/telegramMenus');
 const {
   createAuditCycle, updateAuditCycle,
-  getActiveCycleForRepo, getLastCompletedAudit,
+  getActiveCycleForRepo, getLastCompletedAudit, getPreviousHealthScore,
   getQueuedTaskCount, getNextBatch,
   countTasksExecutedToday, markTasksDoneForBranch,
 } = require('../src/auditDb');
@@ -98,9 +99,9 @@ const auditResult = {
   overallHealthScore: 7,
   auditSummary: 'Looks decent overall.',
   tasks: [
-    { taskNumber: 1, title: 'Fix lint', priority: 'low', safeToAutoExecute: true },
-    { taskNumber: 2, title: 'Add tests', priority: 'medium', safeToAutoExecute: true },
-    { taskNumber: 3, title: 'Refactor auth', priority: 'high', safeToAutoExecute: false },
+    { taskNumber: 1, title: 'Fix lint', priority: 'low', category: 'code-quality', safeToAutoExecute: true },
+    { taskNumber: 2, title: 'Add tests', priority: 'medium', category: 'testing', safeToAutoExecute: true },
+    { taskNumber: 3, title: 'Refactor auth', priority: 'high', category: 'security', safeToAutoExecute: false, safetyReason: 'Touches authentication logic' },
   ],
 };
 
@@ -108,6 +109,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   getActiveCycleForRepo.mockResolvedValue(null);
   getLastCompletedAudit.mockResolvedValue(null);
+  getPreviousHealthScore.mockResolvedValue(null);
   getQueuedTaskCount.mockResolvedValue(0);
   countTasksExecutedToday.mockResolvedValue(0);
   getNextBatch.mockResolvedValue([]);
@@ -196,6 +198,38 @@ describe('triggerAudit — happy path', () => {
       tasks_safe: 2,
     }));
     expect(sendMenu).toHaveBeenCalled();
+  });
+
+  test('audit report includes priority breakdown, per-task category, lock reasons, and health trend', async () => {
+    getPreviousHealthScore.mockResolvedValue(5);
+
+    await triggerAudit(basePayload);
+
+    const auditText = sendMenu.mock.calls[0][2];
+    expect(auditText).toContain('7/10 (↑ +2 vs last audit)');
+    expect(auditText).toContain('🟠 1 high  ·  🟡 1 medium  ·  🟢 1 low');
+    expect(auditText).toContain('[code-quality] Fix lint');
+    expect(auditText).toContain('[security] Refactor auth');
+    expect(auditText).toContain('🔒 Touches authentication logic');
+  });
+
+  test('omits the health trend line entirely when there is no previous audit to compare against', async () => {
+    getPreviousHealthScore.mockResolvedValue(null);
+
+    await triggerAudit(basePayload);
+
+    const auditText = sendMenu.mock.calls[0][2];
+    expect(auditText).toContain('Health Score: 7/10');
+    expect(auditText).not.toContain('vs last audit');
+  });
+
+  test('shows a downward trend arrow when health score dropped since the last audit', async () => {
+    getPreviousHealthScore.mockResolvedValue(9);
+
+    await triggerAudit(basePayload);
+
+    const auditText = sendMenu.mock.calls[0][2];
+    expect(auditText).toContain('7/10 (↓ -2 vs last audit)');
   });
 
   test('marks cycle failed and notifies when runAudit throws', async () => {

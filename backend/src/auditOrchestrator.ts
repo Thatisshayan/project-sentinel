@@ -8,7 +8,7 @@ import { sendTelegramMessage } from './telegramClient';
 import { findNotionProject } from './notionClient';
 import {
   createAuditCycle, updateAuditCycle,
-  getActiveCycleForRepo, getLastCompletedAudit,
+  getActiveCycleForRepo, getLastCompletedAudit, getPreviousHealthScore,
   getQueuedTaskCount, getNextBatch,
   updateAuditTask, countTasksExecutedToday,
   stopAllTasksForRepo, markTasksDoneForBranch,
@@ -213,9 +213,36 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
   });
 
   const EMOJI: Record<string, string> = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' };
-  const taskLines = auditResult.tasks.map((t: any) =>
-    `${t.taskNumber}. ${EMOJI[t.priority]||'⚪'} ${t.title}${t.safeToAutoExecute?'':' 🔒'}`
-  ).join('\n');
+
+  // Priority breakdown — at-a-glance severity mix, not just a raw total.
+  const priorityCounts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+  for (const t of auditResult.tasks) priorityCounts[t.priority] = (priorityCounts[t.priority] || 0) + 1;
+  const priorityBreakdown = (['critical', 'high', 'medium', 'low'] as const)
+    .filter(p => (priorityCounts[p] ?? 0) > 0)
+    .map(p => `${EMOJI[p]} ${priorityCounts[p]} ${p}`)
+    .join('  ·  ');
+
+  // Health trend vs. the last audit for this repo — an absolute "6/10" tells
+  // you nothing about direction; the delta does.
+  const previousHealthScore = await getPreviousHealthScore(repoFullName, cycle.id).catch(() => null);
+  const healthTrend = previousHealthScore == null
+    ? ''
+    : (() => {
+        const delta = auditResult.overallHealthScore - previousHealthScore;
+        const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+        return ` (${arrow} ${delta > 0 ? '+' : ''}${delta} vs last audit)`;
+      })();
+
+  // Each task gets its category and, for locked (needs-review) tasks, the
+  // safety reason the audit gave — that's the exact information a human
+  // needs to actually decide whether to approve, not just "this one's
+  // locked" with no context.
+  const taskLines = auditResult.tasks.map((t: any) => {
+    const lockNote = t.safeToAutoExecute
+      ? ''
+      : `\n   🔒 ${t.safetyReason || 'flagged for manual review'}`;
+    return `${t.taskNumber}. ${EMOJI[t.priority] || '⚪'} [${t.category || 'general'}] ${t.title}${lockNote}`;
+  }).join('\n');
 
   const failNote = writeResult.failed.length  > 0
     ? `\n⚠️ ${writeResult.failed.length} task(s) failed to write to Notion` : '';
@@ -228,12 +255,12 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
     `Project: ${projectName || repoName}`,
     `Repo: ${repoName}`,
     `Commit: ${commitSha.substring(0, 7)}`,
-    `Health Score: ${auditResult.overallHealthScore}/10`,
+    `Health Score: ${auditResult.overallHealthScore}/10${healthTrend}`,
     `Builder: ${builderConfig.label}`,
     ``,
     auditResult.auditSummary,
     ``,
-    `${totalCount} tasks generated:`,
+    `${totalCount} tasks generated${priorityBreakdown ? ` (${priorityBreakdown})` : ''}:`,
     taskLines,
     ``,
     `🔓 Safe to auto-execute: ${safeCount} (${batchCount} batch${batchCount!==1?'es':''} of ${BATCH_SIZE()})`,

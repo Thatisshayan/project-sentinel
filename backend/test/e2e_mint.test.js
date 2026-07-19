@@ -87,6 +87,7 @@ jest.mock('../src/auditDb', () => ({
   updateAuditCycle:        jest.fn().mockResolvedValue(undefined),
   getActiveCycleForRepo:   jest.fn(),
   getLastCompletedAudit:   jest.fn().mockResolvedValue(null),
+  getPreviousHealthScore: jest.fn().mockResolvedValue(null),
   getQueuedTaskCount:      jest.fn().mockResolvedValue(0),
   getNextBatch:            jest.fn().mockResolvedValue([]),
   updateAuditTask:         jest.fn().mockResolvedValue(undefined),
