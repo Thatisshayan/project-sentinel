@@ -89,8 +89,6 @@ async function healthCheck(req: Request, res: Response): Promise<void> {
     health['auditCycles'] = 'error';
   }
 
-  health['dryRunMode'] = false;
-
   // Always return 200 - container is healthy if Express is running
   // Service dependencies reported in response but don't fail healthcheck
   res.status(200).json(health);

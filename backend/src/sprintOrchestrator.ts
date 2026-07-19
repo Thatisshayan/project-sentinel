@@ -128,15 +128,20 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
 
     // Sync with audit task if this sprint task was created from an audit task
     if (task.audit_task_id) {
-      await updateAuditTask(task.audit_task_id, {
+      const updatedAuditTask = await updateAuditTask(task.audit_task_id, {
         status: 'build_check',
         branch_name: batchResult.taskBranch,
         commit_sha: batchResult.commitSha,
         commit_url: batchResult.commitUrl,
         pr_url: prUrl,
         pr_number: prUrl ? parseInt(prUrl.split('/').pop() as string) : null,
-      }).catch((err: any) => logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task'));
-      await safeFire(updateNotionTaskStatus(task.audit_task_id, 'build_check', { prUrl, commitUrl: batchResult.commitUrl }), { label: 'sprintOrchestrator', retryable: true })
+      }).catch((err: any) => {
+        logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task');
+        return null;
+      });
+      if (updatedAuditTask?.notion_page_id) {
+        await safeFire(updateNotionTaskStatus(updatedAuditTask.notion_page_id, 'build_check', { prUrl, commitUrl: batchResult.commitUrl }), { label: 'sprintOrchestrator', retryable: true })
+      }
     }
 
     const freshSprint = await getSprintById(sprintId);

@@ -211,7 +211,7 @@ async function installDependencies(repoPath: string): Promise<void> {
 }
 
 async function runAiderForTask(repoPath: string, task: any, context: any, builderConfig: any): Promise<any> {
-  installDependencies(repoPath);
+  await installDependencies(repoPath);
 
   // Resolve affected_files against the actual repo layout BEFORE building the
   // message so the resolved paths appear in "Relevant files:" — otherwise the

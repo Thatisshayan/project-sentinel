@@ -61,8 +61,8 @@ function resolveRepoName(input: string): any {
 function pickSpeakingAgent(messageText: string): string {
   const t = messageText.toLowerCase();
   if (/\b(code|fix|build|pr|implement|function|bug|error)\b/.test(t)) return 'qwen_coder';
-  if (/\b(audit|analy|review|secur|score|report)\b/.test(t))           return 'nvidia';
-  if (/\b(debug|fail|broke|crash|log)\b/.test(t))                      return 'gemini';
+  if (/\b(audit|analy|review|secur|score|report)/.test(t))             return 'nvidia';
+  if (/\b(debug|fail|broke|crash|log)/.test(t))                        return 'gemini';
   if (/\b(fast|quick|simple|check|status)\b/.test(t))                  return 'deepseek';
   return 'nvidia'; // Nemotron is the default speaker
 }
@@ -560,5 +560,5 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
   }
 }
 
-export = { handleMessage };
+export = { handleMessage, pickSpeakingAgent };
 

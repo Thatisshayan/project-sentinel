@@ -326,7 +326,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
       ``,
       `Repo: ${repoName}`,
       `Unsafe tasks remain in Notion for manual review.`,
-      `Next audit available in ${COOLDOWN_HOURS()}h after next human commit.`,
+      `Next audit available in ${await COOLDOWN_HOURS()}h after next human commit.`,
     ].join('\n'), null, topicId), { label: 'auditOrchestrator' })
     return;
   }

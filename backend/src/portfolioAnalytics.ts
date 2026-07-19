@@ -74,8 +74,11 @@ async function getRepoStats(repoFullName: string, repoName: string): Promise<any
   if (totalBuilds > 0) {
     buildStatus = failedBuilds === 0 ? 'passing' : 'failed';
   } else if (latestStatus === 'resolved') {
+    // Debug attempt's fix PR is confirmed merged — build is actually fixed.
     buildStatus = 'passing';
   } else if (latestStatus && latestStatus !== 'stopped') {
+    // Covers 'fix_pending' too: a fix PR being open isn't the same as merged —
+    // the repo's main branch is still red until the merge webhook confirms it.
     buildStatus = 'failed';
   }
 

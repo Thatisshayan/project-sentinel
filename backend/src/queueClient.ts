@@ -41,6 +41,7 @@ function getRedisConnection(): IORedis | null {
 let buildPollQueue: Queue | null = null;
 let debugQueue: Queue | null = null;
 let deadLetterQueue: Queue | null = null;
+let scheduledJobsQueue: Queue | null = null;
 
 function getBuildPollQueue(): Queue | null {
   const conn = getRedisConnection();
@@ -115,6 +116,50 @@ async function enqueueDeadLetter(task: string, payload: unknown): Promise<any> {
   });
 }
 
+/**
+ * Long-delay (hours-to-days) scheduled work — auto-approve windows, PR impact
+ * checks, etc. Backed by a BullMQ delayed job, which persists in Redis and is
+ * picked up by whichever worker process is running when the delay elapses —
+ * unlike a bare setTimeout, this survives the Railway redeploys this system
+ * triggers on its own merges.
+ */
+function getScheduledJobsQueue(): Queue | null {
+  const conn = getRedisConnection();
+  if (!conn) {
+    return null;
+  }
+  if (!scheduledJobsQueue) {
+    scheduledJobsQueue = new Queue('scheduled-jobs', {
+      connection: conn,
+      defaultJobOptions: {
+        attempts:    3,
+        backoff:     { type: 'exponential', delay: 60000 },
+        removeOnComplete: { count: 200 },
+        removeOnFail:     { count: 200 },
+      },
+    });
+  }
+  return scheduledJobsQueue;
+}
+
+async function enqueueScheduledJob(jobType: string, data: any, delayMs: number, jobId?: string): Promise<any> {
+  const queue = getScheduledJobsQueue();
+  if (!queue) {
+    logger.warn({ jobType }, 'REDIS_URL not configured — scheduled job dropped, not queued');
+    return null;
+  }
+  return queue.add(jobType, data, { delay: delayMs, ...(jobId ? { jobId } : {}) });
+}
+
+async function cancelScheduledJob(jobId: string): Promise<boolean> {
+  const queue = getScheduledJobsQueue();
+  if (!queue) return false;
+  const job = await queue.getJob(jobId);
+  if (!job) return false;
+  await job.remove();
+  return true;
+}
+
 async function enqueueBuildCheck(data: any): Promise<any> {
   const jobId = `build-check:${data.repoFullName}:${data.commitSha}`;
 
@@ -163,9 +208,12 @@ export = {
   getBuildPollQueue,
   getDebugQueue,
   getDeadLetterQueue,
+  getScheduledJobsQueue,
   enqueueBuildQueue: enqueueBuildCheck,
   enqueueBuildCheck,
   enqueueDebug,
   enqueueDeadLetter,
+  enqueueScheduledJob,
+  cancelScheduledJob,
 };
 

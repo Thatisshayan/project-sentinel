@@ -35,7 +35,6 @@ export async function processWebhook(payload: any): Promise<void> {
     logger.info({ repoName, commitSha: commitSha.substring(0, 7) }, 'Duplicate — skipping');
     return;
   }
-  await markAsProcessed(repoName, commitSha);
 
   let notionProject: any;
   try {
@@ -51,6 +50,7 @@ export async function processWebhook(payload: any): Promise<void> {
 
   if (!notionProject) {
     logger.warn({ repoName }, 'No matching Notion project');
+    await markAsProcessed(repoName, commitSha);
     await safeFire(sendTelegramMessage(buildUnknownRepoMessage(data), repoName), { label: 'webhook' })
     return;
   }
@@ -73,6 +73,8 @@ export async function processWebhook(payload: any): Promise<void> {
     ), { label: 'webhook' })
     return;
   }
+
+  await markAsProcessed(repoName, commitSha);
 
   let changelogAppended = false;
   try {

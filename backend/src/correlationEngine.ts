@@ -3,6 +3,8 @@ import logger from './logger';
 import { getLatestMetrics, recordPRImpact, updatePRImpact } from './businessDb';
 import { sendTelegramMessage } from './telegramClient';
 import dbClient from './dbClient';
+import { enqueueScheduledJob } from './queueClient';
+import { PR_IMPACT_CHECK_JOB } from './workers/scheduledJobsWorker';
 
 async function snapshotBeforeMerge(repoFullName: string, prNumber: string | number, prUrl: string): Promise<any> {
   const repoName = repoFullName.split('/')[1] || '';
@@ -20,9 +22,12 @@ async function snapshotBeforeMerge(repoFullName: string, prNumber: string | numb
   });
 
   if (impactId) {
-    setTimeout(async () => {
-      await checkPostMergeImpact(impactId, repoName);
-    }, 48 * 60 * 60 * 1000);
+    await enqueueScheduledJob(
+      PR_IMPACT_CHECK_JOB,
+      { impactId, repoName },
+      48 * 60 * 60 * 1000,
+      `pr-impact-check:${impactId}`
+    );
 
     logger.info({ repoFullName, prNumber, impactId }, 'PR impact tracking started');
   }

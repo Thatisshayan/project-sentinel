@@ -235,7 +235,8 @@ router.post('/command', async (req: any, res: any) => {
 
 router.get('/agent-room/messages', async (req: any, res: any) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit || '50'), 200);
+    const parsedLimit = parseInt(req.query.limit || '50', 10);
+    const limit = Math.min(Number.isFinite(parsedLimit) ? parsedLimit : 50, 200);
     const r = await query(`
       SELECT id, agent_id, agent_label, message, message_type, repo_name, created_at
       FROM agent_messages

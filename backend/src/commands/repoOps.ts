@@ -384,8 +384,17 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       return true;
     }
     case 'security-approve': {
+      if (!parts[2]) {
+        await sendTelegramMessage('Usage: /sentinel security-approve <repo>', null, topicId);
+        return true;
+      }
+      const { resolveAllOpenIssues } = require('../securityDb') as { resolveAllOpenIssues: (repo: string) => Promise<number> };
+      const count = await resolveAllOpenIssues(repoFullName(parts[2])).catch((err: any) => {
+        logger.warn({ err: err.message, repo: parts[2] }, 'resolveAllOpenIssues failed');
+        return 0;
+      });
       await sendTelegramMessage(
-        `Security approval for ${parts[2] || 'repo'} noted.\nReview and merge the open PR on GitHub.`,
+        `Security approval for ${parts[2]} noted — ${count} open issue(s) marked resolved.\nMake sure the fix is actually merged on GitHub.`,
         null, topicId
       );
       return true;
@@ -394,9 +403,9 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       const { query: dbq } = require('../dbClient') as { query: (...args: any[]) => Promise<any> };
       const [seen, allMetrics] = await Promise.all([
         dbq(`
-          SELECT repo_name, MAX(processed_at) as last_seen, COUNT(*) as events
-          FROM processed_commits
-          WHERE processed_at > NOW() - INTERVAL '7 days'
+          SELECT repo_name, MAX(last_commit_at) as last_seen, COUNT(*) as events
+          FROM portfolio_metrics
+          WHERE last_commit_at > NOW() - INTERVAL '7 days'
           GROUP BY repo_name
           ORDER BY last_seen DESC
           LIMIT 20
