@@ -367,14 +367,17 @@ router.post('/repo/:name/audit', async (req: any, res: any) => {
   res.json({ ok: true, message: `Audit queued for ${req.params.name}` });
   try {
     const { triggerAudit } = require('./auditOrchestrator');
+    const { getDefaultBranch } = require('./repoDiscovery');
     const name = req.params.name;
+    const fullName = repoFullName(name);
+    const branchName = await getDefaultBranch(fullName);
     triggerAudit({
-      repoFullName:  repoFullName(name),
+      repoFullName:  fullName,
       repoName:      name,
       projectName:   name,
       commitSha:     `manual-${Date.now()}`,
       commitMessage: '[manual-audit]',
-      branchName:    'main',
+      branchName,
       authorName:    'Dashboard',
       authorEmail:   '',
       topicId:       null,
@@ -387,20 +390,23 @@ router.post('/repo/:name/audit', async (req: any, res: any) => {
 router.post('/system/audit-all', (req: any, res: any) => {
   const { REPO_LIST }   = require('./portfolioAnalytics');
   const { triggerAudit } = require('./auditOrchestrator');
-  const { repoFullName: resolverFullName } = require('./repoResolver');
+  const { getDefaultBranch } = require('./repoDiscovery');
   res.json({ ok: true, queued: REPO_LIST.length });
   for (const repo of REPO_LIST) {
-    triggerAudit({
-      repoFullName:  repo.repoFullName,
-      repoName:      repo.repoName,
-      projectName:   repo.repoName,
-      commitSha:     `manual-${Date.now()}`,
-      commitMessage: '[bulk-audit]',
-      branchName:    'main',
-      authorName:    'Dashboard',
-      authorEmail:   '',
-      topicId:       null,
-    }).catch((err: any) => logger.warn({ err: err.message, repo: repo.repoName }, 'Bulk audit item failed'));
+    getDefaultBranch(repo.repoFullName)
+      .catch(() => 'main')
+      .then((branchName: string) => triggerAudit({
+        repoFullName:  repo.repoFullName,
+        repoName:      repo.repoName,
+        projectName:   repo.repoName,
+        commitSha:     `manual-${Date.now()}`,
+        commitMessage: '[bulk-audit]',
+        branchName,
+        authorName:    'Dashboard',
+        authorEmail:   '',
+        topicId:       null,
+      }))
+      .catch((err: any) => logger.warn({ err: err.message, repo: repo.repoName }, 'Bulk audit item failed'));
   }
 });
 

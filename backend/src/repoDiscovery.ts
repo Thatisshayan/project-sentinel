@@ -110,5 +110,20 @@ async function getFullRepoList(): Promise<Array<{ repoName: string; repoFullName
   return [...REPO_LIST, ...dynamic.filter((r: any) => !known.has(r.repoName))];
 }
 
-export = { discoverAndOnboardRepos, getFullRepoList, listAllOwnedRepos };
+async function getDefaultBranch(repoFullName: string): Promise<string> {
+  const token = process.env['GITHUB_TOKEN'];
+  if (!token) return 'main';
+  try {
+    const res = await axios.get(`https://api.github.com/repos/${repoFullName}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+      timeout: 10000,
+    });
+    return res.data?.default_branch || 'main';
+  } catch (err: any) {
+    logger.warn({ err: err.message, repoFullName }, 'Could not resolve default branch — falling back to main');
+    return 'main';
+  }
+}
+
+export = { discoverAndOnboardRepos, getFullRepoList, listAllOwnedRepos, getDefaultBranch };
 
