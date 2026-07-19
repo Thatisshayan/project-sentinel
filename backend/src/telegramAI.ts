@@ -525,7 +525,7 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
             title:             action.title,
             description:       action.description || action.title,
             priority:          action.priority || 'medium',
-            estimatedComplexity: 'medium',
+            complexity:        'medium',
             affectedFiles:     [],
             acceptanceCriteria: `Complete: ${action.title}`,
             safeToAutoExecute: false,
@@ -560,5 +560,5 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
   }
 }
 
-export = { handleMessage, pickSpeakingAgent };
+export = { handleMessage, pickSpeakingAgent, __test__executeAction: executeAction };
 

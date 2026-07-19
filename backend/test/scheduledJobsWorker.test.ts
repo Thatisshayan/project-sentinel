@@ -14,8 +14,10 @@ jest.mock('../src/telegramClient', () => ({
 }));
 
 const approveSprintMock = jest.fn().mockResolvedValue(undefined);
+const executeNextSprintTaskMock = jest.fn().mockResolvedValue(undefined);
 jest.mock('../src/sprintOrchestrator', () => ({
   approveSprint: (...a: any[]) => approveSprintMock(...a),
+  executeNextSprintTask: (...a: any[]) => executeNextSprintTaskMock(...a),
 }));
 
 const checkPostMergeImpactMock = jest.fn().mockResolvedValue(undefined);
@@ -23,7 +25,12 @@ jest.mock('../src/correlationEngine', () => ({
   checkPostMergeImpact: (...a: any[]) => checkPostMergeImpactMock(...a),
 }));
 
-import { processScheduledJob, AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB } from '../src/workers/scheduledJobsWorker';
+const checkApprovalTimeoutMock = jest.fn().mockResolvedValue(undefined);
+jest.mock('../src/auditOrchestrator', () => ({
+  checkApprovalTimeout: (...a: any[]) => checkApprovalTimeoutMock(...a),
+}));
+
+import { processScheduledJob, AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB } from '../src/workers/scheduledJobsWorker';
 
 /**
  * NOTE on scope: these tests exercise processScheduledJob() directly with
@@ -87,6 +94,23 @@ describe('processScheduledJob', () => {
     it('delegates to correlationEngine.checkPostMergeImpact with the job data', async () => {
       await processScheduledJob({ name: PR_IMPACT_CHECK_JOB, data: { impactId: 'impact-1', repoName: 'tapcash' } });
       expect(checkPostMergeImpactMock).toHaveBeenCalledWith('impact-1', 'tapcash');
+    });
+  });
+
+  describe(SPRINT_CONTINUE_JOB, () => {
+    it('delegates to sprintOrchestrator.executeNextSprintTask with the job data — regression guard for the bare-setTimeout sprint-continuation bug', async () => {
+      await processScheduledJob({ name: SPRINT_CONTINUE_JOB, data: { sprintId: 42, topicId: 'topic-1' } });
+      expect(executeNextSprintTaskMock).toHaveBeenCalledWith(42, 'topic-1');
+    });
+  });
+
+  describe(AUDIT_APPROVAL_TIMEOUT_JOB, () => {
+    it('delegates to auditOrchestrator.checkApprovalTimeout with the job data — regression guard for the bare-setTimeout 24h approval-expiry bug', async () => {
+      await processScheduledJob({
+        name: AUDIT_APPROVAL_TIMEOUT_JOB,
+        data: { cycleId: 7, repoFullName: 'org/tapcash', repoName: 'tapcash', topicId: 'topic-1' },
+      });
+      expect(checkApprovalTimeoutMock).toHaveBeenCalledWith(7, 'org/tapcash', 'tapcash', 'topic-1');
     });
   });
 

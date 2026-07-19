@@ -19,6 +19,8 @@ import { trackModelCall } from './performanceTracker';
 import { isRepoLocked } from './repoLock';
 import { loadSettings } from './settingsLoader';
 import dbClient from './dbClient';
+import { enqueueScheduledJob } from './queueClient';
+import { AUDIT_APPROVAL_TIMEOUT_JOB } from './workers/scheduledJobsWorker';
 
 const AUDIT_ENABLED      = (): boolean => process.env['AUDIT_AGENT_ENABLED']   !== 'false';
 const BUILDER_ENABLED    = (): boolean => process.env['BUILDER_AGENT_ENABLED'] !== 'false';
@@ -477,25 +479,36 @@ async function handleBuildPassedAfterSentinelMerge(repoFullName: string, repoNam
 
 // ── APPROVAL TIMEOUT ──────────────────────────────────────────────────────────
 
+async function checkApprovalTimeout(cycleId: number, repoFullName: string, repoName: string, topicId: number | null): Promise<void> {
+  try {
+    const { query } = dbClient;
+    const r = await query(
+      'SELECT * FROM audit_cycles WHERE id=$1 AND status=$2',
+      [cycleId, 'awaiting_approval']
+    );
+    if (r.rows.length === 0) return;
+    await updateAuditCycle(cycleId, { status: 'skipped' });
+    await safeFire(sendTelegramMessage(
+      `Project Sentinel — Audit Expired ⏱️\n\nRepo: ${repoName}\nNo response in ${APPROVAL_TIMEOUT_H()}h.\nTasks remain in Notion as Queued.\n/sentinel audit ${repoName} to re-audit.`,
+      null,
+      topicId
+    ), { label: 'auditOrchestrator' })
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'Approval timeout handler error');
+  }
+}
+
+// Persisted via BullMQ rather than a bare setTimeout — a bare 24h timer is
+// lost on process restart (which this system triggers on its own merges),
+// silently stranding the audit cycle in 'awaiting_approval' forever with no
+// expiry ever firing.
 function scheduleApprovalTimeout(cycleId: number, repoFullName: string, repoName: string, topicId: number | null): void {
-  setTimeout(async () => {
-    try {
-      const { query } = dbClient;
-      const r = await query(
-        'SELECT * FROM audit_cycles WHERE id=$1 AND status=$2',
-        [cycleId, 'awaiting_approval']
-      );
-      if (r.rows.length === 0) return;
-      await updateAuditCycle(cycleId, { status: 'skipped' });
-      await safeFire(sendTelegramMessage(
-        `Project Sentinel — Audit Expired ⏱️\n\nRepo: ${repoName}\nNo response in ${APPROVAL_TIMEOUT_H()}h.\nTasks remain in Notion as Queued.\n/sentinel audit ${repoName} to re-audit.`,
-        null,
-        topicId
-      ), { label: 'auditOrchestrator' })
-    } catch (err: any) {
-      logger.warn({ err: err.message }, 'Approval timeout handler error');
-    }
-  }, APPROVAL_TIMEOUT_H() * 60 * 60 * 1000);
+  enqueueScheduledJob(
+    AUDIT_APPROVAL_TIMEOUT_JOB,
+    { cycleId, repoFullName, repoName, topicId },
+    APPROVAL_TIMEOUT_H() * 60 * 60 * 1000,
+    `audit-approval-timeout:${cycleId}`
+  ).catch((err: any) => logger.warn({ err: err.message, cycleId }, 'Failed to schedule approval timeout'));
 }
 
 export = {
@@ -503,5 +516,6 @@ export = {
   executeApprovedTasks,
   processNextBatch,
   handleBuildPassedAfterSentinelMerge,
+  checkApprovalTimeout,
 };
 

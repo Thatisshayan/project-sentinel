@@ -44,6 +44,7 @@ jest.mock('../src/auditTaskWriter', () => ({
 
 jest.mock('../src/queueClient', () => ({
   enqueueBuildCheck: jest.fn().mockResolvedValue(undefined),
+  enqueueScheduledJob: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('@notionhq/client', () => ({

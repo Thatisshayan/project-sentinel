@@ -233,9 +233,64 @@ async function updateBuilderAgent(pageId: string, agentId: string): Promise<void
   });
 }
 
+/**
+ * Creates a new project page in the Notion database for a newly-onboarded
+ * repo. repoOnboarder.ts feature-detects this function before calling it —
+ * previously it didn't exist at all, so every auto-onboarded repo silently
+ * got no Notion page while the operator was told "Notion row created ✅".
+ * Retries with only the identifying fields if the full property set fails
+ * (e.g. a 'Priority'/'Builder Agent' select option or property doesn't
+ * exist in this database) so the repo is still findable via
+ * findNotionProject() even when the richer fields can't be set.
+ */
+async function createNotionProject(data: { repoName: string; priority?: string; builderAgent?: string }): Promise<string | null> {
+  const { repoName, priority, builderAgent } = data;
+  const databaseId = DATABASE_ID();
+  if (!databaseId) {
+    logger.warn({ repoName }, 'NOTION_DATABASE_ID not set — cannot create Notion project');
+    return null;
+  }
+
+  const minimalProperties: Record<string, any> = {
+    'Name':      { title: [{ text: { content: repoName } }] },
+    'Repo Name': { rich_text: [{ text: { content: repoName } }] },
+  };
+  const fullProperties: Record<string, any> = { ...minimalProperties };
+  if (priority)     fullProperties['Priority']      = { select: { name: priority } };
+  if (builderAgent) fullProperties['Builder Agent'] = { select: { name: builderAgent } };
+
+  try {
+    const page: any = await getClient().pages.create({
+      parent:     { database_id: databaseId },
+      properties: fullProperties,
+    });
+    bustNotionCache();
+    logger.info({ repoName, pageId: page.id }, 'Notion project page created');
+    return page.id;
+  } catch (err: any) {
+    logger.warn({ err: err.message, repoName }, 'Full-property Notion page create failed — retrying with minimal fields');
+  }
+
+  try {
+    const page: any = await getClient().pages.create({
+      parent:     { database_id: databaseId },
+      properties: minimalProperties,
+    });
+    bustNotionCache();
+    logger.info({ repoName, pageId: page.id }, 'Notion project page created (minimal fields)');
+    return page.id;
+  } catch (err: any) {
+    logger.error({ err: err.message, repoName }, 'Notion project page creation failed entirely — add repo row manually');
+    return null;
+  }
+}
+
 function bustNotionCache(): void {
   notionPageCache.pages    = null;
   notionPageCache.cachedAt = 0;
 }
 
-export = { findNotionProject, updateNotionProject, appendChangelog, updateBuilderAgent, bustNotionCache };
+export = {
+  findNotionProject, updateNotionProject, appendChangelog,
+  updateBuilderAgent, createNotionProject, bustNotionCache,
+};

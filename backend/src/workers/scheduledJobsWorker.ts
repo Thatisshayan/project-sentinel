@@ -4,8 +4,10 @@ import { sendTelegramMessage } from '../telegramClient';
 import { approveSprint } from '../sprintOrchestrator';
 import logger from '../logger';
 
-const AUTO_APPROVE_JOB    = 'auto-approve-sprint';
-const PR_IMPACT_CHECK_JOB = 'pr-impact-check';
+const AUTO_APPROVE_JOB       = 'auto-approve-sprint';
+const PR_IMPACT_CHECK_JOB    = 'pr-impact-check';
+const SPRINT_CONTINUE_JOB    = 'sprint-continue';
+const AUDIT_APPROVAL_TIMEOUT_JOB = 'audit-approval-timeout';
 
 /**
  * The actual job-processing logic, factored out of the BullMQ Worker
@@ -47,6 +49,20 @@ async function processScheduledJob(job: any): Promise<void> {
     return;
   }
 
+  if (job.name === SPRINT_CONTINUE_JOB) {
+    const { sprintId, topicId } = job.data;
+    const { executeNextSprintTask } = require('../sprintOrchestrator');
+    await executeNextSprintTask(sprintId, topicId);
+    return;
+  }
+
+  if (job.name === AUDIT_APPROVAL_TIMEOUT_JOB) {
+    const { cycleId, repoFullName, repoName, topicId } = job.data;
+    const { checkApprovalTimeout } = require('../auditOrchestrator');
+    await checkApprovalTimeout(cycleId, repoFullName, repoName, topicId);
+    return;
+  }
+
   logger.warn({ jobName: job.name }, 'Unknown scheduled job type');
 }
 
@@ -70,4 +86,4 @@ export function startScheduledJobsWorker(): Worker | null {
   return worker;
 }
 
-export { AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, processScheduledJob };
+export { AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB, processScheduledJob };

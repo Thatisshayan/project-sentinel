@@ -11,6 +11,10 @@ import {
 } from './sprintDb';
 import { updateAuditTask } from './auditDb';
 import { updateNotionTaskStatus } from './auditTaskWriter';
+import { enqueueScheduledJob } from './queueClient';
+import { SPRINT_CONTINUE_JOB } from './workers/scheduledJobsWorker';
+
+const SPRINT_CONTINUE_DELAY_MS = 10000;
 
 // ── Approve ───────────────────────────────────────────────────────────────────
 
@@ -159,12 +163,16 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
       `${sprint.total_tasks - task.execution_order} tasks remaining this sprint.`,
     ].filter(Boolean).join('\n'), null, topicId), { label: 'sprintOrchestrator' })
 
-    // Continue to next task after a brief pause
-    setTimeout(() => {
-      executeNextSprintTask(sprintId, topicId).catch((err: any) =>
-        logger.error({ err: err.stack ?? err.message }, 'Sprint continuation failed')
-      );
-    }, 10000);
+    // Continue to next task after a brief pause. Persisted via BullMQ rather
+    // than a bare setTimeout — a bare timer is lost on process restart
+    // (which this system triggers on its own PR merges), silently stranding
+    // the sprint in 'executing' with remaining tasks that never run.
+    await enqueueScheduledJob(
+      SPRINT_CONTINUE_JOB,
+      { sprintId, topicId },
+      SPRINT_CONTINUE_DELAY_MS,
+      `sprint-continue:${sprintId}`
+    );
 
   } else {
     const reason = batchResult.reason || 'Unknown failure';
