@@ -12,6 +12,8 @@
 
 > ⚠️ **Phase 4 blocker (D-002):** No Docker daemon in this environment, so testcontainers-based integration tests cannot run. Coverage is being raised via **mocked unit tests** only. The 50%-line plan goal is **not reachable here**; current unit-test-only coverage ≈ 33% lines. Integration suite must run on a Docker-enabled runner.
 
+> ⚠️ **2026-07-19 bug-fix passes — read before trusting "done" status:** Two full-repo bug-hunt passes ran this date (see `ConfirmedBugs.md`, commits `f0a2173` and `db9fcd6`), fixing 15 real bugs total including several UI dashboard buttons that silently 403'd and multiple `setTimeout`-based schedulers that don't survive this app's own self-triggered redeploys. All fixes are backed by `tsc --noEmit` (clean) and mocked unit tests (256/256 passing) — **none of it was verified by actually running the backend against real Postgres/Redis or by clicking through the UI in a browser.** Treat "fixed" in that document as "fixed at the code/type level, not live-verified," and re-check before relying on it for anything user-facing.
+
 ## Phase Progress
 
 | Phase | Status | % Complete | Dependencies |
@@ -63,8 +65,8 @@
 - 3.2: SSL certificate validation (CA cert handling) ✅ commit `2a68f42`
   - `dbClient.ts` ssl config, `DATABASE_CA_CERT` in `.env.example`
 - 3.3: Rate limiting on API routes ✅ commit `b0838cd` (express-rate-limit, 100/min)
-- 3.4: Harden UI action proxy (path whitelist) ✅ commit `b0838cd`
-  - `ui/app/api/action/route.ts` ALLOWED_PATHS whitelist
+- 3.4: Harden UI action proxy (path whitelist) ✅ commit `b0838cd` — **correction 2026-07-19 (commit `db9fcd6`):** the original `ALLOWED_PATHS` literal-string `Set` was itself buggy — it couldn't match any dynamic route the UI calls (`/api/agents/:id/toggle`, `/api/repo/:name/audit`, `/api/security/issue/:id/patch`) and named some static routes differently than what the UI sends (`/api/telegram/command` vs. the real `/api/command`), while missing `/api/system/audit-all` and `/api/system/security-scan` outright. Every one of those dashboard buttons silently 403'd. Replaced with a regex allowlist verified against every `callAction()` call site in `ui/`. See `ConfirmedBugs.md` pass 2, bug 16.
+  - `ui/app/api/action/route.ts` ALLOWED_PATH_PATTERNS regex allowlist
 - 3.5: Scope environment for child processes ✅ commit `b0838cd`
   - New `src/utils/childEnv.ts` (buildChildEnv allowlist); wired into aiderRunner, claudeCodeRunner, claudeCodeAudit, builderRouter.getAiderEnv
 - 3.6: CSRF/origin check on all 5 UI proxy routes ✅ commit `b0838cd`

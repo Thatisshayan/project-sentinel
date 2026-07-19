@@ -198,27 +198,27 @@
 Plus one dead-code note (`errors/errorClasses.ts` — a full second, unused error taxonomy) and two minor input-validation gaps (`api.ts` unguarded `parseInt`, `dbClient.ts`'s `updateDebugAttempt` building column names from object keys — safe today, latent risk).
 
 No bugs were found in the other ~85 files — read in full, not skipped.
-- [ ] selfAuditor.ts
-- [ ] selfHealer.ts
-- [ ] selfScaler.ts
-- [ ] sentinelBrain.ts
-- [ ] settingsDb.ts
-- [ ] settingsLoader.ts
-- [ ] sprintDb.ts
-- [ ] sprintOrchestrator.ts
-- [ ] sprintPlanner.ts
-- [ ] telegramClient.ts
-- [ ] telegramMenus.ts
-- [ ] types/sentry-express.d.ts
-- [ ] types/tmp.d.ts
-- [ ] utils/childEnv.ts
-- [ ] utils/execAsync.ts
-- [ ] utils/safeFire.ts
-- [ ] utils/timingSafeCompare.ts
-- [ ] velocityTracker.ts
-- [ ] weeklyBusinessReport.ts
-- [ ] workers/agentCleanupWorker.ts
-- [ ] workers/dailyReportWorker.ts
-- [ ] workers/sprintWorker.ts
 
-**Status: IN PROGRESS — 19/106 files reviewed.** Not complete. Continuing below in this same session.
+*(The `- [ ] ...` tail and "IN PROGRESS — 19/106" line that used to follow here were leftover from an interrupted edit in the same session that produced the "COMPLETE — 106/106" line above — the file was self-contradictory. Removed 2026-07-19; the 106/106 COMPLETE status above is the accurate one, confirmed by the fixes and re-scan below.)*
+
+All 11 bugs above were fixed and committed 2026-07-19 (commit `f0a2173`), verified against 256 passing tests and a clean `tsc --noEmit`.
+
+---
+
+## Pass 2 — 2026-07-19: full re-read of backend/src + first-ever pass on ui/
+
+Same "read every line, don't skip" method, extended to the `ui/` Next.js dashboard, which Pass 1 never covered at all. Found 4 more real bugs (commit `db9fcd6`):
+
+12. **`sprintOrchestrator.ts` — sprint continuation used a bare `setTimeout`.** Same failure class as bug #6 above (which fixed `autoApprover.ts`/`correlationEngine.ts` but missed this one): a process restart mid-sprint permanently stranded it in `'executing'` with the remaining tasks never running. Fixed by moving to the same BullMQ scheduled-jobs queue.
+13. **`auditOrchestrator.ts` — the 24h audit-approval-timeout had the identical bare-`setTimeout` bug.** A redeploy inside that window left the audit cycle in `'awaiting_approval'` forever, expiry never firing. Same fix.
+14. **`notionClient.ts` / `repoOnboarder.ts` — `createNotionProject` was called but never existed.** `repoOnboarder.ts` feature-detects `notionClient.createNotionProject` before calling it; that function had never been implemented, so every auto-onboarded repo silently skipped Notion page creation while the operator was unconditionally told "Notion row created ✅" regardless. Implemented the function (with a minimal-fields retry if the full property set doesn't match the live Notion database's schema — **the actual property names were inferred from other code in the repo, not verified against a real Notion API call**, so this may still need adjustment against the real database). Made the onboarding summary message report per-step success/failure honestly instead of always claiming success.
+15. **`telegramAI.ts` — field-name mismatch silently nulled task complexity.** The natural-language `create_task` chat action called `createAuditTask({ estimatedComplexity: 'medium', ... })`, but `auditDb.createAuditTask` reads a field named `complexity`. Because the call goes through an untyped `require()`, `tsc` never caught the mismatch — every task created via chat got `complexity: NULL` in Postgres instead of `'medium'`.
+16. **`ui/app/api/action/route.ts` — the UI action-proxy allowlist blocked buttons that work on the backend.** This is `TODO.md`'s P2-15 ("dashboard buttons call non-existent backend routes") — except the backend routes DO exist; the real bug was the proxy's literal-string `Set` allowlist, which (a) can't match dynamic routes at all (`/api/agents/:id/toggle`, `/api/repo/:name/audit`, `/api/security/issue/:id/patch`) and (b) listed some static paths under names the UI never actually calls (`/api/telegram/command`, which no UI code calls, instead of the real `/api/command`), while omitting `/api/system/audit-all` and `/api/system/security-scan` entirely. Net effect: **Audit All, Run Security Scan, Self-Audit, pause-sprint, per-repo audit, per-agent toggle, and security-patch all silently 403'd** in the dashboard. Replaced the Set with a regex allowlist covering every route the UI actually calls (verified by grepping every `callAction(...)` call site in `ui/`).
+
+**Verification for pass 2:** `npm test` (backend) → 34 suites / 256 tests passing; `npx tsc --noEmit` clean for both `backend/` and `ui/`. Regression tests added for bugs 12, 13, 14, 15.
+
+**What was NOT verified (be aware before treating this as "proven working end-to-end"):**
+- Nothing in this repo was actually run — no backend boot against real Postgres/Redis, no `next dev` + browser click-through of the dashboard. All verification was `tsc --noEmit` + unit tests against mocked dependencies.
+- The BullMQ scheduled-job persistence-across-restart behavior (bugs #6, 12, 13) is BullMQ's documented behavior, not something exercised against a real Redis in this environment.
+- `createNotionProject`'s property names (bug 14) are inferred from patterns elsewhere in the code, not confirmed against the real Notion database schema.
+- Generic/presentational UI files (shadcn primitives in `ui/components/ui/*`, `ui/lib/data.ts`, `ui/lib/types.ts`, `ui/lib/toast.ts`, `ui/lib/utils.ts`, and the `app/*/page.tsx` route files beyond what was needed to trace bug 16) were not individually line-audited — lower risk (little/no business logic) but not confirmed clean the way the rest of this document's coverage was.
