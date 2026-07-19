@@ -269,18 +269,32 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
     notionProject ? `\nNotion: ${notionProject.url}` : '',
   ].filter(l => l !== null).join('\n');
 
+  // Telegram's real message length limit is 4096 chars. sendMenu() (used
+  // below for the inline-button path) swallows its own axios errors
+  // internally and never throws — so an oversized message wouldn't just
+  // fail loudly, it would silently no-op with only a warn-level log, and
+  // the try/catch fallback to sendTelegramMessage here would never fire
+  // (nothing was thrown to catch). Truncating up front, the same way
+  // sendTelegramMessage's own fallback already does, means this can't
+  // silently swallow the whole report on a repo with many tasks/long
+  // safety reasons.
+  const TELEGRAM_MAX_LENGTH = 4096;
+  const safeAuditText = auditText.length > TELEGRAM_MAX_LENGTH
+    ? auditText.substring(0, TELEGRAM_MAX_LENGTH - 30) + '\n\n[message truncated]'
+    : auditText;
+
   // Send with inline approval buttons
   try {
     const { sendMenu } = require('./telegramMenus');
     const chatId = process.env['TELEGRAM_CHAT_ID'];
-    await sendMenu(chatId, topicId, auditText, [
+    await sendMenu(chatId, topicId, safeAuditText, [
       [
         { text: `✅ Execute ${safeCount} safe tasks`, callback_data: `execute:${repoName}` },
         { text: `⏭ Skip`,                            callback_data: `skip:${repoName}`    },
       ],
     ]);
   } catch {
-    await safeFire(sendTelegramMessage(auditText, null, topicId), { label: 'auditOrchestrator' })
+    await safeFire(sendTelegramMessage(safeAuditText, null, topicId), { label: 'auditOrchestrator' })
   }
 
   scheduleApprovalTimeout(cycle.id, repoFullName, repoName, topicId);
