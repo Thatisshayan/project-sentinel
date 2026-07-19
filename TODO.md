@@ -60,6 +60,7 @@
 | 3.4 | Harden UI action proxy (path whitelist, CSRF, origin validation) | HIGH | ✅ Done — **correction 2026-07-19:** the original whitelist (commit `b0838cd`) was a literal-string `Set` that blocked several routes the UI itself calls (couldn't match dynamic `:id`/`:name` segments at all, and named some static routes wrong). Fixed 2026-07-19 (commit `db9fcd6`) with a regex allowlist verified against every `callAction()` call site in `ui/`. See P2-15. |
 | 3.5 | Scope environment for child processes (don't spread entire process.env) | MEDIUM | ✅ Done |
 | 3.6 | Add origin/CSRF check to all 5 UI proxy routes | MEDIUM | ✅ Done |
+| 3.7 | Allowlist `dbClient.ts`'s `updateDebugAttempt` dynamic column names (SQL-injection-shaped footgun, flagged but not fixed in the original `ConfirmedBugs.md` scan) | MEDIUM | ✅ Done 2026-07-19 (PR #34, commit `8eefe60`) — explicit column allowlist added; non-allowlisted keys are dropped and logged as an error instead of reaching SQL. See `ConfirmedBugs.md` bug 29. |
 
 ---
 
@@ -115,6 +116,9 @@
 | 7.6 | Accessibility improvements (aria-labels, semantic HTML, color contrast, form labels) | LOW | ⏳ Pending |
 | 7.7 | Backend Dockerfile hardening (multi-stage, pinned digest, .dockerignore) | MEDIUM | ⏳ Pending |
 | 7.8 | Railway config consistency (UI → Dockerfile, healthcheckPath, normalized casing) | LOW | ⏳ Pending |
+| 7.9 | Alert on stale `awaiting_approval`/`executing` audit cycles before their timeout fires (e.g. daily digest: "N pending, oldest is X days old") | MEDIUM | ⏳ Pending — recommended 2026-07-19 after 13 such cycles (9 days to 1+ month old) were found stuck in production and had to be manually cleared. See `ConfirmedBugs.md` Ops log. |
+| 7.10 | Add Slack as a second notification/command destination alongside Telegram | LOW | ⏳ Pending — discussed 2026-07-19; the notification layer is already isolated behind `telegramClient.ts`, so this is a parallel `slackClient.ts` module, not an architecture change. |
+| 7.11 | Audit whether other Vercel projects in this account have the same "auto-deploys, nobody wired the env vars" gap as `project-sentinel` did | LOW | ⏳ Pending — recommended 2026-07-19 after finding `project-sentinel`'s Vercel deployment silently non-functional (zero env vars, disconnected 2026-07-19). |
 
 ---
 
