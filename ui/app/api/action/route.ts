@@ -1,4 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimitMiddleware } from "@/lib/rateLimit";
+
+// Rate limit configuration
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 60; // max 60 requests per minute
+
+// Rate limit store (in-memory, resets on container restart)
+type RateLimitStore = Map<string, { count: number; resetTime: number }>;
+const rateLimitStore: RateLimitStore = new Map();
+
+function getRateLimitKey(req: NextRequest): string {
+  // Use x-forwarded-for header for production, fall back to socket IP
+  const forwardedFor = req.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    return forwardedFor.split(",")[0].trim();
+  }
+  // In production, this would be the Cloudflare/Railway proxy IP
+  // For Railway deployments, we rely on x-forwarded-for
+  return "unknown";
+}
+
+function checkRateLimit(req: NextRequest): { allowed: boolean; remaining: number; resetAt: number } {
+  const key = getRateLimitKey(req);
+  const now = Date.now();
+  let clientData = rateLimitStore.get(key);
+
+  if (!clientData || now > clientData.resetTime) {
+    // New window
+    clientData = { count: 0, resetTime: now + RATE_LIMIT_WINDOW_MS };
+    rateLimitStore.set(key, clientData);
+  }
+
+  clientData.count++;
+  
+  const allowed = clientData.count <= RATE_LIMIT_MAX_REQUESTS;
+  const remaining = Math.max(0, RATE_LIMIT_MAX_REQUESTS - clientData.count);
+  const resetAt = clientData.resetTime;
+
+  return { allowed, remaining, resetAt };
+}
+
+// Clean up expired entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, data] of rateLimitStore.entries()) {
+    if (now > data.resetTime) {
+      rateLimitStore.delete(ip);
+    }
+  }
+}, 5 * 60 * 1000);
 
 // Only these backend paths may be reached through the universal action proxy.
 // Prevents an attacker from pivoting the proxy to arbitrary backend routes.
@@ -51,6 +101,21 @@ function isValidOrigin(req: NextRequest): boolean {
 
 // Universal proxy — client sends { path, body } → we forward to backend with secret key
 export async function POST(req: NextRequest) {
+  const rateLimit = checkRateLimit(req);
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ 
+      error: "Rate limit exceeded", 
+      retryAfter: Math.ceil((rateLimit.resetAt - Date.now()) / 1000)
+    }, { 
+      status: 429,
+      headers: {
+        "X-RateLimit-Remaining": "0",
+        "X-RateLimit-Reset": rateLimit.resetAt.toString(),
+        "Retry-After": Math.ceil((rateLimit.resetAt - Date.now()) / 1000).toString()
+      }
+    });
+  }
+
   const base = process.env.SENTINEL_API_URL;
   const key = process.env.SENTINEL_UI_KEY;
   if (!base) return NextResponse.json({ error: "No API URL configured" }, { status: 503 });
@@ -73,11 +138,18 @@ export async function POST(req: NextRequest) {
       headers: {
         "Content-Type": "application/json",
         ...(key ? { "x-sentinel-key": key } : {}),
+        "X-RateLimit-Remaining": rateLimit.remaining.toString(),
       },
       body: JSON.stringify(body ?? {}),
     });
     const data = await r.json().catch(() => ({}));
-    return NextResponse.json(data, { status: r.status });
+    return NextResponse.json(data, { 
+      status: r.status,
+      headers: {
+        "X-RateLimit-Remaining": rateLimit.remaining.toString(),
+        "X-RateLimit-Reset": rateLimit.resetAt.toString(),
+      }
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 502 });
   }

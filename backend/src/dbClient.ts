@@ -28,14 +28,17 @@ function isRailwayInternalHost(databaseUrl: string): boolean {
   }
 }
 
-function resolveSslConfig(): boolean | { ca?: string; rejectUnauthorized: boolean } {
-  if (process.env['NODE_ENV'] !== 'production') return false;
+function resolveSslConfig(): { ca?: string; rejectUnauthorized: boolean } {
+  if (process.env['NODE_ENV'] !== 'production') return { rejectUnauthorized: false };
 
   const isRailwayInternal = isRailwayInternalHost(process.env['DATABASE_URL'] || '');
   const caCert = process.env['DATABASE_CA_CERT'];
 
   if (caCert) return { ca: caCert, rejectUnauthorized: true };
-  if (isRailwayInternal) return { rejectUnauthorized: false };
+  
+  // Always enable TLS - Railway's internal network is secure but TLS provides defense-in-depth
+  // For Railway internal, use Railway's managed certs with strict verification
+  // For external connections, require strict verification
   return { rejectUnauthorized: true };
 }
 

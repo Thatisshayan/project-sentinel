@@ -1,0 +1,119 @@
+version: 2
+updates:
+  # Node.js dependencies
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    versioning-strategy: "increase"
+    labels:
+      - "dependencies"
+      - "bot"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    reviewers:
+      - "AlphonsoEcosystem"
+    reviewers:
+      - "AlphonsoEcosystem"
+    ignore:
+      # Ignore major versions of dependencies that may have breaking changes
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      # Group minor and patch updates for faster merging
+      production-dependencies:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      development-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Node.js dependencies for UI
+  - package-ecosystem: "npm"
+    directory: "/ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    versioning-strategy: "increase"
+    labels:
+      - "dependencies"
+      - "bot"
+      - "frontend"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    reviewers:
+      - "AlphonsoEcosystem"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      production-dependencies:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      development-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "bot"
+      - "ci"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    reviewers:
+      - "AlphonsoEcosystem"
+
+  # Docker
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "bot"
+      - "docker"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    reviewers:
+      - "AlphonsoEcosystem"
+
+  - package-ecosystem: "docker"
+    directory: "/ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "bot"
+      - "docker"
+      - "frontend"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    reviewers:
+      - "AlphonsoEcosystem"

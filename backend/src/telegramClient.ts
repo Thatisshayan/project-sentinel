@@ -1,6 +1,7 @@
 import https from 'https';
 import logger from './logger';
 import { loadSettings } from './settingsLoader';
+import { retryWithBackoff } from './retry';
 
 const MAX_LENGTH = 4096;
 
@@ -34,7 +35,12 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
-async function sendTelegramMessage(text: string, repoName: string | null, explicitTopicId?: number | null, forceSend: boolean = false): Promise<any> {
+async function sendTelegramMessage(
+  text: string,
+  repoName: string | null,
+  explicitTopicId?: number | null,
+  forceSend: boolean = false
+): Promise<any> {
   const BOT_TOKEN = process.env['TELEGRAM_BOT_TOKEN'];
   const CHAT_ID   = process.env['TELEGRAM_CHAT_ID'];
 
@@ -79,46 +85,50 @@ async function sendTelegramMessage(text: string, repoName: string | null, explic
 
   const bodyJson = JSON.stringify(body);
 
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'api.telegram.org',
-      path:     `/bot${BOT_TOKEN}/sendMessage`,
-      method:   'POST',
-      headers:  {
-        'Content-Type':   'application/json',
-        'Content-Length': Buffer.byteLength(bodyJson),
-      },
-    };
+  // Retry up to 3 times with exponential backoff on transient failures
+  return retryWithBackoff(
+    () => new Promise((resolve, reject) => {
+      const options = {
+        hostname: 'api.telegram.org',
+        path:     `/bot${BOT_TOKEN}/sendMessage`,
+        method:   'POST',
+        headers:  {
+          'Content-Type':   'application/json',
+          'Content-Length': Buffer.byteLength(bodyJson),
+        },
+      };
 
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data',  (chunk: any) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          if (!parsed.ok) {
-            logger.error({ code: parsed.error_code, desc: parsed.description },
-              'Telegram API returned error');
-            reject(new Error(`Telegram: ${parsed.description}`));
-          } else {
-            resolve(parsed);
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data',  (chunk: any) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            if (!parsed.ok) {
+              logger.error({ code: parsed.error_code, desc: parsed.description },
+                'Telegram API returned error');
+              reject(new Error(`Telegram: ${parsed.description}`));
+            } else {
+              resolve(parsed);
+            }
+          } catch (e) {
+            reject(e);
           }
-        } catch (e) {
-          reject(e);
-        }
+        });
       });
-    });
 
-    req.on('error', reject);
+      req.on('error', reject);
 
-    req.setTimeout(10000, () => {
-      req.destroy();
-      reject(new Error('Telegram request timed out after 10s'));
-    });
+      req.setTimeout(10000, () => {
+        req.destroy();
+        reject(new Error('Telegram request timed out after 10s'));
+      });
 
-    req.write(bodyJson);
-    req.end();
-  });
+      req.write(bodyJson);
+      req.end();
+    }),
+    { maxRetries: 3, baseDelay: 1000 }
+  );
 }
 
 // Registers Telegram's native "/" command menu
@@ -138,44 +148,48 @@ async function registerBotCommands(): Promise<void> {
 
   const bodyJson = JSON.stringify({ commands });
 
-  return new Promise((resolve) => {
-    const options = {
-      hostname: 'api.telegram.org',
-      path:     `/bot${BOT_TOKEN}/setMyCommands`,
-      method:   'POST',
-      headers:  {
-        'Content-Type':   'application/json',
-        'Content-Length': Buffer.byteLength(bodyJson),
-      },
-    };
+  // Retry up to 2 times with exponential backoff
+  await retryWithBackoff(
+    () => new Promise((resolve) => {
+      const options = {
+        hostname: 'api.telegram.org',
+        path:     `/bot${BOT_TOKEN}/setMyCommands`,
+        method:   'POST',
+        headers:  {
+          'Content-Type':   'application/json',
+          'Content-Length': Buffer.byteLength(bodyJson),
+        },
+      };
 
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk: any) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          if (!parsed.ok) {
-            logger.warn({ desc: parsed.description }, 'setMyCommands failed');
-          } else {
-            logger.info('Telegram bot command menu registered');
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk: any) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            if (!parsed.ok) {
+              logger.warn({ desc: parsed.description }, 'setMyCommands failed');
+            } else {
+              logger.info('Telegram bot command menu registered');
+            }
+          } catch (e: any) {
+            logger.warn({ err: e.message }, 'setMyCommands response parse failed');
           }
-        } catch (e: any) {
-          logger.warn({ err: e.message }, 'setMyCommands response parse failed');
-        }
+          resolve();
+        });
+      });
+
+      req.on('error', (err: any) => {
+        logger.warn({ err: err.message }, 'setMyCommands request failed');
         resolve();
       });
-    });
 
-    req.on('error', (err: any) => {
-      logger.warn({ err: err.message }, 'setMyCommands request failed');
-      resolve();
-    });
-
-    req.setTimeout(10000, () => { req.destroy(); resolve(); });
-    req.write(bodyJson);
-    req.end();
-  });
+      req.setTimeout(10000, () => { req.destroy(); resolve(); });
+      req.write(bodyJson);
+      req.end();
+    }),
+    { maxRetries: 2, baseDelay: 500 }
+  );
 }
 
 export = { sendTelegramMessage, getTopicId, registerBotCommands };
