@@ -17,16 +17,28 @@ import {
 describe('externalAgentRegistry — schema init', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('creates the table and seeds all 5 confirmed roster agents idempotently', async () => {
+  it('creates the table and seeds all 8 confirmed roster agents, self-correcting on conflict', async () => {
     queryMock.mockResolvedValue({ rows: [] });
     await initExternalAgentSchema();
 
     const insertCalls = queryMock.mock.calls.filter(c => String(c[0]).includes('INSERT INTO external_agents'));
-    expect(insertCalls).toHaveLength(5);
+    expect(insertCalls).toHaveLength(8);
     const seededIds = insertCalls.map(c => c[1][0]);
-    expect(seededIds.sort()).toEqual(['coderabbit', 'devin', 'kilo', 'manus', 'viktor']);
-    // Idempotent — never overwrites an existing row (e.g. an operator's disable/rename)
-    expect(insertCalls.every(c => String(c[0]).includes('ON CONFLICT (id) DO NOTHING'))).toBe(true);
+    expect(seededIds.sort()).toEqual(
+      ['claude', 'coderabbit', 'codex', 'devin', 'hermes', 'kilo', 'manus', 'viktor']
+    );
+    // Handle/name/role are correctable via redeploy (real installed handles
+    // turned out lowercase, not the guessed capitalized ones) — but
+    // `enabled` must stay out of the UPDATE so an operator's disable toggle
+    // survives a redeploy.
+    expect(insertCalls.every(c =>
+      String(c[0]).includes('ON CONFLICT (id) DO UPDATE') &&
+      !String(c[0]).includes('enabled = EXCLUDED.enabled')
+    )).toBe(true);
+    const kiloCall = insertCalls.find(c => c[1][0] === 'kilo');
+    expect(kiloCall[1]).toEqual(['kilo', 'Kilo', '@kilo', 'worker']);
+    const hermesCall = insertCalls.find(c => c[1][0] === 'hermes');
+    expect(hermesCall[1]).toEqual(['hermes', 'Hermes', '@hermes', 'assistant']);
   });
 });
 

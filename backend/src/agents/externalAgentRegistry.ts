@@ -37,21 +37,31 @@ async function initExternalAgentSchema(): Promise<void> {
     );
   `);
 
-  // Seed the confirmed round-2/round-4 roster — idempotent, never overwrites
-  // an existing row (an operator may have disabled one, or renamed its
-  // display name; re-running this shouldn't clobber that).
+  // Seed the confirmed roster (round 2/4 design, corrected round 8 against
+  // the owner's actual connected Slack apps — @Kilo/@Viktor/@Devin were
+  // guessed capitalized from public docs; the real installed handles are
+  // lowercase, and Claude/Codex/Hermes weren't in the original design at
+  // all). display_name/slack_mention/role are updated on every startup so a
+  // handle correction just needs a redeploy — `enabled` is deliberately
+  // left out of the UPDATE so an operator's disable toggle survives.
   const seed: Array<[string, string, string, ExternalAgent['role']]> = [
-    ['kilo',       'Kilo',       '@Kilo',       'worker'],
-    ['viktor',     'Viktor',     '@Viktor',     'authority'],
-    ['devin',      'Devin',      '@Devin',      'worker'],
+    ['kilo',       'Kilo',       '@kilo',       'worker'],
+    ['viktor',     'Viktor',     '@viktor',     'authority'],
+    ['devin',      'Devin',      '@devin',      'worker'],
     ['manus',      'Manus',      '@manus',      'worker'],
     ['coderabbit', 'CodeRabbit', '@coderabbit', 'auditor'],
+    ['claude',     'Claude',     '@claude',     'worker'],
+    ['codex',      'Codex',      '@codex',      'worker'],
+    ['hermes',     'Hermes',     '@hermes',     'assistant'],
   ];
   for (const [id, displayName, slackMention, role] of seed) {
     await query(
       `INSERT INTO external_agents (id, display_name, slack_mention, role)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (id) DO NOTHING`,
+       ON CONFLICT (id) DO UPDATE SET
+         display_name = EXCLUDED.display_name,
+         slack_mention = EXCLUDED.slack_mention,
+         role = EXCLUDED.role`,
       [id, displayName, slackMention, role]
     );
   }
