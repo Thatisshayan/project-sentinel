@@ -2,6 +2,7 @@ import https from 'https';
 import logger from './logger';
 import { loadSettings } from './settingsLoader';
 import { retryWithBackoff } from './retry';
+import { sendSlackMessage } from './slackClient';
 
 const MAX_LENGTH = 4096;
 
@@ -65,6 +66,18 @@ async function sendTelegramMessage(
   const safeText = text.length > MAX_LENGTH
     ? text.substring(0, MAX_LENGTH - 30) + '\n\n[message truncated]'
     : text;
+
+  // Phase 1 of docs/2026-07-22-slack-agent-roster-plan.md — "broadcast
+  // everywhere": every Telegram send also fans out to Slack, independent of
+  // whether the Telegram send itself succeeds. This is a no-op today (see
+  // slackClient.ts header) until SLACK_BOT_TOKEN and slack_channels exist —
+  // wiring it here means every one of this function's ~150 existing call
+  // sites gets Slack delivery for free once those are configured, with zero
+  // per-call-site changes. Deliberately not awaited — a Slack failure or
+  // slowness must never delay or break the Telegram send.
+  sendSlackMessage(safeText, repoName, null).catch((err: any) => {
+    logger.warn({ err: err.message, repoName }, 'Slack fan-out failed (Telegram send unaffected)');
+  });
 
   const escapedText = escapeHtml(safeText);
 
