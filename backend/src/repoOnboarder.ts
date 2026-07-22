@@ -102,7 +102,10 @@ async function registerWebhook(repoName: string): Promise<void> {
     {
       name:   'web',
       active: true,
-      events: ['push', 'pull_request'],
+      // pull_request_review_comment added for Phase 2 (revised) of
+      // docs/2026-07-22-slack-agent-roster-plan.md — CodeRabbit's findings
+      // arrive as GitHub PR review comments, not its own webhook.
+      events: ['push', 'pull_request', 'pull_request_review_comment'],
       config: {
         url:          webhookUrl,
         content_type: 'json',

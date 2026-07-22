@@ -5,6 +5,7 @@ import logger from './logger';
 import { processWebhook } from './webhook/processWebhook';
 import { processPREvent } from './webhook/processPREvent';
 import { processCodeRabbitEvent } from './webhook/processCodeRabbitEvent';
+import { processCodeRabbitPRComment } from './webhook/processCodeRabbitPRComment';
 import { handleSlackEvent } from './slackEvents';
 import { handleSlackInteraction } from './slackInteractions';
 
@@ -93,6 +94,18 @@ router.post('/github', limiter, verifySignature, (req: any, res: any) => {
   if (event === 'pull_request') {
     processPREvent(req.body).catch((err: any) => {
       logger.error({ err: err.stack ?? err.message }, 'Unhandled error in processPREvent');
+    });
+    return;
+  }
+
+  // Phase 2 (revised) — CodeRabbit posts findings as PR review comments on
+  // GitHub, not via its own outbound webhook (see processCodeRabbitPRComment.ts
+  // header). This event type must be added to each repo's GitHub webhook
+  // config (registerWebhook() in repoOnboarder.ts covers new repos; existing
+  // repos need a one-time backfill — not automatic).
+  if (event === 'pull_request_review_comment') {
+    processCodeRabbitPRComment(req.body).catch((err: any) => {
+      logger.error({ err: err.stack ?? err.message }, 'Unhandled error in processCodeRabbitPRComment');
     });
     return;
   }
