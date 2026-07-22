@@ -1,0 +1,144 @@
+import crypto from 'crypto';
+
+const dispatchCommandMock = jest.fn();
+jest.mock('../src/commandRegistry', () => ({
+  dispatchCommand: (...a: any[]) => dispatchCommandMock(...a),
+}));
+
+import { handleSlackEvent, verifySlackSignature, stripBotMention } from '../src/slackEvents';
+
+function signedRequest(bodyObj: any, opts: { secret?: string; badSig?: boolean; staleTimestamp?: boolean } = {}) {
+  const secret = opts.secret ?? 'test-signing-secret';
+  const rawBody = Buffer.from(JSON.stringify(bodyObj));
+  const timestamp = opts.staleTimestamp
+    ? String(Math.floor(Date.now() / 1000) - 60 * 10) // 10 minutes old — outside the 5-minute window
+    : String(Math.floor(Date.now() / 1000));
+  const baseString = `v0:${timestamp}:${rawBody.toString()}`;
+  const validSig = 'v0=' + crypto.createHmac('sha256', secret).update(baseString).digest('hex');
+
+  return {
+    headers: {
+      'x-slack-request-timestamp': timestamp,
+      'x-slack-signature': opts.badSig ? 'v0=deadbeef' : validSig,
+    },
+    rawBody,
+    body: bodyObj,
+  };
+}
+
+function mockRes() {
+  const res: any = { statusCode: null, body: null };
+  res.status = (code: number) => { res.statusCode = code; return res; };
+  res.json = (obj: any) => { res.body = obj; return res; };
+  return res;
+}
+
+describe('stripBotMention', () => {
+  it('removes a leading <@BOTID> mention with a following space', () => {
+    expect(stripBotMention('<@U0LAN0Z89> audit costpilot')).toBe('audit costpilot');
+  });
+
+  it('removes a leading mention followed by punctuation', () => {
+    expect(stripBotMention('<@U0LAN0Z89>: audit costpilot')).toBe('audit costpilot');
+  });
+
+  it('leaves text unchanged when there is no leading mention', () => {
+    expect(stripBotMention('audit costpilot')).toBe('audit costpilot');
+  });
+});
+
+describe('verifySlackSignature', () => {
+  const originalSecret = process.env.SLACK_SIGNING_SECRET;
+  beforeEach(() => { process.env.SLACK_SIGNING_SECRET = 'test-signing-secret'; });
+  afterAll(() => {
+    if (originalSecret) process.env.SLACK_SIGNING_SECRET = originalSecret;
+    else delete process.env.SLACK_SIGNING_SECRET;
+  });
+
+  it('accepts a correctly signed request', () => {
+    const req = signedRequest({ type: 'event_callback' });
+    expect(verifySlackSignature(req)).toBe(true);
+  });
+
+  it('rejects a request with an invalid signature', () => {
+    const req = signedRequest({ type: 'event_callback' }, { badSig: true });
+    expect(verifySlackSignature(req)).toBe(false);
+  });
+
+  it('rejects a request with a stale timestamp (replay protection)', () => {
+    const req = signedRequest({ type: 'event_callback' }, { staleTimestamp: true });
+    expect(verifySlackSignature(req)).toBe(false);
+  });
+
+  it('rejects when SLACK_SIGNING_SECRET is not configured', () => {
+    delete process.env.SLACK_SIGNING_SECRET;
+    const req = signedRequest({ type: 'event_callback' });
+    expect(verifySlackSignature(req)).toBe(false);
+  });
+
+  it('rejects when signature headers are missing entirely', () => {
+    expect(verifySlackSignature({ headers: {}, body: {} })).toBe(false);
+  });
+});
+
+describe('handleSlackEvent', () => {
+  const originalSecret = process.env.SLACK_SIGNING_SECRET;
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.SLACK_SIGNING_SECRET = 'test-signing-secret';
+  });
+  afterAll(() => {
+    if (originalSecret) process.env.SLACK_SIGNING_SECRET = originalSecret;
+    else delete process.env.SLACK_SIGNING_SECRET;
+  });
+
+  it('answers the url_verification handshake without requiring a valid signature', async () => {
+    const req = { headers: {}, body: { type: 'url_verification', challenge: 'abc123' } };
+    const res = mockRes();
+    await handleSlackEvent(req, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ challenge: 'abc123' });
+    expect(dispatchCommandMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects an event with an invalid signature (401), never reaching dispatch', async () => {
+    const req = signedRequest({ type: 'event_callback', event: { type: 'app_mention', text: 'audit x', channel: 'C1' } }, { badSig: true });
+    const res = mockRes();
+    await handleSlackEvent(req, res);
+    expect(res.statusCode).toBe(401);
+    expect(dispatchCommandMock).not.toHaveBeenCalled();
+  });
+
+  it('dispatches the mention text (mention stripped) for a valid app_mention event', async () => {
+    dispatchCommandMock.mockResolvedValue(true);
+    const req = signedRequest({
+      type: 'event_callback',
+      event: { type: 'app_mention', text: '<@U0BOT> audit costpilot', channel: 'C1' },
+    });
+    const res = mockRes();
+    await handleSlackEvent(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(dispatchCommandMock).toHaveBeenCalledWith('audit costpilot', null, null);
+  });
+
+  it('does not dispatch for non-mention event types', async () => {
+    const req = signedRequest({
+      type: 'event_callback',
+      event: { type: 'message', text: 'hello', channel: 'C1' },
+    });
+    const res = mockRes();
+    await handleSlackEvent(req, res);
+    expect(dispatchCommandMock).not.toHaveBeenCalled();
+  });
+
+  it('does not throw when dispatchCommand itself rejects', async () => {
+    dispatchCommandMock.mockRejectedValue(new Error('boom'));
+    const req = signedRequest({
+      type: 'event_callback',
+      event: { type: 'app_mention', text: '<@U0BOT> audit costpilot', channel: 'C1' },
+    });
+    const res = mockRes();
+    await expect(handleSlackEvent(req, res)).resolves.toBeUndefined();
+  });
+});

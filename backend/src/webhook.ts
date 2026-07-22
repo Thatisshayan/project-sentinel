@@ -5,6 +5,7 @@ import logger from './logger';
 import { processWebhook } from './webhook/processWebhook';
 import { processPREvent } from './webhook/processPREvent';
 import { processCodeRabbitEvent } from './webhook/processCodeRabbitEvent';
+import { handleSlackEvent } from './slackEvents';
 
 const router = express.Router();
 
@@ -105,6 +106,17 @@ router.post('/coderabbit', limiter, verifyCodeRabbitSignature, (req: any, res: a
 
   processCodeRabbitEvent(req.body).catch((err: any) => {
     logger.error({ err: err.stack ?? err.message }, 'Unhandled error in processCodeRabbitEvent');
+  });
+});
+
+// Slack does its own signature verification inside handleSlackEvent (needs
+// to see the raw body/headers directly, and must special-case the
+// url_verification handshake before any signature check applies) rather
+// than a shared middleware, unlike the two routes above.
+router.post('/slack/events', limiter, (req: any, res: any) => {
+  handleSlackEvent(req, res).catch((err: any) => {
+    logger.error({ err: err.stack ?? err.message }, 'Unhandled error in handleSlackEvent');
+    if (!res.headersSent) res.status(500).json({ error: 'Internal error' });
   });
 });
 
