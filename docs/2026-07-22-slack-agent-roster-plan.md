@@ -1,7 +1,7 @@
 # Slack + Multi-Agent Roster Plan
 
 **Created:** 2026-07-22
-**Last updated:** 2026-07-22 (round 8 — Phase 6 shipped, Phase 7 in progress)
+**Last updated:** 2026-07-22 (round 8 — Phases 6 and 7 both shipped)
 **Status:** In progress — see "Implementation log" below
 **Owner:** thatisshayan
 
@@ -520,6 +520,53 @@ slices above.
   **not done autonomously; needs the owner to add `users:read` and
   reinstall,** after which `inspectSlackUsers.js` can be re-run to get
   Viktor's real ID in one step.
+- **2026-07-22, commit `5aa80c7` — Phase 7 shipped (Bloome-style
+  roundtable), built by a forked subagent in an isolated git worktree
+  concurrently with Phase 6 being built directly on `main`, then merged.**
+  New `roundtable_sessions` table + `backend/src/agents/roundtable.ts`:
+  `startRoundtable(repoName, question, agentIds?)` posts one Slack message
+  @mentioning the target agents (default: every enabled `worker`-role
+  agent — a deliberate simplification of the plan's per-question-type
+  selection idea, e.g. "+CodeRabbit for review, +Viktor for strategy",
+  which isn't built) and schedules a 5-minute BullMQ timeout
+  (`ROUNDTABLE_TIMEOUT_MIN` env var) via the same delayed-job pattern as
+  `CODERABBIT_FALLBACK_JOB`. `recordRoundtableReply()` (wired into
+  `slackEvents.ts` alongside, not instead of, Phase 4's `recordAgentReply`)
+  collects replies and triggers early synthesis once the reply count
+  reaches the asked-agent count; the timeout job forces synthesis
+  regardless. `runRoundtableSynthesis()` reuses `sentinelBrain.ts`'s
+  multi-provider LLM fallback pattern (NVIDIA/Gemini/DashScope/DeepSeek)
+  with a raw-replies fallback message if every provider fails, posts the
+  result back into the original thread, and is idempotent (a
+  already-'complete' session no-ops, same shape as the CodeRabbit
+  fallback's "already handled" check). New `roundtable <repo> <question>`
+  command. 14 new tests plus updated coverage in
+  `scheduledJobsWorker.test.ts`/`commandRegistry.test.ts`. Full merged-tree
+  suite: 51/51 files, 415/415 tests, `tsc --noEmit` clean.
+  **Honestly unverified, same bar as Phase 6 — flagged in the file's own
+  header, not glossed over:** nothing here has touched real Slack; there's
+  no live multi-agent thread to test against. Reply attribution is
+  best-effort (`username`/`bot_id`/`user`, whichever the event happens to
+  carry) since no external agent has its own Slack bot user ID recorded
+  anywhere in `external_agents` — "everyone answered" is a reply-*count*
+  comparison, not a verified per-agent match. This inherits the same two
+  open unknowns as Phase 4/6: whether Slack's Events API delivers other
+  apps' bot messages to this subscription at all (still unverified since
+  round 1), and Viktor/roster real Slack IDs being unresolved
+  (`missing_scope`, see the entry directly above).
+  **Explicitly not built, not stubbed to look done:** writing the
+  roundtable outcome into a repo's living context document —
+  `repoContextDoc.ts`/`CONTEXT.md` (section 1.2) doesn't exist anywhere in
+  this codebase, confirmed absent before starting. The plan's Phase 7 exit
+  criteria names this step; it is a real, acknowledged gap.
+
+**Both Phase 6 and Phase 7 are now code-complete and fully unit-tested,
+but neither can be called "working" until: (a) the owner adds `users:read`
+to the Slack app and reinstalls it so real agent/Viktor Slack IDs can be
+resolved, and (b) a real message from another Slack app is confirmed
+reaching this app's Events API subscription at all — the single
+longest-standing open question in this entire doc, unresolved since
+round 1.**
 
 ## 1. Goal
 
