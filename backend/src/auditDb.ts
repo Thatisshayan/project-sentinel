@@ -66,6 +66,11 @@ async function initAuditSchema(): Promise<void> {
       ON audit_tasks (audit_cycle_id);
   `);
 
+  // Phase 2 of docs/2026-07-22-slack-agent-roster-plan.md — tags which
+  // engine produced a task so notifications/reports can show provenance
+  // once CodeRabbit becomes the primary audit engine.
+  await query(`ALTER TABLE audit_tasks ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'sentinel';`);
+
   await query(`
     CREATE INDEX IF NOT EXISTS idx_audit_tasks_repo_status
       ON audit_tasks (repo_full_name, status);
@@ -153,15 +158,15 @@ async function createAuditTask(data: {
   title: string; description?: string; priority?: string; category?: string;
   affectedFiles?: string[]; complexity?: string; safeToAutoExecute?: boolean;
   safetyReason?: string; acceptanceCriteria?: string; batchNumber?: number;
-  builderAgent?: string;
+  builderAgent?: string; source?: string;
 }): Promise<any | null> {
   const r = await query(`
     INSERT INTO audit_tasks
       (audit_cycle_id, repo_full_name, task_number, title, description,
        priority, category, affected_files, complexity,
        safe_to_auto_execute, safety_reason, acceptance_criteria,
-       batch_number, builder_agent, status)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'queued')
+       batch_number, builder_agent, source, status)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'queued')
     RETURNING *
   `, [
     data.auditCycleId,      data.repoFullName,       data.taskNumber,
@@ -169,6 +174,7 @@ async function createAuditTask(data: {
     data.category,          data.affectedFiles || [], data.complexity,
     data.safeToAutoExecute, data.safetyReason,       data.acceptanceCriteria,
     data.batchNumber,       data.builderAgent || 'qwen_coder',
+    data.source || 'sentinel',
   ]);
   return r.rows[0] || null;
 }
