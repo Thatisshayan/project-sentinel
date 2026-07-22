@@ -18,7 +18,8 @@
         "channels:read",
         "channels:history",
         "app_mentions:read",
-        "commands"
+        "commands",
+        "users:read"
       ]
     }
   },
