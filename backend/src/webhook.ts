@@ -6,6 +6,7 @@ import { processWebhook } from './webhook/processWebhook';
 import { processPREvent } from './webhook/processPREvent';
 import { processCodeRabbitEvent } from './webhook/processCodeRabbitEvent';
 import { handleSlackEvent } from './slackEvents';
+import { handleSlackInteraction } from './slackInteractions';
 
 const router = express.Router();
 
@@ -116,6 +117,13 @@ router.post('/coderabbit', limiter, verifyCodeRabbitSignature, (req: any, res: a
 router.post('/slack/events', limiter, (req: any, res: any) => {
   handleSlackEvent(req, res).catch((err: any) => {
     logger.error({ err: err.stack ?? err.message }, 'Unhandled error in handleSlackEvent');
+    if (!res.headersSent) res.status(500).json({ error: 'Internal error' });
+  });
+});
+
+router.post('/slack/interactions', limiter, (req: any, res: any) => {
+  handleSlackInteraction(req, res).catch((err: any) => {
+    logger.error({ err: err.stack ?? err.message }, 'Unhandled error in handleSlackInteraction');
     if (!res.headersSent) res.status(500).json({ error: 'Internal error' });
   });
 });

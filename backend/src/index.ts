@@ -156,6 +156,16 @@ app.use(express.json({
   limit: '5mb',
   verify: (req: RawBodyRequest, _res: express.Response, buf: Buffer) => { req.rawBody = buf; },
 }));
+// Slack's interactivity payloads (button clicks) arrive as
+// application/x-www-form-urlencoded with a `payload` field containing JSON
+// — a different content type than every other webhook this app receives,
+// so it needs its own parser, with the same rawBody-capture pattern for
+// signature verification.
+app.use(express.urlencoded({
+  extended: true,
+  limit: '5mb',
+  verify: (req: RawBodyRequest, _res: express.Response, buf: Buffer) => { req.rawBody = buf; },
+}));
 app.set('trust proxy', 1);
 
 app.use('/webhook', require('./webhook'));

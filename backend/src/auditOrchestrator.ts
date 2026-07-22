@@ -5,6 +5,7 @@ import { writeTasksToNotion, updateNotionTaskStatus } from './auditTaskWriter';
 import { executeBatch } from './taskBuilder';
 import { createPullRequest } from './prCreator';
 import { sendTelegramMessage } from './telegramClient';
+import { sendSlackButtons } from './slackClient';
 import { findNotionProject } from './notionClient';
 import {
   createAuditCycle, updateAuditCycle,
@@ -296,6 +297,19 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
   } catch {
     await safeFire(sendTelegramMessage(safeAuditText, null, topicId), { label: 'auditOrchestrator' })
   }
+
+  // Same buttons in Slack (Phase 1, docs/2026-07-22-slack-agent-roster-plan.md)
+  // — no-op until Slack is configured, same safety property as every other
+  // Slack call in this codebase. Deliberately not awaited or in the above
+  // try/catch — a Slack failure must never affect the Telegram send.
+  sendSlackButtons(safeAuditText, repoName, [
+    [
+      { text: `✅ Execute ${safeCount} safe tasks`, actionId: 'execute', value: repoName },
+      { text: `⏭ Skip`,                            actionId: 'skip',    value: repoName },
+    ],
+  ]).catch((err: any) => {
+    logger.warn({ err: err.message, repoName }, 'Slack buttons fan-out failed (Telegram send unaffected)');
+  });
 
   scheduleApprovalTimeout(cycle.id, repoFullName, repoName, topicId);
   logger.info({ repoFullName, cycleId: cycle.id, tasks: totalCount, safe: safeCount,

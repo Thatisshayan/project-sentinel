@@ -211,4 +211,56 @@ async function sendSlackMessage(
   return postToSlackApi(BOT_TOKEN, payload);
 }
 
-export = { initSlackSchema, sendSlackMessage, getSlackChannelId, upsertSlackChannel, createChannelForRepo };
+interface SlackButton {
+  text: string;
+  actionId: string;
+  value: string;
+}
+
+/**
+ * Sends a message with Block Kit buttons (Slack's equivalent of
+ * telegramMenus.ts's inline keyboards). `buttons` is a grid, same shape as
+ * Telegram's: each inner array becomes one row of buttons (one Slack
+ * "actions" block). No-op under the same conditions as sendSlackMessage
+ * (unconfigured, or no channel mapped for repoName).
+ */
+async function sendSlackButtons(
+  text: string,
+  repoName: string | null,
+  buttons: SlackButton[][]
+): Promise<any> {
+  const BOT_TOKEN = process.env['SLACK_BOT_TOKEN'];
+  if (!BOT_TOKEN) {
+    logger.debug('Slack not configured (SLACK_BOT_TOKEN unset) — skipping Slack buttons message');
+    return null;
+  }
+
+  const channelId = await getSlackChannelId(repoName).catch((err: any) => {
+    logger.warn({ err: err.message, repoName }, 'Slack channel lookup failed — skipping Slack buttons message');
+    return null;
+  });
+  if (!channelId) {
+    logger.debug({ repoName }, 'No Slack channel mapped for this repo — skipping Slack buttons message');
+    return null;
+  }
+
+  const blocks: any[] = [
+    { type: 'section', text: { type: 'mrkdwn', text } },
+    ...buttons.map(row => ({
+      type: 'actions',
+      elements: row.map(b => ({
+        type: 'button',
+        text: { type: 'plain_text', text: b.text },
+        action_id: b.actionId,
+        value: b.value,
+      })),
+    })),
+  ];
+
+  return callSlackApi(BOT_TOKEN, 'chat.postMessage', { channel: channelId, text, blocks });
+}
+
+export = {
+  initSlackSchema, sendSlackMessage, sendSlackButtons,
+  getSlackChannelId, upsertSlackChannel, createChannelForRepo,
+};
