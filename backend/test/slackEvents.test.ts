@@ -1,5 +1,17 @@
 import crypto from 'crypto';
 
+const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
+// The factory must not reference loggerMock directly (jest.mock() factories
+// are hoisted above const declarations, so that threw a TDZ ReferenceError)
+// — deferring the lookup inside each method closure avoids it, same
+// resolution as the dispatchCommandMock/recordAgentReplyMock pattern below.
+jest.mock('../src/logger', () => ({
+  info:  (...a: any[]) => loggerMock.info(...a),
+  warn:  (...a: any[]) => loggerMock.warn(...a),
+  error: (...a: any[]) => loggerMock.error(...a),
+  debug: (...a: any[]) => loggerMock.debug(...a),
+}));
+
 const dispatchCommandMock = jest.fn();
 jest.mock('../src/commandRegistry', () => ({
   dispatchCommand: (...a: any[]) => dispatchCommandMock(...a),
@@ -84,6 +96,25 @@ describe('verifySlackSignature', () => {
   it('rejects when signature headers are missing entirely', () => {
     expect(verifySlackSignature({ headers: {}, body: {} })).toBe(false);
   });
+
+  it('logs a warning (not silently) when signature headers are missing entirely', () => {
+    loggerMock.warn.mockClear();
+    verifySlackSignature({ headers: {}, body: {} });
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ hasTimestamp: false, hasSignature: false }),
+      expect.stringContaining('missing required signature headers')
+    );
+  });
+
+  it('logs a warning (not silently) when the signature itself does not match', () => {
+    loggerMock.warn.mockClear();
+    const req = signedRequest({ type: 'event_callback' }, { badSig: true });
+    verifySlackSignature(req);
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ sigLengthMatch: expect.any(Boolean) }),
+      expect.stringContaining('signature verification failed')
+    );
+  });
 });
 
 describe('handleSlackEvent', () => {
@@ -95,6 +126,17 @@ describe('handleSlackEvent', () => {
   afterAll(() => {
     if (originalSecret) process.env.SLACK_SIGNING_SECRET = originalSecret;
     else delete process.env.SLACK_SIGNING_SECRET;
+  });
+
+  it('logs an unconditional "request received" line before any signature/type check — so a silent stretch in prod logs can never mean "maybe something arrived and was silently dropped"', async () => {
+    loggerMock.info.mockClear();
+    const req = { headers: {}, body: { type: 'event_callback', event: { type: 'app_mention' } } };
+    const res = mockRes();
+    await handleSlackEvent(req, res);
+    expect(loggerMock.info).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'event_callback', hasEvent: true, eventSubtype: 'app_mention' }),
+      'Slack webhook request received'
+    );
   });
 
   it('answers the url_verification handshake without requiring a valid signature', async () => {

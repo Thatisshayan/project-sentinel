@@ -45,7 +45,17 @@ function verifySlackSignature(req: any): boolean {
 
   const timestamp = req.headers['x-slack-request-timestamp'];
   const signature  = req.headers['x-slack-signature'];
-  if (!timestamp || !signature) return false;
+  if (!timestamp || !signature) {
+    // Previously silent — meant a request from a misbehaving/misconfigured
+    // sender (or Slack itself, if headers were ever stripped somewhere
+    // upstream) left literally no trace anywhere, indistinguishable from
+    // "nothing arrived at all." Given the open question of whether real
+    // Slack traffic is reaching this endpoint at all, a silent 401 here was
+    // actively hiding the evidence needed to answer that.
+    logger.warn({ hasTimestamp: !!timestamp, hasSignature: !!signature },
+      'Slack event missing required signature headers — rejecting');
+    return false;
+  }
 
   const age = Math.abs(Date.now() / 1000 - Number(timestamp));
   if (!Number.isFinite(age) || age > MAX_TIMESTAMP_SKEW_SECONDS) {
@@ -59,7 +69,17 @@ function verifySlackSignature(req: any): boolean {
 
   const sigBuf = Buffer.from(signature);
   const expBuf = Buffer.from(expected);
-  return sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf);
+  const matches = sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf);
+  if (!matches) {
+    // Same reasoning as above — never log the actual signature/secret, but
+    // the fact of a mismatch (and whether it was even the same length,
+    // which alone rules out "byte-for-byte wrong secret" vs "totally
+    // different signing scheme") is exactly the evidence needed to tell
+    // "nothing arrived" apart from "something arrived and was rejected."
+    logger.warn({ sigLengthMatch: sigBuf.length === expBuf.length },
+      'Slack event signature verification failed — rejecting');
+  }
+  return matches;
 }
 
 /** Strips a leading "<@BOTID>" (and optional following punctuation/space) from an app_mention's text. */
@@ -69,6 +89,17 @@ function stripBotMention(text: string): string {
 
 async function handleSlackEvent(req: any, res: any): Promise<void> {
   const body = req.body || {};
+
+  // Unconditional — logs BEFORE any signature/type check, specifically so
+  // "did anything ever reach this endpoint at all" has a real answer
+  // instead of depending on every downstream branch remembering to log.
+  // This was the actual gap: every rejection path either logged nothing or
+  // logged only in some branches, so a long silent stretch in production
+  // logs was consistent with both "Slack never sent anything" and "Slack
+  // sent something and it was silently rejected" — indistinguishable
+  // without this line.
+  logger.info({ eventType: body.type, hasEvent: !!body.event, eventSubtype: body.event?.type },
+    'Slack webhook request received');
 
   // Slack's one-time URL-verification handshake when the Events API
   // subscription is first configured — must be answered before any
