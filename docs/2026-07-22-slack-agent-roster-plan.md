@@ -94,6 +94,30 @@ Both are real, both are next — just flagged here as "picked up carefully,
 not skipped" rather than attempted in the same fast cycle as the smaller
 slices above.
 
+- **2026-07-22, commit `9dcc250`** — **fallback-timeout wiring shipped, with
+  narrowed scope.** Investigation showed only 1 of the 9 `triggerAudit()`
+  call sites is genuinely automatic/PR-driven in the same sense CodeRabbit's
+  own GitHub App is (`workers/buildPollWorker.ts`'s human-commit-build-passed
+  path) — the other 8 are manual commands, onboarding, or AI-triggered,
+  which are explicit human requests and correctly still run immediately,
+  unchanged. Only that one call site now schedules a delayed
+  `coderabbit-fallback-audit` BullMQ job (default 45min,
+  `CODERABBIT_FALLBACK_DELAY_MIN` env var) instead of auditing immediately;
+  `hasCodeRabbitAuditedCommit()` (new, `auditDb.ts`) gates whether the
+  fallback actually runs when the delay elapses. If scheduling itself fails,
+  falls back to an immediate `triggerAudit` so no commit is ever silently
+  unaudited — same failure-visibility principle as the existing
+  `scheduleApprovalTimeout`. 6 new/updated tests across
+  `scheduledJobsWorker.test.ts` and `buildPollWorker.test.ts`. Full suite
+  38/38 files, 288/288 tests, `tsc --noEmit` clean.
+  **This resolves the "8 other call sites" concern raised when this was
+  first flagged — it was never actually 9 call sites needing the same
+  treatment, only 1.** The `CommandContext` refactor (Phase 0's remaining
+  piece, ~150 call sites across 4 files) is still deliberately deferred as
+  its own reviewed unit — that one's scope genuinely doesn't narrow the same
+  way, since Slack (Phase 1) needs every command handler to work platform-
+  agnostically, not just one call site.
+
 ## 1. Goal
 
 Bring Slack online as a full parallel channel to Telegram, and expand Sentinel's
