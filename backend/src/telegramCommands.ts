@@ -47,6 +47,7 @@ import { handleAgentsCmd }  from './commands/agents';
 import { handleRepoOpsCmd, handleHelp } from './commands/repoOps';
 import { handleReportsCmd } from './commands/reports';
 import { handleSprintCmd }  from './commands/sprint';
+import { dispatchCommand as dispatchVerbCommand } from './commandRegistry';
 
 const KNOWN_AGENT_IDS = ['nvidia','qwen_coder','qwen_coder_dash','llama_fast','gemini','qwen_max','qwen_turbo','deepseek','qwen_plus','opencode'];
 
@@ -58,6 +59,18 @@ async function handleCommand(text: string, chatId: number, topicId: number | nul
       await handleAgentReply(message, targetAgent, topicId as number);
       return true;
     }
+  }
+
+  // Verb-first commands (Phase 0 of docs/2026-07-22-slack-agent-roster-plan.md)
+  // — e.g. "audit myrepo", "sprint status" — no "/sentinel" prefix required.
+  // Tried before AI free-text routing so a recognized command always wins
+  // over AI interpretation; unrecognized text falls through unchanged.
+  if (!text.trim().startsWith('/')) {
+    const dispatched = await dispatchVerbCommand(text, String(chatId), topicId).catch((err: any) => {
+      logger.warn({ err: err.message }, 'dispatchVerbCommand failed, falling back to AI routing');
+      return false;
+    });
+    if (dispatched) return true;
   }
 
   // Route non-slash messages to AI agent
