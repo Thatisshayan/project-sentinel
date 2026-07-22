@@ -22,7 +22,7 @@
 import logger from '../logger';
 import { safeFire } from '../utils/safeFire';
 import { sendTelegramMessage } from '../telegramClient';
-import { createAuditCycle, getAuditCycle, createAuditTask, getQueuedTaskCount } from '../auditDb';
+import { createAuditCycle, getAuditCycle, createAuditTask, getNextTaskNumberForCycle } from '../auditDb';
 
 const CODERABBIT_BOT_LOGIN = 'coderabbitai[bot]';
 
@@ -67,23 +67,47 @@ async function processCodeRabbitPRComment(payload: any): Promise<void> {
     return;
   }
 
-  const existingCount = await getQueuedTaskCount(repoFullName).catch(() => 0);
-  await createAuditTask({
-    auditCycleId: cycle.id,
-    repoFullName,
-    taskNumber: existingCount + 1,
-    title: (comment.body || '').slice(0, 80) || 'CodeRabbit finding',
-    description: comment.body || '',
-    priority: severityFromBody(comment.body || ''),
-    category: 'code-quality',
-    affectedFiles: comment.path ? [comment.path] : [],
-    source: 'coderabbit',
-    // Conservative default, same as the dormant webhook path — a PR
-    // comment needs human review before Sentinel's builders act on it.
-    safeToAutoExecute: false,
-  }).catch((err: any) => {
-    logger.error({ err: err.message, repoFullName, cycleId: cycle.id }, 'Failed to record CodeRabbit finding as an audit task');
-  });
+  // Concurrent webhook deliveries for the same PR (CodeRabbit often posts
+  // several inline comments in a burst) can race on "next task number" —
+  // idx_audit_tasks_cycle_tasknum (auditDb.ts) makes a collision fail
+  // loudly (unique_violation, code 23505) instead of silently duplicating;
+  // retry with a freshly-read count on that specific failure.
+  const MAX_ATTEMPTS = 5;
+  let created = false;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS && !created; attempt++) {
+    const nextTaskNumber = await getNextTaskNumberForCycle(cycle.id).catch(() => 1);
+    try {
+      await createAuditTask({
+        auditCycleId: cycle.id,
+        repoFullName,
+        taskNumber: nextTaskNumber,
+        title: (comment.body || '').slice(0, 80) || 'CodeRabbit finding',
+        description: comment.body || '',
+        priority: severityFromBody(comment.body || ''),
+        category: 'code-quality',
+        affectedFiles: comment.path ? [comment.path] : [],
+        source: 'coderabbit',
+        // Conservative default, same as the dormant webhook path — a PR
+        // comment needs human review before Sentinel's builders act on it.
+        safeToAutoExecute: false,
+      });
+      created = true;
+    } catch (err: any) {
+      const isTaskNumberCollision = err?.code === '23505';
+      if (!isTaskNumberCollision || attempt === MAX_ATTEMPTS) {
+        logger.error({ err: err.message, repoFullName, cycleId: cycle.id, attempt },
+          'Failed to record CodeRabbit finding as an audit task');
+        break;
+      }
+      logger.debug({ repoFullName, cycleId: cycle.id, attempt }, 'task_number collision — retrying');
+    }
+  }
+
+  if (!created) {
+    // Already logged the specific failure above (either the last collision
+    // retry or a non-collision error) — don't also claim success below.
+    return;
+  }
 
   await safeFire(sendTelegramMessage(
     `🐰 CodeRabbit finding — ${repoName} PR #${pr.number}${comment.path ? ` (${comment.path})` : ''}\n${(comment.body || '').slice(0, 200)}\n${comment.html_url || pr.html_url || ''}`,

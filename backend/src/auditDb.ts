@@ -71,6 +71,17 @@ async function initAuditSchema(): Promise<void> {
   // once CodeRabbit becomes the primary audit engine.
   await query(`ALTER TABLE audit_tasks ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'sentinel';`);
 
+  // Guards against a race in concurrent-webhook-driven task creation (e.g.
+  // processCodeRabbitPRComment.ts, where multiple GitHub webhook deliveries
+  // for the same PR can arrive near-simultaneously): without this, two
+  // requests reading the same "next task number" before either insert
+  // commits would silently create two tasks with the same task_number
+  // instead of failing loudly enough to retry.
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_tasks_cycle_tasknum
+      ON audit_tasks (audit_cycle_id, task_number);
+  `);
+
   await query(`
     CREATE INDEX IF NOT EXISTS idx_audit_tasks_repo_status
       ON audit_tasks (repo_full_name, status);
@@ -166,6 +177,21 @@ async function getQueuedTaskCount(repoFullName: string): Promise<number> {
       AND status IN ('queued','in_progress')
   `, [repoFullName]);
   return parseInt(r.rows[0]?.count || '0');
+}
+
+/**
+ * Next task_number for a SPECIFIC audit cycle (not repo-wide — task_number
+ * is scoped per cycle, enforced by idx_audit_tasks_cycle_tasknum). Used by
+ * processCodeRabbitPRComment.ts where tasks are added one at a time as
+ * separate webhook deliveries arrive, unlike the batch-created-once shape
+ * every other audit path uses.
+ */
+async function getNextTaskNumberForCycle(auditCycleId: number): Promise<number> {
+  const r = await query(
+    `SELECT COALESCE(MAX(task_number), 0) + 1 AS next FROM audit_tasks WHERE audit_cycle_id = $1`,
+    [auditCycleId]
+  );
+  return parseInt(r.rows[0]?.next || '1');
 }
 
 async function createAuditTask(data: {
@@ -266,6 +292,7 @@ export = {
   getAuditCycle,
   getActiveCycleForRepo,
   hasCodeRabbitAuditedCommit,
+  getNextTaskNumberForCycle,
   getLastCompletedAudit,
   getPreviousHealthScore,
   createAuditCycle,

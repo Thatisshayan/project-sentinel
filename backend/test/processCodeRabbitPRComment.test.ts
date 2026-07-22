@@ -3,15 +3,15 @@ jest.mock('../src/telegramClient', () => ({
   sendTelegramMessage: (...a: any[]) => sendTelegramMessageMock(...a),
 }));
 
-const getAuditCycleMock       = jest.fn();
-const createAuditCycleMock    = jest.fn();
-const createAuditTaskMock     = jest.fn().mockResolvedValue({ id: 1 });
-const getQueuedTaskCountMock  = jest.fn().mockResolvedValue(0);
+const getAuditCycleMock            = jest.fn();
+const createAuditCycleMock         = jest.fn();
+const createAuditTaskMock          = jest.fn().mockResolvedValue({ id: 1 });
+const getNextTaskNumberForCycleMock = jest.fn().mockResolvedValue(1);
 jest.mock('../src/auditDb', () => ({
   getAuditCycle: (...a: any[]) => getAuditCycleMock(...a),
   createAuditCycle: (...a: any[]) => createAuditCycleMock(...a),
   createAuditTask: (...a: any[]) => createAuditTaskMock(...a),
-  getQueuedTaskCount: (...a: any[]) => getQueuedTaskCountMock(...a),
+  getNextTaskNumberForCycle: (...a: any[]) => getNextTaskNumberForCycleMock(...a),
 }));
 
 import { processCodeRabbitPRComment, isFromCodeRabbit, CODERABBIT_BOT_LOGIN } from '../src/webhook/processCodeRabbitPRComment';
@@ -110,5 +110,44 @@ describe('processCodeRabbitPRComment', () => {
     createAuditCycleMock.mockRejectedValue(new Error('db down'));
     await expect(processCodeRabbitPRComment(basePayload)).resolves.toBeUndefined();
     expect(createAuditTaskMock).not.toHaveBeenCalled();
+  });
+
+  describe('task_number race handling (regression guard)', () => {
+    beforeEach(() => {
+      getAuditCycleMock.mockResolvedValue({ id: 42 });
+    });
+
+    it('retries with a freshly-read task number on a unique_violation (23505) collision', async () => {
+      getNextTaskNumberForCycleMock.mockResolvedValueOnce(3).mockResolvedValueOnce(4);
+      const collision: any = new Error('duplicate key value violates unique constraint');
+      collision.code = '23505';
+      createAuditTaskMock.mockRejectedValueOnce(collision).mockResolvedValueOnce({ id: 2 });
+
+      await processCodeRabbitPRComment(basePayload);
+
+      expect(createAuditTaskMock).toHaveBeenCalledTimes(2);
+      expect(createAuditTaskMock).toHaveBeenNthCalledWith(1, expect.objectContaining({ taskNumber: 3 }));
+      expect(createAuditTaskMock).toHaveBeenNthCalledWith(2, expect.objectContaining({ taskNumber: 4 }));
+    });
+
+    it('gives up after 5 attempts on repeated collisions rather than retrying forever, and does not claim success', async () => {
+      const collision: any = new Error('duplicate key value violates unique constraint');
+      collision.code = '23505';
+      createAuditTaskMock.mockRejectedValue(collision);
+
+      await processCodeRabbitPRComment(basePayload);
+
+      expect(createAuditTaskMock).toHaveBeenCalledTimes(5);
+      expect(sendTelegramMessageMock).not.toHaveBeenCalled();
+    });
+
+    it('does not retry on a non-collision error (fails fast), and does not claim success', async () => {
+      createAuditTaskMock.mockRejectedValue(new Error('some other db error'));
+
+      await processCodeRabbitPRComment(basePayload);
+
+      expect(createAuditTaskMock).toHaveBeenCalledTimes(1);
+      expect(sendTelegramMessageMock).not.toHaveBeenCalled();
+    });
   });
 });
