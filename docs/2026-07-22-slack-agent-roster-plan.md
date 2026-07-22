@@ -258,6 +258,31 @@ slices above.
   calls `dispatchToAgent` either (e.g. a `assign <agent> <repo> <task>`
   command) — the function exists and is tested but isn't wired into the
   command layer yet.
+- **2026-07-22, commit `b265ee7`** — **Phase 4 complete — both connective
+  pieces shipped.**
+  1. **Reply correlation**: new `agent_dispatches` table (agent, repo,
+     task, Slack channel, dispatch `ts`, status). `dispatchToAgent()` now
+     records a row on every successful dispatch. `slackEvents.ts` now also
+     handles plain `message` events (previously only `app_mention`); a
+     threaded reply's `thread_ts` is checked against pending dispatches via
+     `recordAgentReply()`, a safe no-op for the vast majority of channel
+     traffic that isn't a reply to anything Sentinel sent.
+  2. **`assign <agent-id> <repo> <task description>` command** — the first
+     command to actually call `dispatchToAgent`. Wired into both
+     `commandRegistry.ts` and `commands/agents.ts`; the missing-args usage
+     message lists the live enabled-agent roster rather than a hardcoded
+     list.
+  18 new tests. Full suite 44/44 files, 348/348 tests, `tsc --noEmit`
+  clean.
+  **Still open, explicitly not verified:** the Slack app's Events API
+  subscription needs `message.channels` added alongside `app_mention` for
+  any of this to receive real events in production — this is a Slack
+  dashboard configuration step, not code, and hasn't been checked against a
+  real app. Also still open: whether *other apps'* bot messages (Kilo's,
+  Manus's own replies) are actually delivered to a subscriber's endpoint at
+  all, or whether Slack filters bot-to-bot traffic by default — flagged
+  since round 1, still unverified, now the single biggest remaining
+  question mark for whether reply correlation works in practice.
 
 ## 1. Goal
 
