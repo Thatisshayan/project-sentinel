@@ -1,5 +1,11 @@
-const { runStrategicBrain } = require('../src/sentinelBrain');
-
+// jest.mock() calls must come before requiring the module under test. This
+// file is untransformed (jest.config.js only transforms .ts via @swc/jest),
+// so there's no babel/swc hoisting to save a wrong order here — with
+// require('../src/sentinelBrain') first (as it was), sentinelBrain.ts loads
+// with the REAL dbClient before any mock is registered, and every dbClient
+// call inside it silently hits the real (unconfigured) module all test run.
+// Tests below never caught this because their assertions are loose enough
+// (resolves.toBeUndefined(), toBeGreaterThanOrEqual(0)) to pass either way.
 jest.mock('../src/portfolioDb', () => ({
   getOpenPatterns:     jest.fn().mockResolvedValue([]),
   getDailyCost:        jest.fn().mockResolvedValue(0),
@@ -28,6 +34,8 @@ jest.mock('../src/repoLock', () => ({
   isRepoLocked: jest.fn().mockResolvedValue(false),
 }));
 
+const { runStrategicBrain } = require('../src/sentinelBrain');
+
 describe('sentinelBrain', () => {
   test('runStrategicBrain is exported', () => {
     expect(typeof runStrategicBrain).toBe('function');
@@ -53,5 +61,43 @@ describe('sentinelBrain', () => {
     );
     // At least one INSERT was attempted (or zero if AI failed before save — both valid).
     expect(insertCalls.length).toBeGreaterThanOrEqual(0);
+  });
+
+  test('feeds past decision outcomes back into the LLM prompt as a per-repo track record', async () => {
+    const axios = require('axios');
+    jest.spyOn(axios, 'post').mockResolvedValue({
+      data: { choices: [{ message: { content: JSON.stringify({
+        focus_repos: ['costpilot'], action: 'monitor', auto_execute: false,
+        reasoning: 'ok', daily_goal: 'ok', alerts: [], skip_repos: [],
+      }) } }] },
+    });
+
+    const { query } = require('../src/dbClient');
+    query.mockImplementation((sql) => {
+      if (typeof sql === 'string' && sql.includes('SELECT decision, outcome FROM brain_decisions')) {
+        return Promise.resolve({
+          rows: [
+            { decision: { focus_repos: ['costpilot'] }, outcome: { avgHealthDelta: '0.20' } },
+            { decision: { focus_repos: ['costpilot'] }, outcome: { avgHealthDelta: -0.10 } },
+            { decision: { focus_repos: ['other-repo'] }, outcome: { avgHealthDelta: 1.5 } },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    process.env.NVIDIA_API_KEY = 'test-key';
+    await runStrategicBrain(null);
+    delete process.env.NVIDIA_API_KEY;
+
+    const call = axios.post.mock.calls[0];
+    const userPrompt = call[1].messages.find(m => m.role === 'user').content;
+
+    expect(userPrompt).toContain('TRACK RECORD');
+    // (0.20 + -0.10) / 2 = 0.05
+    expect(userPrompt).toContain('costpilot: focused 2x before, avg health delta +0.05');
+    expect(userPrompt).toContain('other-repo: focused 1x before, avg health delta +1.5');
+
+    axios.post.mockRestore();
   });
 });

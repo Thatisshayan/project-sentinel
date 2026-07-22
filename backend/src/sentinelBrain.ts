@@ -33,7 +33,13 @@ DECISION RULES:
 3. action=execute: run queued safe tasks. action=audit: trigger fresh code audit. action=monitor: just watch.
 4. If monthly cost > 80% of $30 budget → be conservative, prefer monitor.
 5. Never repeat the same focus_repo two days in a row unless it's still broken.
-6. Be decisive. Shayan is busy. One sharp plan beats hedging.`;
+6. Be decisive. Shayan is busy. One sharp plan beats hedging.
+7. Check TRACK RECORD before choosing an action. If a repo has been focused
+   3+ times with an average health delta near zero or negative, "execute"
+   again on the same kind of task probably won't help — prefer action=audit
+   instead (the queued tasks may be the wrong fix) and say so plainly in
+   reasoning. A repo with no track record yet, or a clearly positive one,
+   is not held to this — proceed normally.`;
 
 async function initBrainSchema(): Promise<void> {
   await query(`
@@ -94,6 +100,36 @@ async function gatherIntelligence(): Promise<any> {
   `).catch(() => null);
   const prevFocus = prev?.rows?.[0]?.decision?.focus_repos || [];
 
+  // Feedback loop — recordBrainOutcome() has always computed a health delta
+  // per past decision, but nothing ever read it back into the next day's
+  // decision. Without this, the brain re-derives a strategy from scratch
+  // every day off current metrics alone and never learns whether focusing
+  // on a repo actually helped. Pull the last 20 decisions that have a
+  // completed outcome and aggregate per-repo: how many times has this repo
+  // been focused, and did health actually move when it was?
+  const history = await query(`
+    SELECT decision, outcome FROM brain_decisions
+    WHERE outcome IS NOT NULL
+    ORDER BY decided_at DESC LIMIT 20
+  `).catch(() => ({ rows: [] }));
+
+  const deltasByRepo: Record<string, number[]> = {};
+  for (const row of history.rows) {
+    const focusRepos: string[] = row.decision?.focus_repos || [];
+    const delta = parseFloat(row.outcome?.avgHealthDelta);
+    if (!focusRepos.length || Number.isNaN(delta)) continue;
+    for (const repo of focusRepos) {
+      (deltasByRepo[repo] ||= []).push(delta);
+    }
+  }
+  const trackRecord: Record<string, { timesFocused: number; avgHealthDelta: number }> = {};
+  for (const [repo, deltas] of Object.entries(deltasByRepo)) {
+    trackRecord[repo] = {
+      timesFocused: deltas.length,
+      avgHealthDelta: parseFloat((deltas.reduce((a, b) => a + b, 0) / deltas.length).toFixed(2)),
+    };
+  }
+
   const repoStates = (summary?.metrics || []).map((m: any) => {
     const t = taskMap[m.repo_name] || {};
     return {
@@ -117,6 +153,7 @@ async function gatherIntelligence(): Promise<any> {
     avgHealth:    summary?.avgHealth || 'N/A',
     brokenRepos:  (summary?.broken || []).map((m: any) => m.repo_name),
     prevFocus,
+    trackRecord,
   };
 }
 
@@ -125,6 +162,11 @@ async function callBrainAI(intelligence: any): Promise<string> {
     .sort((a: any, b: any) => parseFloat(a.health) - parseFloat(b.health))
     .map((r: any) =>
       `${r.repo}: health=${r.health}/10 build=${r.status} queued=${r.queued}(${r.safe} safe) roi=${r.avgRoi} done_week=${r.doneWeek}`
+    ).join('\n');
+
+  const trackRecordLines = Object.entries(intelligence.trackRecord || {})
+    .map(([repo, t]: [string, any]) =>
+      `${repo}: focused ${t.timesFocused}x before, avg health delta ${t.avgHealthDelta >= 0 ? '+' : ''}${t.avgHealthDelta}`
     ).join('\n');
 
   const prompt = `PORTFOLIO INTELLIGENCE — ${new Date().toDateString()}
@@ -138,6 +180,9 @@ ${repoLines}
 
 PATTERNS:
 ${intelligence.patterns.join('\n') || 'none detected'}
+
+TRACK RECORD (health delta from your past focus decisions on these repos — this is your only feedback on whether focusing actually helped; use it):
+${trackRecordLines || 'no completed outcomes yet'}
 
 Yesterday focused on: ${intelligence.prevFocus.join(', ') || 'nothing'}
 
