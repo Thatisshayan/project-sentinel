@@ -1,0 +1,41 @@
+{
+  "display_information": {
+    "name": "Project Sentinel",
+    "description": "Autonomous dev/ops agent for Project Sentinel — audits, sprints, security, and multi-agent dispatch.",
+    "background_color": "#1a1a2e"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "sentinel",
+      "always_online": true
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "channels:manage",
+        "channels:read",
+        "channels:history",
+        "app_mentions:read",
+        "commands"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://sentinel-backend-production-d225.up.railway.app/webhook/slack/events",
+      "bot_events": [
+        "app_mention",
+        "message.channels"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://sentinel-backend-production-d225.up.railway.app/webhook/slack/interactions"
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}
