@@ -13,6 +13,7 @@ import { timingSafeEqual } from './utils/timingSafeCompare';
 import { initSchema } from './dbClient';
 import { initAuditSchema } from './auditDb';
 import { initSlackSchema } from './slackClient';
+import { initExternalAgentSchema } from './agents/externalAgentRegistry';
 import { initPortfolioSchema } from './portfolioDb';
 import { initSprintSchema } from './sprintDb';
 import { initAgentSchema } from './agentDb';
@@ -396,6 +397,8 @@ app.listen(PORT, () => {
     logger.info('Settings schema ready');
     await initSlackSchema();
     logger.info('Slack schema ready');
+    await initExternalAgentSchema();
+    logger.info('External agent roster ready');
     await initSelfScaler();
     logger.info('Self-scaler initialized');
     await probeTools();
