@@ -238,6 +238,26 @@ slices above.
   correct Slack channel; audit-complete notifications include working
   execute/skip buttons in both platforms; new repos get their Slack channel
   auto-created on onboarding.
+- **2026-07-22, commit `837fa28`** — **Phase 4, dispatch half shipped.** New
+  `external_agents` table (`backend/src/agents/externalAgentRegistry.ts`),
+  seeded idempotently with the confirmed roster — Kilo, Viktor, Devin,
+  Manus, CodeRabbit — each with its Slack `@mention` handle and role
+  (worker/authority/auditor). `dispatchToAgent(agentId, task, repoName)`
+  posts `@mention task` into the repo's channel via the existing
+  `sendSlackMessage`. The roster is genuinely data now — adding agent #6 is
+  an `INSERT`, matching the round-4 design goal. 10 new tests. Full suite
+  43/43 files, 339/339 tests, `tsc --noEmit` clean.
+  **Deliberately not built in this slice (scope boundary, not an oversight):**
+  reply correlation — nothing yet watches a channel for an agent's response
+  and ties it back to the task that was dispatched (`threadWatcher.ts` from
+  the original design). Right now `dispatchToAgent` can *send* a task but
+  Sentinel has no way to know when/whether the agent replied. This needs
+  `slackEvents.ts` to also subscribe to plain `message` events (currently
+  only `app_mention`) plus a pending-dispatch tracking table to correlate
+  by channel + thread — real follow-up work, not started. No command yet
+  calls `dispatchToAgent` either (e.g. a `assign <agent> <repo> <task>`
+  command) — the function exists and is tested but isn't wired into the
+  command layer yet.
 
 ## 1. Goal
 
