@@ -87,6 +87,21 @@ async function getAuditCycle(repoFullName: string, commitSha: string): Promise<a
   return r.rows[0] || null;
 }
 
+/**
+ * Phase 2 of docs/2026-07-22-slack-agent-roster-plan.md — has CodeRabbit
+ * already produced an audit cycle for this exact repo+commit? Used to gate
+ * the claudeCodeAudit.ts fallback so it only runs when CodeRabbit's webhook
+ * genuinely never arrived, not as a redundant second reviewer.
+ */
+async function hasCodeRabbitAuditedCommit(repoFullName: string, commitSha: string): Promise<boolean> {
+  const r = await query(`
+    SELECT 1 FROM audit_cycles
+    WHERE repo_full_name = $1 AND commit_sha = $2 AND audit_agent = 'coderabbit'
+    LIMIT 1
+  `, [repoFullName, commitSha]);
+  return r.rows.length > 0;
+}
+
 async function getActiveCycleForRepo(repoFullName: string): Promise<any | null> {
   const r = await query(`
     SELECT * FROM audit_cycles
@@ -250,6 +265,7 @@ export = {
   initAuditSchema,
   getAuditCycle,
   getActiveCycleForRepo,
+  hasCodeRabbitAuditedCommit,
   getLastCompletedAudit,
   getPreviousHealthScore,
   createAuditCycle,

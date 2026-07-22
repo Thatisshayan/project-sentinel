@@ -8,6 +8,7 @@ const AUTO_APPROVE_JOB       = 'auto-approve-sprint';
 const PR_IMPACT_CHECK_JOB    = 'pr-impact-check';
 const SPRINT_CONTINUE_JOB    = 'sprint-continue';
 const AUDIT_APPROVAL_TIMEOUT_JOB = 'audit-approval-timeout';
+const CODERABBIT_FALLBACK_JOB    = 'coderabbit-fallback-audit';
 
 /**
  * The actual job-processing logic, factored out of the BullMQ Worker
@@ -63,6 +64,24 @@ async function processScheduledJob(job: any): Promise<void> {
     return;
   }
 
+  if (job.name === CODERABBIT_FALLBACK_JOB) {
+    const { repoFullName, commitSha, auditPayload } = job.data;
+    const { hasCodeRabbitAuditedCommit } = require('../auditDb');
+    const alreadyHandled = await hasCodeRabbitAuditedCommit(repoFullName, commitSha).catch((err: any) => {
+      logger.error({ err: err.message, repoFullName, commitSha },
+        'hasCodeRabbitAuditedCommit check failed — erring toward running the fallback audit rather than silently skipping');
+      return false;
+    });
+    if (alreadyHandled) {
+      logger.info({ repoFullName, commitSha }, 'CodeRabbit already audited this commit — skipping Sentinel fallback');
+      return;
+    }
+    logger.info({ repoFullName, commitSha }, 'CodeRabbit webhook never arrived — running Sentinel fallback audit');
+    const { triggerAudit } = require('../auditOrchestrator');
+    await triggerAudit(auditPayload);
+    return;
+  }
+
   logger.warn({ jobName: job.name }, 'Unknown scheduled job type');
 }
 
@@ -86,4 +105,4 @@ export function startScheduledJobsWorker(): Worker | null {
   return worker;
 }
 
-export { AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB, processScheduledJob };
+export { AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB, CODERABBIT_FALLBACK_JOB, processScheduledJob };

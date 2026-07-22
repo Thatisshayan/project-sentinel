@@ -1,5 +1,6 @@
 import { Worker } from 'bullmq';
-import { getRedisConnection, enqueueBuildCheck } from '../queueClient';
+import { getRedisConnection, enqueueBuildCheck, enqueueScheduledJob } from '../queueClient';
+import { CODERABBIT_FALLBACK_JOB } from './scheduledJobsWorker';
 import { releaseExpiredLocks } from '../agentDb';
 import { runSelfAudit } from '../selfAuditor';
 import { checkAndHeal } from '../selfHealer';
@@ -128,8 +129,14 @@ export function startBuildPollWorker(): Worker | null {
           logger.error({ err: err.stack ?? err.message }, 'handleBuildPassedAfterSentinelMerge failed')
         );
       } else if (process.env['AUDIT_AGENT_ENABLED'] !== 'false') {
-        // Human commit — trigger fresh audit (subject to 4 rules in auditOrchestrator)
-        await triggerAudit({
+        // Human commit — CodeRabbit (Phase 2, docs/2026-07-22-slack-agent-roster-plan.md)
+        // is the primary audit engine and already auto-reviews via its own
+        // GitHub App. Rather than running Sentinel's own claudeCodeAudit.ts
+        // immediately (redundant if CodeRabbit is going to review anyway),
+        // schedule a delayed fallback check: only run Sentinel's audit if
+        // CodeRabbit's webhook hasn't produced an audit cycle for this exact
+        // commit by the time the delay elapses.
+        const auditPayload = {
           repoFullName,
           repoName:      data.repoName,
           projectName:   data.projectName,
@@ -139,9 +146,24 @@ export function startBuildPollWorker(): Worker | null {
           authorName:    data.authorName,
           authorEmail:   data.authorEmail,
           topicId:       data.topicId,
-        }).catch((err: any) =>
-          logger.error({ err: err.stack ?? err.message }, 'Audit trigger failed')
-        );
+        };
+        const fallbackDelayMin = parseInt(process.env['CODERABBIT_FALLBACK_DELAY_MIN'] || '45');
+        await enqueueScheduledJob(
+          CODERABBIT_FALLBACK_JOB,
+          { repoFullName, commitSha, auditPayload },
+          fallbackDelayMin * 60 * 1000,
+          `coderabbit-fallback:${repoFullName}:${commitSha}`
+        ).catch((err: any) => {
+          // Same failure-visibility principle as auditOrchestrator's
+          // scheduleApprovalTimeout — if scheduling the fallback fails, no
+          // audit will ever run for this commit unless someone notices and
+          // triggers one manually, so make that loud rather than silent.
+          logger.error({ err: err.message, repoFullName, commitSha },
+            'Failed to schedule CodeRabbit-fallback audit — running Sentinel audit immediately instead as a safety net');
+          return triggerAudit(auditPayload).catch((err2: any) =>
+            logger.error({ err: err2.stack ?? err2.message }, 'Audit trigger failed')
+          );
+        });
       }
 
       // Phase 9 — security scan on every passing build (non-blocking)

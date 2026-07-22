@@ -26,11 +26,18 @@ jest.mock('../src/correlationEngine', () => ({
 }));
 
 const checkApprovalTimeoutMock = jest.fn().mockResolvedValue(undefined);
+const triggerAuditMock         = jest.fn().mockResolvedValue(undefined);
 jest.mock('../src/auditOrchestrator', () => ({
   checkApprovalTimeout: (...a: any[]) => checkApprovalTimeoutMock(...a),
+  triggerAudit:         (...a: any[]) => triggerAuditMock(...a),
 }));
 
-import { processScheduledJob, AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB } from '../src/workers/scheduledJobsWorker';
+const hasCodeRabbitAuditedCommitMock = jest.fn();
+jest.mock('../src/auditDb', () => ({
+  hasCodeRabbitAuditedCommit: (...a: any[]) => hasCodeRabbitAuditedCommitMock(...a),
+}));
+
+import { processScheduledJob, AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB, CODERABBIT_FALLBACK_JOB } from '../src/workers/scheduledJobsWorker';
 
 /**
  * NOTE on scope: these tests exercise processScheduledJob() directly with
@@ -111,6 +118,33 @@ describe('processScheduledJob', () => {
         data: { cycleId: 7, repoFullName: 'org/tapcash', repoName: 'tapcash', topicId: 'topic-1' },
       });
       expect(checkApprovalTimeoutMock).toHaveBeenCalledWith(7, 'org/tapcash', 'tapcash', 'topic-1');
+    });
+  });
+
+  describe(CODERABBIT_FALLBACK_JOB, () => {
+    const jobData = {
+      repoFullName: 'org/costpilot',
+      commitSha: 'abc123',
+      auditPayload: { repoFullName: 'org/costpilot', commitSha: 'abc123', repoName: 'costpilot' },
+    };
+
+    it('skips the Sentinel fallback audit when CodeRabbit already audited this commit', async () => {
+      hasCodeRabbitAuditedCommitMock.mockResolvedValue(true);
+      await processScheduledJob({ name: CODERABBIT_FALLBACK_JOB, data: jobData });
+      expect(hasCodeRabbitAuditedCommitMock).toHaveBeenCalledWith('org/costpilot', 'abc123');
+      expect(triggerAuditMock).not.toHaveBeenCalled();
+    });
+
+    it('runs the Sentinel fallback audit when CodeRabbit never audited this commit', async () => {
+      hasCodeRabbitAuditedCommitMock.mockResolvedValue(false);
+      await processScheduledJob({ name: CODERABBIT_FALLBACK_JOB, data: jobData });
+      expect(triggerAuditMock).toHaveBeenCalledWith(jobData.auditPayload);
+    });
+
+    it('errs toward running the fallback audit (not silently skipping) if the DB check itself fails', async () => {
+      hasCodeRabbitAuditedCommitMock.mockRejectedValue(new Error('db down'));
+      await processScheduledJob({ name: CODERABBIT_FALLBACK_JOB, data: jobData });
+      expect(triggerAuditMock).toHaveBeenCalledWith(jobData.auditPayload);
     });
   });
 
