@@ -43,7 +43,7 @@ function checkRateLimit(req: NextRequest): { allowed: boolean; remaining: number
 // Clean up expired entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
-  for (const [ip, data] of rateLimitStore.entries()) {
+  for (const [ip, data] of Array.from(rateLimitStore.entries())) {
     if (now > data.resetTime) {
       rateLimitStore.delete(ip);
     }

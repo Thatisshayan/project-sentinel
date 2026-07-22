@@ -26,7 +26,7 @@ export function rateLimitMiddleware(ip: string): { allowed: boolean; remaining: 
 
 export function cleanupExpiredEntries(): void {
   const now = Date.now();
-  for (const [ip, data] of rateLimitStore.entries()) {
+  for (const [ip, data] of Array.from(rateLimitStore.entries())) {
     if (now > data.resetTime) {
       rateLimitStore.delete(ip);
     }
