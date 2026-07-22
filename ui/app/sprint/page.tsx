@@ -1,5 +1,4 @@
 import { getCurrentSprint } from "@/lib/api";
-import { AGENTS } from "@/lib/data";
 import { SprintView } from "@/components/sentinel/sprint-view";
 
 export const revalidate = 60;
@@ -13,16 +12,13 @@ export default async function SprintPage() {
     fetchFailed = true;
   }
 
-  // Build display data — fallback to mock if no API data yet
-  const sprint = data?.sprint ?? null;
-  const isDemoData = sprint === null;
-  const demoReason = fetchFailed
-    ? "Couldn't reach the sprint API — showing example data"
-    : "No active sprint this week — showing example data";
-  const tasks  = data?.tasks  ?? MOCK_TASKS;
-  const velocity = (data?.velocity ?? []).length > 0
-    ? data!.velocity.map(v => ({ value: v.tasks_completed, label: weekLabel(v.week_start) }))
-    : MOCK_VELOCITY;
+  // Deliberately no mock fallback — a fabricated "Sprint 24" with fake
+  // tasks/velocity is indistinguishable from a real sprint and can paper
+  // over a genuine backend outage. Render whatever's real (possibly empty)
+  // and let SprintView show an honest empty/error state instead.
+  const sprint  = data?.sprint ?? null;
+  const tasks   = data?.tasks  ?? [];
+  const velocity = (data?.velocity ?? []).map(v => ({ value: v.tasks_completed, label: weekLabel(v.week_start) }));
 
   const done    = tasks.filter(t => t.status === 'done' || t.status === 'completed').length;
   const total   = tasks.length;
@@ -37,7 +33,7 @@ export default async function SprintPage() {
         id:       sprint.id,
         status:   sprint.status,
       }
-    : MOCK_SPRINT;
+    : null;
 
   const displayTasks = tasks.map(t => ({
     title:    'task_title' in t ? (t as any).task_title : (t as any).title,
@@ -52,8 +48,7 @@ export default async function SprintPage() {
       sprint={displaySprint}
       tasks={displayTasks}
       velocity={velocity}
-      isDemoData={isDemoData}
-      demoReason={demoReason}
+      loadError={fetchFailed}
     />
   );
 }
@@ -75,24 +70,3 @@ function weekLabel(iso: string) {
   const week  = Math.floor((d.getTime() - start.getTime()) / (7 * 24 * 3600 * 1000)) + 1;
   return `W${week}`;
 }
-
-// ── Fallback mock data ────────────────────────────────────────────────────────
-
-const MOCK_SPRINT = { name:"Sprint 24 — Core Hardening", start:"Jun 9", end:"Jun 22", progress:68, id:0, status:'approved' };
-
-const MOCK_TASKS = [
-  { title:"Refactor auth middleware → JWT RS256",      agent:"Nemotron",   status:"done",    priority:"P0", id:1 },
-  { title:"Add pagination to /users endpoint",         agent:"Qwen Coder", status:"working", priority:"P1", id:2 },
-  { title:"Fix CORS headers on OPTIONS preflight",     agent:"Llama",      status:"working", priority:"P1", id:3 },
-  { title:"CVE scan: lodash, express-validator",       agent:"Qwen Turbo", status:"working", priority:"P0", id:4 },
-  { title:"Optimize N+1 queries in /reports",          agent:"DeepSeek",   status:"blocked", priority:"P1", id:5 },
-  { title:"Add OpenTelemetry tracing to api-gateway",  agent:null,          status:"todo",    priority:"P2", id:6 },
-  { title:"Write E2E tests for auth flow",             agent:null,          status:"todo",    priority:"P1", id:7 },
-  { title:"Update OpenAPI spec v2.1",                  agent:"Llama",      status:"done",    priority:"P2", id:8 },
-];
-
-const MOCK_VELOCITY = [
-  { value:18, label:"W17" },{ value:22, label:"W18" },{ value:15, label:"W19" },
-  { value:28, label:"W20" },{ value:31, label:"W21" },{ value:24, label:"W22" },
-  { value:27, label:"W23" },{ value:19, label:"W24" },
-];

@@ -28,6 +28,7 @@ function relTime(iso: string | null) {
 
 export default async function ReposPage() {
   let repos: Repo[] = [];
+  let loadError = false;
 
   try {
     const portfolio = await getPortfolio();
@@ -44,8 +45,10 @@ export default async function ReposPage() {
       tasks:    r.tasks_queued ?? 0,
     }));
   } catch {
-    const { REPOS } = await import("@/lib/data");
-    repos = REPOS;
+    // Deliberately no mock fallback — fabricated repo health/security
+    // numbers are indistinguishable from real data and can paper over a
+    // genuine backend outage. Show an honest empty/error state instead.
+    loadError = true;
   }
 
   return (
@@ -54,6 +57,12 @@ export default async function ReposPage() {
         <span className="text-xs text-s-muted">{repos.length} repositories</span>
         <RepoActions />
       </div>
+
+      {loadError && (
+        <div className="px-5 py-3 border-b border-s-border text-[11px] text-s-red font-mono">
+          ⚠ Could not reach the portfolio API — showing no data rather than guessing. Check the backend connection and refresh.
+        </div>
+      )}
 
       <div
         className="border-b border-s-border bg-white/[0.01] flex-shrink-0"
@@ -65,6 +74,9 @@ export default async function ReposPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        {repos.length === 0 && !loadError && (
+          <div className="px-5 py-8 text-center text-[11px] text-s-dim">No repos tracked yet.</div>
+        )}
         {repos.map((repo, i) => (
           <RepoRow
             key={repo.name}

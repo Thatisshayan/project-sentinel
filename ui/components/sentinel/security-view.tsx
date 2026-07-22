@@ -33,9 +33,10 @@ interface Props {
   scores: { repo: string; score: number; critical: number; high: number; medium: number; low: number }[];
   issues: { id: number; repo: string; title: string; cve: string | null; cvss: number | null; severity: string; status: string }[];
   summary: { avgScore: number; openCount: number; criticalCount: number; patchedCount: number };
+  loadError?: boolean;
 }
 
-export function SecurityView({ scores, issues, summary }: Props) {
+export function SecurityView({ scores, issues, summary, loadError }: Props) {
   const router = useRouter();
   const [scanning, setScanning] = useState(false);
   const [patching, setPatching] = useState<number | null>(null);
@@ -67,6 +68,12 @@ export function SecurityView({ scores, issues, summary }: Props) {
 
   return (
     <div className="p-5 space-y-5 overflow-y-auto flex-1">
+      {loadError && (
+        <div className="px-4 py-3 rounded-lg border border-s-red/40 bg-s-red/10 text-[11px] text-s-red font-mono">
+          ⚠ Could not reach the security API — showing no data rather than guessing. Check the backend connection and refresh.
+        </div>
+      )}
+
       {/* Summary bar */}
       <div className="grid grid-cols-4 gap-3">
         {[
@@ -99,33 +106,39 @@ export function SecurityView({ scores, issues, summary }: Props) {
             {scanning ? "Scanning…" : "Run All Scans"}
           </button>
         </div>
-        <div className="grid grid-cols-3 gap-px bg-s-border">
-          {scores.map(r => {
-            const color = scoreColor(r.score);
-            const total = r.critical + r.high + r.medium + r.low;
-            return (
-              <div key={r.repo} className="bg-s-bg p-3 hover:bg-white/[0.02] transition-colors">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] font-medium font-mono truncate">{r.repo}</span>
-                  <span className="text-sm font-extrabold font-mono ml-2 flex-shrink-0" style={{ color }}>{r.score}</span>
-                </div>
-                <div className="h-1 bg-s-border rounded-full overflow-hidden mb-2">
-                  <div className="h-full rounded-full transition-all" style={{ width:`${r.score}%`, background:color }} />
-                </div>
-                {total > 0 ? (
-                  <div className="flex gap-2 text-[9px] font-mono">
-                    {r.critical > 0 && <span className="text-s-red">{r.critical} crit</span>}
-                    {r.high > 0 && <span className="text-s-amber">{r.high} high</span>}
-                    {r.medium > 0 && <span className="text-s-ind">{r.medium} med</span>}
-                    {r.low > 0 && <span className="text-s-dim">{r.low} low</span>}
+        {scores.length > 0 ? (
+          <div className="grid grid-cols-3 gap-px bg-s-border">
+            {scores.map(r => {
+              const color = scoreColor(r.score);
+              const total = r.critical + r.high + r.medium + r.low;
+              return (
+                <div key={r.repo} className="bg-s-bg p-3 hover:bg-white/[0.02] transition-colors">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-medium font-mono truncate">{r.repo}</span>
+                    <span className="text-sm font-extrabold font-mono ml-2 flex-shrink-0" style={{ color }}>{r.score}</span>
                   </div>
-                ) : (
-                  <span className="text-[9px] text-s-dim font-mono">no issues</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  <div className="h-1 bg-s-border rounded-full overflow-hidden mb-2">
+                    <div className="h-full rounded-full transition-all" style={{ width:`${r.score}%`, background:color }} />
+                  </div>
+                  {total > 0 ? (
+                    <div className="flex gap-2 text-[9px] font-mono">
+                      {r.critical > 0 && <span className="text-s-red">{r.critical} crit</span>}
+                      {r.high > 0 && <span className="text-s-amber">{r.high} high</span>}
+                      {r.medium > 0 && <span className="text-s-ind">{r.medium} med</span>}
+                      {r.low > 0 && <span className="text-s-dim">{r.low} low</span>}
+                    </div>
+                  ) : (
+                    <span className="text-[9px] text-s-dim font-mono">no issues</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="px-4 py-6 text-center text-[11px] text-s-dim">
+            {loadError ? "No data — backend unreachable." : "No security data yet — run a scan to get started."}
+          </div>
+        )}
       </div>
 
       {/* Issues table */}

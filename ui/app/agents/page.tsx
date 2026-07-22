@@ -22,6 +22,7 @@ export default async function AgentsPage() {
     repo: string | null; task: string | null;
     completedTasks: number; failedTasks: number;
   }[] = [];
+  let loadError = false;
 
   try {
     const raw = await getAgents();
@@ -36,12 +37,11 @@ export default async function AgentsPage() {
       failedTasks:    a.failed_tasks,
     }));
   } catch {
-    const { AGENTS } = await import("@/lib/data");
-    agents = AGENTS.map(a => ({
-      id: a.id, label: a.name, color: a.color, status: a.status,
-      repo: a.repo, task: a.task, completedTasks: a.done, failedTasks: a.fails,
-    }));
+    // Deliberately no mock fallback — fabricated agent statuses are
+    // indistinguishable from real data and can paper over a genuine
+    // backend outage. Show an honest empty/error state instead.
+    loadError = true;
   }
 
-  return <AgentsView agents={agents} />;
+  return <AgentsView agents={agents} loadError={loadError} />;
 }

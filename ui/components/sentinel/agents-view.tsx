@@ -113,7 +113,7 @@ function AgentCard({ agent, index }: { agent: Agent; index: number }) {
   );
 }
 
-export function AgentsView({ agents }: { agents: Agent[] }) {
+export function AgentsView({ agents, loadError }: { agents: Agent[]; loadError?: boolean }) {
   const router = useRouter();
   const [pausing, setPausing] = useState(false);
 
@@ -130,6 +130,11 @@ export function AgentsView({ agents }: { agents: Agent[] }) {
 
   return (
     <div className="p-5 overflow-y-auto flex-1">
+      {loadError && (
+        <div className="mb-5 px-4 py-3 rounded-lg border border-s-red/40 bg-s-red/10 text-[11px] text-s-red font-mono">
+          ⚠ Could not reach the agents API — showing no data rather than guessing. Check the backend connection and refresh.
+        </div>
+      )}
       <div className="flex items-center justify-between mb-5">
         <span className="text-xs text-s-muted">{agents.length} agents configured</span>
         <div className="flex gap-2">
@@ -148,6 +153,10 @@ export function AgentsView({ agents }: { agents: Agent[] }) {
           </button>
         </div>
       </div>
+
+      {agents.length === 0 && !loadError && (
+        <div className="px-4 py-8 text-center text-[11px] text-s-dim">No agents configured yet.</div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 mb-6">
         {agents.map((agent, i) => (
