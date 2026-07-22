@@ -568,6 +568,61 @@ reaching this app's Events API subscription at all — the single
 longest-standing open question in this entire doc, unresolved since
 round 1.**
 
+- **2026-07-22 — item (b) above RESOLVED, confirmed live in production,
+  same session.** Dispatched a real `assign kilo costpilot ...` test via
+  the production API, then the owner sent a real Slack message (`@sentinel
+  ...`, with leading blockquote formatting) in that channel. Production
+  logs show real `message` and `app_mention` events reaching
+  `/webhook/slack/events`, passing signature verification, and being
+  processed — the single biggest open question in this entire doc since
+  round 1 is answered: **yes, Slack delivers events to this endpoint.**
+  Two smaller, real bugs found and fixed in the process, both live-deployed
+  same session:
+  1. `verifySlackSignature()` had two silent-rejection paths (missing
+     headers, HMAC mismatch) with zero logging — a quiet stretch in prod
+     logs was indistinguishable from "nothing ever arrived." Added logging
+     to every rejection path plus one unconditional "request received" log
+     at the top of the handler (commit `ea63b6d`).
+  2. `stripBotMention()` only stripped a mention anchored at the exact
+     start of the text — the real event's text arrived as `"> • <@BOTID>
+     \nTest"` (leading formatting before the mention) and parsed into
+     unusable garbage. Fixed to take everything after the LAST mention
+     occurrence anywhere in the text (commit `bad5555`).
+  **Still open:** reply attribution for external agents (Kilo, Manus, etc.)
+  and Viktor specifically still depends on `users:read` being added (see
+  item (a) above) — confirming general event delivery works is not the
+  same as confirming a *specific* agent's replies are correctly attributed.
+- **2026-07-22, commit `b009cc9` — systemic null-repoName bug found and
+  fixed across ~15 call sites, well beyond the original scope.** Testing
+  the above surfaced `handleManualAudit()` (`commands/repoOps.ts`) had no
+  repo-name validation at all — a natural-language mention ("audit the
+  costpilot repo") tokenized to repo="the", went straight into
+  `triggerAudit()`, and failed cloning a nonexistent GitHub repo with zero
+  visible feedback to the owner. Fixed with a real tracked-repo-list check
+  before doing anything. Investigating *that* silently-invisible failure
+  revealed the actual root cause runs far deeper: the 2026-07-22
+  "repoName-null audit" (commit `36031c9`) only ever covered
+  `commands/*.ts` — every other file that calls `sendTelegramMessage()`
+  directly was never checked. A full sweep found and fixed every
+  genuinely repo-specific call site still hardcoding `null`: essentially
+  all of `auditOrchestrator.ts` (~14 sites — this whole orchestrator was
+  Telegram-only despite Phase 1 claiming complete Slack parity),
+  `taskBuilder.ts`, all 6 sites in `debugOrchestrator.ts` (the auto-debug
+  path), `workers/buildPollWorker.ts`, and — among the most consequential —
+  `webhook/processPREvent.ts`'s PR-merged/PR-rejected messages, two of the
+  most frequent notifications in the whole system. Left alone (verified,
+  not assumed): `sprintOrchestrator.ts`'s and `selfHealer.ts`'s genuinely
+  portfolio-wide messages, `parallelExecutor.ts`'s batch-wide summary,
+  `scheduledJobsWorker.ts`'s sprint-wide auto-approve message — none of
+  these have a single repo to attribute to.
+  Also added: `postAuditSummaryToGithub()` posts the audit result (success
+  summary or failure reason) as a GitHub commit comment on the repo's real
+  latest commit — manual audits use a synthetic `commitSha`, so this
+  resolves the actual one via the GitHub API rather than trusting the
+  payload. 4 pre-existing tests had hardcoded the buggy `null` as the
+  expected/correct behavior — fixed to assert the real repoName instead.
+  Full suite: 53/53 files, 431/431 tests, `tsc --noEmit` clean.
+
 ## 1. Goal
 
 Bring Slack online as a full parallel channel to Telegram, and expand Sentinel's
