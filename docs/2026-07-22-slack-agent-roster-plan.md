@@ -347,6 +347,46 @@ slices above.
   before building Snyk integration from scratch.
   10 new tests. Full suite 45/45 files, 358/358 tests, `tsc --noEmit`
   clean.
+- **2026-07-22, commit `20bc919`** — **self-caught race condition, fixed.**
+  While doing an honest self-audit at the owner's request, found that
+  `processCodeRabbitPRComment.ts` computed the next `task_number` from a
+  repo-wide count (wrong scope — should be per audit cycle) with no
+  locking, meaning concurrent webhook deliveries for the same PR
+  (CodeRabbit often posts several inline comments in a burst) could race
+  and silently create two tasks with the same `task_number`. Fixed with a
+  new `idx_audit_tasks_cycle_tasknum` unique index (fails loud instead of
+  silently duplicating) plus a correctly cycle-scoped
+  `getNextTaskNumberForCycle()` and a bounded 5-attempt retry loop keyed on
+  the specific Postgres collision code (23505) — a genuine unrelated DB
+  error still fails fast. Also fixed: the function previously logged
+  "ingested" and sent a Slack/Telegram notification even when every retry
+  attempt failed. **Verified no pre-existing duplicate `(audit_cycle_id,
+  task_number)` data existed in production before adding the unique index**
+  (queried live via Postgres's public proxy — a blind `CREATE UNIQUE INDEX`
+  could otherwise have failed the whole migration at next startup). 3 new
+  regression tests. Full suite 45/45 files, 361/361 tests, `tsc --noEmit`
+  clean.
+- **2026-07-22 — branch cleanup.** Audited all 36 remote branches
+  individually (git commit-count + `comm -23` file-existence checks +
+  GitHub PR `mergedAt` status, not just raw `git log` ahead-counts, which
+  are misleading for squash-merged branches). Deleted 24 confirmed-merged
+  branches after owner approval. Left untouched: PR #24
+  (`feat/phase4-test-coverage`, still open on GitHub with content already
+  present in `main` via PR #26's redo — owner has not yet decided whether
+  to close it), two historical snapshot branches
+  (`backup-local-main-pre-merge`, `phase1-typescript-foundation`), and all
+  9 Dependabot branches (genuinely pending, not stale).
+- **2026-07-22 — production deploys, cumulative.** Slack credentials
+  (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`) set via Railway CLI (already
+  authenticated/linked — confirmed during this session) from the owner's
+  real Slack app, created via the generated manifest
+  (`docs/slack-app-manifest.json`). Sentry DSN also set
+  (`SENTRY_DSN`, reusing an existing `obsidian-xk/node` Sentry project's
+  "Default" key — dedicated-project creation is disabled for org members)
+  but explicitly parked at the owner's request, not otherwise wired up
+  further this session. Multiple `railway up` redeploys shipped
+  today's commits to production progressively; each verified via `railway
+  status` (Online) rather than assumed.
 
 ## 1. Goal
 
