@@ -283,6 +283,70 @@ slices above.
   all, or whether Slack filters bot-to-bot traffic by default — flagged
   since round 1, still unverified, now the single biggest remaining
   question mark for whether reply correlation works in practice.
+- **2026-07-22, commit `ec95761`** — **roster corrected against reality.**
+  Owner connected all agents to the real Slack workspace and the actual
+  `@mention` handles turned out lowercase (`@kilo`, `@viktor`, `@devin`, not
+  the capitalized guesses seeded earlier from public docs), plus three
+  agents not in the original design at all: **`@claude`, `@codex`, and
+  `@hermes`** — all added as dispatchable workers. **`@hermes` is a real
+  correction to Phase 5's design** (section "Phase 5 — Hermes Agent as
+  personal assistant" above): it's Slack-native, not the hosted
+  OpenAI-compatible API originally assumed — dispatched the same
+  `@mention` way as the rest of the roster now, while still keeping a
+  dedicated channel for the personal-assistant use case per the original
+  intent. `@github` and `@slackbot` confirmed as Slack's own bots, not
+  agents — not added. Seed logic changed from `DO NOTHING` to `DO UPDATE`
+  (excluding `enabled`) so future handle corrections just need a redeploy,
+  not a manual DB fix. 13 updated tests, full suite green. **Historical
+  mentions of `@Kilo`/`@Viktor`/`@Devin` (capitalized) elsewhere in this doc
+  reflect what was believed at the time they were written — this entry is
+  the current source of truth, not those.**
+- **2026-07-22 — production deployment log (separate from feature commits
+  above):** the last successful deploy before this session was 2026-07-19;
+  a build pushed after that (before this session started) broke on the
+  exact same `retry.ts`/SSL bug fixed in commit `b55ec64`, leaving
+  production silently stuck on 3-day-stale code with every deploy attempt
+  since failing. Verified via `railway deployment list` + `railway logs
+  --build`. Redeployed via `railway up` (uploads the local working tree
+  directly, independent of whether commits have been pushed to the git
+  remote) once `b55ec64` was in place — confirmed via `railway status`
+  (Online) and a live `url_verification` curl test against
+  `/webhook/slack/events` (200, correct echo). **Local commits have NOT
+  been pushed to `origin/main` yet** — Railway's deploys in this session
+  went via `railway up` from the local tree, not git-triggered auto-deploy;
+  pushing is still owed as a separate step so GitHub reflects what's
+  actually running.
+- **2026-07-22, commit `c126bae`** — **Phase 2 corrected: CodeRabbit has no
+  self-serve outbound webhook for GitHub.** Owner checked the CodeRabbit
+  dashboard and couldn't find one — confirmed via docs research: for
+  GitHub, CodeRabbit's webhook relationship is GitHub → CodeRabbit, not
+  the reverse. `processCodeRabbitEvent.ts`/`/webhook/coderabbit` (the
+  original design) is now dormant infrastructure — not wrong to have kept,
+  but will not receive real traffic on this GitHub-based setup. **The real
+  ingestion path**, per the owner's "both" decision: new
+  `processCodeRabbitPRComment.ts` recognizes `pull_request_review_comment`
+  events (delivered through the *existing* `/webhook/github` route, not a
+  new endpoint) authored by CodeRabbit's bot account and ingests each as an
+  `audit_tasks` row, same `source='coderabbit'` tagging as before.
+  CodeRabbit's native Slack presence (`@coderabbit`, already connected)
+  covers the "both" other half — no code needed there, it's their own
+  product behavior.
+  **Verified against a real payload was NOT possible** — `coderabbitai[bot]`
+  is CodeRabbit's publicly known GitHub App login, assumed but not yet
+  confirmed against an actual delivery.
+  `repoOnboarder.ts`'s webhook registration updated to include
+  `pull_request_review_comment` for future repos.
+  **Also fixed while in there:** this repo's own GitHub webhook was missing
+  plain `pull_request` entirely (unrelated pre-existing gap, patched
+  directly via `gh api`) alongside adding the new event type. **The other
+  10 already-onboarded repos still need the same backfill — not done, no
+  script written yet.**
+  **Also discovered, not yet acted on:** Snyk is already connected to this
+  repo via its own GitHub webhook (`api.snyk.io/webhook/github/...`) — some
+  Phase 3 groundwork may already exist on the account side, worth checking
+  before building Snyk integration from scratch.
+  10 new tests. Full suite 45/45 files, 358/358 tests, `tsc --noEmit`
+  clean.
 
 ## 1. Goal
 
