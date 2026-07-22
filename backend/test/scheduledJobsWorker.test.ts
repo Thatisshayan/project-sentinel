@@ -37,7 +37,12 @@ jest.mock('../src/auditDb', () => ({
   hasCodeRabbitAuditedCommit: (...a: any[]) => hasCodeRabbitAuditedCommitMock(...a),
 }));
 
-import { processScheduledJob, AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB, CODERABBIT_FALLBACK_JOB } from '../src/workers/scheduledJobsWorker';
+const runRoundtableSynthesisMock = jest.fn().mockResolvedValue(undefined);
+jest.mock('../src/agents/roundtable', () => ({
+  runRoundtableSynthesis: (...a: any[]) => runRoundtableSynthesisMock(...a),
+}));
+
+import { processScheduledJob, AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB, CODERABBIT_FALLBACK_JOB, ROUNDTABLE_TIMEOUT_JOB } from '../src/workers/scheduledJobsWorker';
 
 /**
  * NOTE on scope: these tests exercise processScheduledJob() directly with
@@ -145,6 +150,13 @@ describe('processScheduledJob', () => {
       hasCodeRabbitAuditedCommitMock.mockRejectedValue(new Error('db down'));
       await processScheduledJob({ name: CODERABBIT_FALLBACK_JOB, data: jobData });
       expect(triggerAuditMock).toHaveBeenCalledWith(jobData.auditPayload);
+    });
+  });
+
+  describe(ROUNDTABLE_TIMEOUT_JOB, () => {
+    it('delegates to roundtable.runRoundtableSynthesis with the session id', async () => {
+      await processScheduledJob({ name: ROUNDTABLE_TIMEOUT_JOB, data: { sessionId: 5 } });
+      expect(runRoundtableSynthesisMock).toHaveBeenCalledWith(5);
     });
   });
 

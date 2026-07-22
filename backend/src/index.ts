@@ -15,6 +15,7 @@ import { initAuditSchema } from './auditDb';
 import { initSlackSchema } from './slackClient';
 import { initExternalAgentSchema } from './agents/externalAgentRegistry';
 import { initViktorAuthoritySchema } from './viktorAuthority';
+import { initRoundtableSchema } from './agents/roundtable';
 import { initPortfolioSchema } from './portfolioDb';
 import { initSprintSchema } from './sprintDb';
 import { initAgentSchema } from './agentDb';
@@ -398,6 +399,8 @@ app.listen(PORT, () => {
     logger.info('External agent roster ready');
     await initViktorAuthoritySchema();
     logger.info('Viktor authority schema ready');
+    await initRoundtableSchema();
+    logger.info('Roundtable schema ready');
     await initSelfScaler();
     logger.info('Self-scaler initialized');
     await probeTools();
