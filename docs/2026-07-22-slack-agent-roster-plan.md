@@ -506,6 +506,20 @@ slices above.
   **Also incidentally observed, not acted on:** Snyk's own webhook is
   already present on `Tapcash`, `Costpilot`, `shiporex`, and `Mint` (not on
   the others) — Phase 3 groundwork, out of scope here.
+- **2026-07-22 — attempted to resolve Viktor's (and the rest of the
+  roster's) real Slack user IDs via a live API call, blocked, not guessed
+  past.** Wrote `backend/scripts/inspectSlackUsers.js` (read-only, same
+  standalone-script style as `backfillSlackChannels.js`) to call
+  `users.list` against the real workspace via `railway run` — this would
+  have let `VIKTOR_SLACK_USER_ID` (Phase 6) be set to a real, verified
+  value instead of shipping unconfigured. **Blocked:** the live
+  `SLACK_BOT_TOKEN` returns `missing_scope` — the Slack app's current OAuth
+  scopes don't include `users:read`. Fixing this means adding the scope in
+  Slack's app-management dashboard and reinstalling the app to the
+  workspace, a real change to a live, already-working integration —
+  **not done autonomously; needs the owner to add `users:read` and
+  reinstall,** after which `inspectSlackUsers.js` can be re-run to get
+  Viktor's real ID in one step.
 
 ## 1. Goal
 
