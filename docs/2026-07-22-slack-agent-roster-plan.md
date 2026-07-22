@@ -152,6 +152,24 @@ slices above.
   None of these three require rewriting the existing command handlers —
   they're additive, which is a meaningfully smaller and safer scope than
   the original Phase 0 "CommandContext across 150 call sites" plan.
+- **2026-07-22, commit `304d4a2`** — **item 3 above shipped:** channel
+  auto-creation during onboarding. `createChannelForRepo()` (slackClient.ts)
+  creates `#<reponame>` via `conversations.create`, reuses the existing
+  channel if the name is already taken (`conversations.list` lookup), and
+  persists the mapping. Wired into `repoOnboarder.ts`'s `onboardRepo()` with
+  the exact same best-effort pattern already used for Notion-row and
+  GitHub-webhook creation there — never blocks onboarding, and the summary
+  message accurately reports ✅/❌ rather than assuming success (same
+  honesty bar as the existing Notion/webhook reporting, which had its own
+  prior regression around false "✅" claims — see `full_bug_scan_done`
+  session history). 10 new/updated tests. Full suite 39/39 files, 300/300
+  tests, `tsc --noEmit` clean.
+  **Remaining for full Slack parity (items 1-2 from the list above):**
+  inbound Events API/Bolt listener (nothing can be typed *in* Slack and
+  reach Sentinel yet — this is the next real blocker for calling Phase 1
+  "done"), and Block Kit buttons for the approve/skip/menu flows
+  (`telegramMenus.ts`'s equivalents). Both still don't require touching the
+  4 command-handler files' internals.
 
 ## 1. Goal
 
