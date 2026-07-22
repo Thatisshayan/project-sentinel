@@ -17,6 +17,7 @@ import type { handleAgentsCmd } from './commands/agents';
 import type { handleRepoOpsCmd } from './commands/repoOps';
 import type { handleReportsCmd } from './commands/reports';
 import type { handleSprintCmd } from './commands/sprint';
+import type { handleRoundtableCmd } from './commands/roundtable';
 
 type CommandHandler = (
   subcommand: string,
@@ -36,8 +37,9 @@ function buildAliases(handlers: {
   repoOps: typeof handleRepoOpsCmd;
   reports: typeof handleReportsCmd;
   sprint: typeof handleSprintCmd;
+  roundtable: typeof handleRoundtableCmd;
 }): AliasEntry[] {
-  const { agents, repoOps, reports, sprint } = handlers;
+  const { agents, repoOps, reports, sprint, roundtable } = handlers;
   return [
     // Reports
     { words: ['report'],              legacy: 'report',           handler: reports },
@@ -61,6 +63,7 @@ function buildAliases(handlers: {
     { words: ['bots'],                legacy: 'bots',             handler: agents },
     { words: ['memory'],              legacy: 'memory',           handler: agents },
     { words: ['assign'],              legacy: 'assign',           handler: agents },
+    { words: ['roundtable'],          legacy: 'roundtable',       handler: roundtable }, // Phase 7
 
     // Repos
     { words: ['audit'],               legacy: 'audit',            handler: repoOps },
@@ -122,7 +125,8 @@ function getAliases(): AliasEntry[] {
   const { handleRepoOpsCmd: repoOps } = require('./commands/repoOps');
   const { handleReportsCmd: reports } = require('./commands/reports');
   const { handleSprintCmd: sprint } = require('./commands/sprint');
-  cachedAliases = buildAliases({ agents, repoOps, reports, sprint })
+  const { handleRoundtableCmd: roundtable } = require('./commands/roundtable');
+  cachedAliases = buildAliases({ agents, repoOps, reports, sprint, roundtable })
     .sort((a, b) => b.words.length - a.words.length); // longest-prefix-first match
   return cachedAliases;
 }

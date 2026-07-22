@@ -32,11 +32,15 @@ jest.mock('../src/velocityTracker', () => ({ getVelocityReport: jest.fn() }));
 jest.mock('../src/dailyReport', () => ({ sendDailyReport: jest.fn() }));
 jest.mock('../src/costTracker', () => ({ getCostReport: jest.fn().mockResolvedValue({ formatted: '' }) }));
 jest.mock('../src/portfolioDb', () => ({ getOpenPatterns: jest.fn().mockResolvedValue([]) }));
+jest.mock('../src/agents/roundtable', () => ({
+  startRoundtable: jest.fn().mockResolvedValue({ ok: true, sessionId: 1 }),
+}));
 
 import { dispatchCommand } from '../src/commandRegistry';
 import { runSecurityScan } from '../src/securityScanner';
 import { triggerAudit } from '../src/auditOrchestrator';
 import { getSprintStatus } from '../src/sprintOrchestrator';
+import { startRoundtable } from '../src/agents/roundtable';
 
 describe('commandRegistry — verb-first dispatch (Phase 0)', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -67,6 +71,12 @@ describe('commandRegistry — verb-first dispatch (Phase 0)', () => {
     expect(triggerAudit).toHaveBeenCalledWith(
       expect.objectContaining({ repoName: 'MyRepo' })
     );
+  });
+
+  it('routes "roundtable <repo> <question>" to startRoundtable with the joined question text (Phase 7)', async () => {
+    const dispatched = await dispatchCommand('roundtable costpilot how should we approach the auth refactor', '123', 42);
+    expect(dispatched).toBe(true);
+    expect(startRoundtable).toHaveBeenCalledWith('costpilot', 'how should we approach the auth refactor');
   });
 
   it('returns false for unrecognized text so callers can fall back to AI routing', async () => {

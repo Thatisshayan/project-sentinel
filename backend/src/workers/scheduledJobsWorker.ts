@@ -9,6 +9,7 @@ const PR_IMPACT_CHECK_JOB    = 'pr-impact-check';
 const SPRINT_CONTINUE_JOB    = 'sprint-continue';
 const AUDIT_APPROVAL_TIMEOUT_JOB = 'audit-approval-timeout';
 const CODERABBIT_FALLBACK_JOB    = 'coderabbit-fallback-audit';
+const ROUNDTABLE_TIMEOUT_JOB     = 'roundtable-timeout';
 
 /**
  * The actual job-processing logic, factored out of the BullMQ Worker
@@ -82,6 +83,13 @@ async function processScheduledJob(job: any): Promise<void> {
     return;
   }
 
+  if (job.name === ROUNDTABLE_TIMEOUT_JOB) {
+    const { sessionId } = job.data;
+    const { runRoundtableSynthesis } = require('../agents/roundtable');
+    await runRoundtableSynthesis(sessionId);
+    return;
+  }
+
   logger.warn({ jobName: job.name }, 'Unknown scheduled job type');
 }
 
@@ -105,4 +113,4 @@ export function startScheduledJobsWorker(): Worker | null {
   return worker;
 }
 
-export { AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB, CODERABBIT_FALLBACK_JOB, processScheduledJob };
+export { AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB, CODERABBIT_FALLBACK_JOB, ROUNDTABLE_TIMEOUT_JOB, processScheduledJob };

@@ -31,6 +31,7 @@ import crypto from 'crypto';
 import logger from './logger';
 import { dispatchCommand } from './commandRegistry';
 import { recordAgentReply } from './agents/externalAgentRegistry';
+import { recordRoundtableReply } from './agents/roundtable';
 
 const MAX_TIMESTAMP_SKEW_SECONDS = 60 * 5; // Slack's own documented replay-attack window
 
@@ -112,6 +113,12 @@ async function handleSlackEvent(req: any, res: any): Promise<void> {
   if (event.type === 'message' && event.thread_ts && typeof event.text === 'string' && event.channel) {
     await recordAgentReply(event.channel, event.thread_ts, event.text).catch((err: any) => {
       logger.error({ err: err.message, channel: event.channel }, 'recordAgentReply failed');
+    });
+    // Phase 7 — a channel can have both a pending single-agent dispatch
+    // (Phase 4) and a pending roundtable session at once; both checks are
+    // safe no-ops when their respective thread_ts doesn't match.
+    await recordRoundtableReply(event.channel, event.thread_ts, event).catch((err: any) => {
+      logger.error({ err: err.message, channel: event.channel }, 'recordRoundtableReply failed');
     });
   }
 }
