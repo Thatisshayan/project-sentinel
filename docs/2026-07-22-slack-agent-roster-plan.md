@@ -482,6 +482,30 @@ slices above.
   already has (cancels a pending job, not one already executing). The
   plan's exit criterion ("tested with a deliberately slow/delayed task") is
   not met by anything built here.
+- **2026-07-22 — the other onboarded repos' webhook backfill (gap #4),
+  done directly against live GitHub via `gh api`, not a code change.**
+  Cross-referenced `WATCHED_REPOS` (Railway env var: `acc, tapcash,
+  AlphonsoEcosystem, session-guard, costpilot, shiporex, mint,
+  obsidian-media`) against the real repo list under the `Thatisshayan`
+  GitHub account (`gh api user/repos`) to find each entry's actual
+  Sentinel-registered webhook (`config.url` = this app's `/webhook/github`)
+  and PATCHed its `events` from `["push"]` to `["push", "pull_request",
+  "pull_request_review_comment"]`, same as `project-sentinel`'s own webhook
+  got earlier. **7 repos fixed** (case differs from the env var's casing —
+  confirmed via the real GitHub API, not assumed): `ACC`, `Tapcash`,
+  `Costpilot`, `shiporex`, `Mint`, `obsidian-media`, `sessionguard`.
+  **One entry could not be resolved and was deliberately left untouched:**
+  `AlphonsoEcosystem` doesn't match any repo Sentinel has a webhook on —
+  the closest name, `AlphonsoMarketing-Pro`, has no Sentinel webhook at all,
+  so it's not safe to assume that's the same project (could be a rename,
+  could be an unrelated repo) without the owner confirming. This is the
+  same class of data-quality issue already flagged during the Slack-channel
+  backfill (session-guard/sessionguard, obsidian-studio/obsidianstudio
+  casing mismatches) — surfacing again here with a real consequence
+  (a repo that may not actually be getting CodeRabbit-comment ingestion).
+  **Also incidentally observed, not acted on:** Snyk's own webhook is
+  already present on `Tapcash`, `Costpilot`, `shiporex`, and `Mint` (not on
+  the others) — Phase 3 groundwork, out of scope here.
 
 ## 1. Goal
 
