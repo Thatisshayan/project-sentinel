@@ -100,7 +100,7 @@ async function handleReportsCmd(subcommand: string, parts: string[], chatId: str
         const summary = await getRepoBusinessSummary(parts[2]);
         await sendTelegramMessage(
           summary || `No business metrics for ${parts[2]} yet.`,
-          null, topicId
+          parts[2], topicId
         );
       } else {
         await generateWeeklyReport();
@@ -121,7 +121,7 @@ async function handleReportsCmd(subcommand: string, parts: string[], chatId: str
       const { getCorrelationSummary } = require('../correlationEngine') as { getCorrelationSummary: (repo: string) => Promise<any> };
       const corr = await getCorrelationSummary(parts[2]);
       if (!corr || !corr.pr_count) {
-        await sendTelegramMessage(`No PR impact data for ${parts[2]} yet.`, null, topicId);
+        await sendTelegramMessage(`No PR impact data for ${parts[2]} yet.`, parts[2], topicId);
         return true;
       }
       await sendTelegramMessage([
@@ -131,7 +131,7 @@ async function handleReportsCmd(subcommand: string, parts: string[], chatId: str
         `Positive PRs: ${corr.positive_prs}/${corr.pr_count}`,
         `Best PR score: ${parseFloat(corr.best_impact).toFixed(1)}`,
         `Worst PR score: ${parseFloat(corr.worst_impact).toFixed(1)}`,
-      ].join('\n'), null, topicId);
+      ].join('\n'), parts[2], topicId);
       return true;
     }
     case 'weekly': {

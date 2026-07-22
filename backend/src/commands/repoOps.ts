@@ -17,10 +17,10 @@ async function handleStop(projectArg: string, topicId: number | null): Promise<b
     await stopDebugAttempts(projectArg);
     await sendTelegramMessage(
       `✅ Debug attempts stopped for: ${projectArg}\nNo further automatic fixes will run.`,
-      null, topicId
+      projectArg, topicId
     );
   } catch (err: any) {
-    await sendTelegramMessage(`❌ Error stopping: ${err.message}`, null, topicId);
+    await sendTelegramMessage(`❌ Error stopping: ${err.message}`, projectArg, topicId);
   }
   return true;
 }
@@ -33,15 +33,15 @@ async function handleStatus(projectArg: string, topicId: number | null): Promise
   try {
     const project = await findNotionProject(projectArg);
     if (!project) {
-      await sendTelegramMessage(`No Notion project found for: ${projectArg}`, null, topicId);
+      await sendTelegramMessage(`No Notion project found for: ${projectArg}`, projectArg, topicId);
       return true;
     }
     await sendTelegramMessage(
       `Project: ${project.projectName}\nNotion: ${project.url}`,
-      null, topicId
+      projectArg, topicId
     );
   } catch (err: any) {
-    await sendTelegramMessage(`❌ Error: ${err.message}`, null, topicId);
+    await sendTelegramMessage(`❌ Error: ${err.message}`, projectArg, topicId);
   }
   return true;
 }
@@ -54,15 +54,15 @@ async function handleBuilds(projectArg: string, topicId: number | null): Promise
   try {
     const project = await findNotionProject(projectArg);
     if (!project) {
-      await sendTelegramMessage(`No project found for: ${projectArg}`, null, topicId);
+      await sendTelegramMessage(`No project found for: ${projectArg}`, projectArg, topicId);
       return true;
     }
     await sendTelegramMessage(
       `Checking builds for ${projectArg}...\n\nNote: Provide a commit SHA for detailed status.\nCheck GitHub Actions / Vercel / Railway directly for latest build.`,
-      null, topicId
+      projectArg, topicId
     );
   } catch (err: any) {
-    await sendTelegramMessage(`❌ Error: ${err.message}`, null, topicId);
+    await sendTelegramMessage(`❌ Error: ${err.message}`, projectArg, topicId);
   }
   return true;
 }
@@ -74,7 +74,7 @@ async function handleRetry(projectArg: string, topicId: number | null): Promise<
   }
   await sendTelegramMessage(
     `Manual retry for ${projectArg} is noted.\nPush a new commit to trigger the full loop, or check the latest build manually.`,
-    null, topicId
+    projectArg, topicId
   );
   return true;
 }
@@ -106,7 +106,7 @@ async function handleExecute(repoArg: string, topicId: number | null): Promise<b
     await sendTelegramMessage('Usage: /sentinel execute <repo-name>', null, topicId);
     return true;
   }
-  await sendTelegramMessage(`Starting task execution for ${repoArg}...`, null, topicId);
+  await sendTelegramMessage(`Starting task execution for ${repoArg}...`, repoArg, topicId);
   executeApprovedTasks(repoFullName(repoArg), repoArg, topicId)
     .catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'Execute failed'));
   return true;
@@ -116,7 +116,7 @@ async function handleSkipAudit(repoArg: string, topicId: number | null): Promise
   await stopAllTasksForRepo(repoFullName(repoArg));
   await sendTelegramMessage(
     `Audit skipped for ${repoArg}. Tasks remain in Notion as Queued.`,
-    null, topicId
+    repoArg, topicId
   );
   return true;
 }
@@ -127,7 +127,7 @@ async function handleManualAudit(repoArg: string, topicId: number | null): Promi
     return true;
   }
   const project = await findNotionProject(repoArg).catch(() => null);
-  await sendTelegramMessage(`Manual audit triggered for ${repoArg}...`, null, topicId);
+  await sendTelegramMessage(`Manual audit triggered for ${repoArg}...`, repoArg, topicId);
   triggerAudit({
     repoFullName:  repoFullName(repoArg),
     repoName:      repoArg,
@@ -158,7 +158,7 @@ async function handleListTasks(repoArg: string, topicId: number | null, chatId: 
   `, [repoFullName(repoArg)]);
 
   if (r.rows.length === 0) {
-    await sendTelegramMessage(`No active tasks for ${repoArg}.`, null, topicId);
+    await sendTelegramMessage(`No active tasks for ${repoArg}.`, repoArg, topicId);
     return true;
   }
 
@@ -167,7 +167,7 @@ async function handleListTasks(repoArg: string, topicId: number | null, chatId: 
     `${t.task_number}. [B${t.batch_number}] ${EMOJI[t.priority]||'⚪'} ${t.title} — ${t.status}${t.safe_to_auto_execute?'':' 🔒'}`
   ).join('\n');
 
-  await sendTelegramMessage(`Tasks for ${repoArg}:\n\n${list}\n\n🔒 = needs approval`, null, topicId);
+  await sendTelegramMessage(`Tasks for ${repoArg}:\n\n${list}\n\n🔒 = needs approval`, repoArg, topicId);
 
   const unsafe = r.rows.filter((t: any) => !t.safe_to_auto_execute && t.status === 'queued');
   if (unsafe.length > 0 && chatId) {
@@ -206,7 +206,7 @@ async function handleSkipBatch(repoArg: string, batchNumArg: string, topicId: nu
 
   await sendTelegramMessage(
     `Batch ${batchNumArg} skipped for ${repoArg}. Moving to next batch...`,
-    null, topicId
+    repoArg, topicId
   );
   fireAndForget(processNextBatch(repoFullName(repoArg), repoArg, topicId), { label: 'repoOps' })
   return true;
@@ -249,7 +249,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       await lockRepo(parts[2], 'manual');
       await sendTelegramMessage(
         `🔐 ${parts[2]} locked. No agents will touch it until /sentinel unlock ${parts[2]}`,
-        null, topicId
+        parts[2], topicId
       );
       return true;
     }
@@ -257,7 +257,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       if (!parts[2]) { await sendTelegramMessage('Usage: /sentinel unlock <repo>', null, topicId); return true; }
       const { unlockRepo } = require('../repoLock') as { unlockRepo: (repo: string) => Promise<void> };
       await unlockRepo(parts[2]);
-      await sendTelegramMessage(`🔓 ${parts[2]} unlocked.`, null, topicId);
+      await sendTelegramMessage(`🔓 ${parts[2]} unlocked.`, parts[2], topicId);
       return true;
     }
     case 'locked': {
@@ -312,7 +312,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       `, [repoFullName(parts[2])]).catch(() => null);
       const count = updated?.rows?.length || 0;
       await sendTelegramMessage(
-        `Unlocked ${count} tasks for ${parts[2]}. Starting execution...`, null, topicId
+        `Unlocked ${count} tasks for ${parts[2]}. Starting execution...`, parts[2], topicId
       );
       if (count > 0) {
         executeApprovedTasks(repoFullName(parts[2]), parts[2], topicId)
@@ -346,7 +346,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
           ``,
           `/sentinel security-scan ${parts[2]} — fresh scan`,
           `/sentinel security-patch ${parts[2]} — auto-fix safe issues`,
-        ].join('\n'), null, topicId);
+        ].join('\n'), parts[2], topicId);
       } else {
         const portfolio = await getPortfolioSecuritySummary();
         const lines = portfolio
@@ -365,7 +365,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
         return true;
       }
       const { runSecurityScan } = require('../securityScanner') as { runSecurityScan: (...args: any[]) => Promise<any> };
-      await sendTelegramMessage(`Running security scan on ${parts[2]}...`, null, topicId);
+      await sendTelegramMessage(`Running security scan on ${parts[2]}...`, parts[2], topicId);
       fireAndForget(runSecurityScan({
         repoFullName: repoFullName(parts[2]),
         repoName: parts[2], commitSha: 'HEAD', topicId,
@@ -401,7 +401,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
         dbFailed
           ? `⚠️ Security approval for ${parts[2]} could not be recorded — database error. Please retry.`
           : `Security approval for ${parts[2]} noted — ${count} open issue(s) marked resolved.\nMake sure the fix is actually merged on GitHub.`,
-        null, topicId
+        parts[2], topicId
       );
       return true;
     }
@@ -517,7 +517,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       const count = r?.rows?.length || 0;
       await sendTelegramMessage(
         `♻️ Reset ${count} failed tasks to queued for ${parts[2]}.\n/sentinel execute ${parts[2]} to run them.`,
-        null, topicId
+        parts[2], topicId
       );
       return true;
     }

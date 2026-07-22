@@ -44,8 +44,13 @@ describe('/sentinel security-approve', () => {
     await handleRepoOpsCmd('security-approve', ['/sentinel', 'security-approve', 'tapcash'], null, 42);
 
     expect(resolveAllOpenIssuesMock).toHaveBeenCalledWith('your-org/tapcash');
-    const [message] = sendTelegramMessageMock.mock.calls[0];
+    const [message, repoName] = sendTelegramMessageMock.mock.calls[0];
     expect(message).toContain('3 open issue(s) marked resolved');
+    // Regression guard: this call previously passed repoName: null, which
+    // silently dropped the message from Slack's fan-out (slackClient.ts
+    // looks up the destination channel by repoName) even once Slack is
+    // fully configured — see docs/2026-07-22-slack-agent-roster-plan.md.
+    expect(repoName).toBe('tapcash');
   });
 
   it('reports a distinct DB-failure message (not "0 issues resolved") and does not throw when the DB call fails', async () => {
