@@ -55,6 +55,28 @@ async function initExternalAgentSchema(): Promise<void> {
       [id, displayName, slackMention, role]
     );
   }
+
+  // Reply-correlation tracking — see dispatchToAgent()/recordAgentReply()
+  // below. One row per dispatched task; a later Slack message.thread_ts
+  // matching dispatch_ts is how a reply gets tied back to it.
+  await query(`
+    CREATE TABLE IF NOT EXISTS agent_dispatches (
+      id                SERIAL PRIMARY KEY,
+      agent_id          TEXT NOT NULL,
+      repo_name         TEXT NOT NULL,
+      task_description  TEXT NOT NULL,
+      slack_channel_id  TEXT NOT NULL,
+      dispatch_ts       TEXT NOT NULL,
+      status            TEXT NOT NULL DEFAULT 'pending',
+      reply_text        TEXT,
+      replied_at        TIMESTAMPTZ,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_dispatches_channel_ts
+      ON agent_dispatches (slack_channel_id, dispatch_ts);
+  `);
 }
 
 async function getExternalAgent(agentId: string): Promise<ExternalAgent | null> {
@@ -119,14 +141,52 @@ async function dispatchToAgent(
     return null;
   });
 
-  const ts = result?.ts || result?.message?.ts;
-  if (!ts) {
+  const ts = result?.ts;
+  const channelId = result?.channel;
+  if (!ts || !channelId) {
     logger.debug({ agentId, repoName }, 'Dispatch did not produce a Slack message ts (likely unconfigured) — no-op');
     return null;
   }
 
+  await query(
+    `INSERT INTO agent_dispatches (agent_id, repo_name, task_description, slack_channel_id, dispatch_ts)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (slack_channel_id, dispatch_ts) DO NOTHING`,
+    [agentId, repoName, taskDescription, channelId, ts]
+  ).catch((err: any) => {
+    // The Slack message itself already sent successfully — a tracking-row
+    // failure shouldn't be reported as a dispatch failure, just logged, so
+    // reply correlation degrades (silently un-trackable) rather than the
+    // whole dispatch appearing to fail when it didn't.
+    logger.error({ err: err.message, agentId, repoName, ts }, 'Failed to record agent_dispatches row — reply correlation for this dispatch will not work');
+  });
+
   logger.info({ agentId, repoName, ts }, 'Dispatched task to external agent');
   return { ts };
+}
+
+/**
+ * Called from slackEvents.ts when a plain `message` event (not
+ * app_mention) arrives with a thread_ts — checks whether it's a reply to a
+ * pending dispatch and, if so, marks it replied. No-op (not an error) if
+ * the thread_ts doesn't match anything pending — most messages in a repo
+ * channel aren't agent replies.
+ */
+async function recordAgentReply(channelId: string, threadTs: string, replyText: string): Promise<boolean> {
+  const r = await query(
+    `UPDATE agent_dispatches
+     SET status = 'replied', reply_text = $3, replied_at = NOW()
+     WHERE slack_channel_id = $1 AND dispatch_ts = $2 AND status = 'pending'
+     RETURNING id, agent_id, repo_name`,
+    [channelId, threadTs, replyText]
+  );
+  const updated = r.rows[0];
+  if (updated) {
+    logger.info({ agentId: updated.agent_id, repoName: updated.repo_name, dispatchId: updated.id },
+      'Recorded external agent reply');
+    return true;
+  }
+  return false;
 }
 
 export {
@@ -134,4 +194,5 @@ export {
   getExternalAgent,
   listExternalAgents,
   dispatchToAgent,
+  recordAgentReply,
 };

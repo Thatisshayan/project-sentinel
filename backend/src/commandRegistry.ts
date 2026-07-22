@@ -60,6 +60,7 @@ function buildAliases(handlers: {
     { words: ['bots', 'setup'],       legacy: 'setup-bots',       handler: agents },
     { words: ['bots'],                legacy: 'bots',             handler: agents },
     { words: ['memory'],              legacy: 'memory',           handler: agents },
+    { words: ['assign'],              legacy: 'assign',           handler: agents },
 
     // Repos
     { words: ['audit'],               legacy: 'audit',            handler: repoOps },

@@ -6,6 +6,7 @@ import { getAgentRoomSummary } from '../agentRoom';
 import { getAllAgents } from '../agentDb';
 import { runSelfAudit } from '../selfAuditor';
 import { executeApprovedTasks } from '../auditOrchestrator';
+import { dispatchToAgent, listExternalAgents } from '../agents/externalAgentRegistry';
 
 async function handleAgentsCmd(subcommand: string, parts: string[], chatId: string | null, topicId: number | null): Promise<boolean> {
   switch (subcommand) {
@@ -105,6 +106,32 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
       );
       await sendTelegramMessage(
         `Last ${history.length} exchanges:\n\n${lines.join('\n\n')}`, null, topicId
+      );
+      return true;
+    }
+    case 'assign': {
+      // Phase 4 of docs/2026-07-22-slack-agent-roster-plan.md — dispatch a
+      // task to an external Slack-native agent (Kilo, Viktor, Devin, Manus,
+      // CodeRabbit). Syntax: assign <agent-id> <repo> <task description...>
+      const [agentId, repo, ...taskWords] = parts.slice(2);
+      const taskDescription = taskWords.join(' ');
+      if (!agentId || !repo || !taskDescription) {
+        const roster = await listExternalAgents({ enabledOnly: true }).catch(() => []);
+        await sendTelegramMessage(
+          [
+            'Usage: assign <agent-id> <repo> <task description>',
+            roster.length ? `Available agents: ${roster.map(a => a.id).join(', ')}` : '',
+          ].filter(Boolean).join('\n'),
+          null, topicId
+        );
+        return true;
+      }
+      const result = await dispatchToAgent(agentId, taskDescription, repo);
+      await sendTelegramMessage(
+        result
+          ? `📤 Dispatched to ${agentId} in ${repo}'s Slack channel: "${taskDescription}"`
+          : `⚠️ Could not dispatch to ${agentId} — check the agent id is valid/enabled and Slack is configured with a channel for ${repo}.`,
+        repo, topicId
       );
       return true;
     }

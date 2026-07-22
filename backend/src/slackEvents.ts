@@ -11,7 +11,13 @@
 // mention, and route the remaining text through the same
 // commandRegistry.dispatchCommand() Phase 0 already built — so Slack and
 // Telegram share identical command-handling logic, only the inbound
-// transport differs.
+// transport differs. Also handles plain `message` events for Phase 4's
+// reply correlation (externalAgentRegistry.ts's recordAgentReply) — this
+// requires the Slack app's Events API subscription to include
+// `message.channels` in addition to `app_mention`, and (per the plan doc's
+// still-open item) needs verifying that bot-authored messages from other
+// apps (Kilo, Manus, etc.) actually reach this endpoint and aren't
+// filtered by Slack by default.
 //
 // Known limitation, not fixed here: several existing command-handler reply
 // call sites pass `repoName: null` to sendTelegramMessage (relying on
@@ -24,6 +30,7 @@
 import crypto from 'crypto';
 import logger from './logger';
 import { dispatchCommand } from './commandRegistry';
+import { recordAgentReply } from './agents/externalAgentRegistry';
 
 const MAX_TIMESTAMP_SKEW_SECONDS = 60 * 5; // Slack's own documented replay-attack window
 
@@ -93,6 +100,19 @@ async function handleSlackEvent(req: any, res: any): Promise<void> {
     if (!dispatched) {
       logger.info({ commandText, channel: event.channel }, 'Slack mention did not match any known command');
     }
+    return;
+  }
+
+  // Phase 4 reply correlation — a threaded reply in a channel where a task
+  // was previously dispatched to an external agent. Most `message` events
+  // aren't this (ordinary conversation, edits, etc.) — recordAgentReply()
+  // is a safe no-op (returns false) when thread_ts doesn't match any
+  // pending dispatch, so this doesn't need to pre-filter which messages
+  // might be relevant.
+  if (event.type === 'message' && event.thread_ts && typeof event.text === 'string' && event.channel) {
+    await recordAgentReply(event.channel, event.thread_ts, event.text).catch((err: any) => {
+      logger.error({ err: err.message, channel: event.channel }, 'recordAgentReply failed');
+    });
   }
 }
 

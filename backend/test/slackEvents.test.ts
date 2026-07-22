@@ -5,6 +5,11 @@ jest.mock('../src/commandRegistry', () => ({
   dispatchCommand: (...a: any[]) => dispatchCommandMock(...a),
 }));
 
+const recordAgentReplyMock = jest.fn().mockResolvedValue(false);
+jest.mock('../src/agents/externalAgentRegistry', () => ({
+  recordAgentReply: (...a: any[]) => recordAgentReplyMock(...a),
+}));
+
 import { handleSlackEvent, verifySlackSignature, stripBotMention } from '../src/slackEvents';
 
 function signedRequest(bodyObj: any, opts: { secret?: string; badSig?: boolean; staleTimestamp?: boolean } = {}) {
@@ -137,6 +142,36 @@ describe('handleSlackEvent', () => {
     const req = signedRequest({
       type: 'event_callback',
       event: { type: 'app_mention', text: '<@U0BOT> audit costpilot', channel: 'C1' },
+    });
+    const res = mockRes();
+    await expect(handleSlackEvent(req, res)).resolves.toBeUndefined();
+  });
+
+  it('routes a threaded message event to recordAgentReply (Phase 4 reply correlation)', async () => {
+    const req = signedRequest({
+      type: 'event_callback',
+      event: { type: 'message', text: 'Done, opened PR #42', channel: 'C1', thread_ts: '123.456' },
+    });
+    const res = mockRes();
+    await handleSlackEvent(req, res);
+    expect(recordAgentReplyMock).toHaveBeenCalledWith('C1', '123.456', 'Done, opened PR #42');
+  });
+
+  it('ignores a message event with no thread_ts (not a reply to anything)', async () => {
+    const req = signedRequest({
+      type: 'event_callback',
+      event: { type: 'message', text: 'just chatting', channel: 'C1' },
+    });
+    const res = mockRes();
+    await handleSlackEvent(req, res);
+    expect(recordAgentReplyMock).not.toHaveBeenCalled();
+  });
+
+  it('does not throw when recordAgentReply itself rejects', async () => {
+    recordAgentReplyMock.mockRejectedValue(new Error('db down'));
+    const req = signedRequest({
+      type: 'event_callback',
+      event: { type: 'message', text: 'reply', channel: 'C1', thread_ts: '123.456' },
     });
     const res = mockRes();
     await expect(handleSlackEvent(req, res)).resolves.toBeUndefined();
