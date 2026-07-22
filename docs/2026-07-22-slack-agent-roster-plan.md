@@ -1,12 +1,98 @@
 # Slack + Multi-Agent Roster Plan
 
 **Created:** 2026-07-22
-**Last updated:** 2026-07-22 (round 6 — CodeRabbit webhook exception,
-command rename list, audit-in-channel requirement, codebase-memory-MCP
-phase, Viktor bidirectional mention, cost/rollout/sandbox decisions all
-confirmed by owner)
-**Status:** Draft — not yet started
+**Last updated:** 2026-07-22 (round 7 — Phase 0 first slice shipped)
+**Status:** In progress — see "Implementation log" below
 **Owner:** thatisshayan
+
+## 0. Implementation log
+
+Standing rule from this point on: bugs found during implementation are fixed
+immediately (not just noted), each shippable increment is committed, and
+this doc is updated in the same pass — see commits below for what's actually
+landed vs. still just designed above.
+
+- **2026-07-22, commit `b55ec64`** — fixed two pre-existing bugs found while
+  building Phase 0 (unrelated to this plan, fixed first per standing rule):
+  `telegramClient.ts` imported a `./retry` module that didn't exist anywhere
+  in the repo (broke `tsc --noEmit` and 3 test suites — added
+  `backend/src/retry.ts`); `dbClient.ts`'s `resolveSslConfig()` computed
+  `isRailwayInternal` but never used it, so production DB connections always
+  required strict cert verification regardless of host (breaking Railway's
+  internal self-signed-cert case), while non-production returned
+  `{rejectUnauthorized:false}` (SSL on, unverified) instead of disabling SSL
+  outright — fixed to match the behavior the existing test file already
+  described.
+- **2026-07-22, commit `5ae2961`** — **Phase 0, first slice shipped:**
+  `backend/src/commandRegistry.ts` — verb-first command dispatch (`audit
+  <repo>`, `sprint status`, `security scan <repo>`, etc., matching the
+  canonical rename list in section 1.3) routed into the *existing*
+  `commands/*.ts` handlers unchanged, wired into `telegramCommands.ts` ahead
+  of AI free-text routing. Legacy `/sentinel <subcommand>` syntax still
+  works untouched. 6 new tests (`commandRegistry.test.ts`), full suite
+  (37/37 files, 276/276 tests) and `tsc --noEmit` clean.
+  **Known deviation from section 1.3's exact rename table:** `execute <repo>
+  force` and `skip <repo> batch <n>` don't tokenize as a clean verb-first
+  prefix (arg falls mid-command), so they're implemented as `execute force
+  <repo>` and `skip batch <repo> <n>` instead — modifier before the arg.
+  Section 1.3's table below has **not yet been corrected** to match; treat
+  the implementation (file header comment in `commandRegistry.ts`) as
+  authoritative for these two until the table is updated.
+  **Not yet built:** the `CommandContext`/platform-agnostic interface Phase
+  0 originally scoped (section "File-level changes" below) — this slice
+  proves the verb-first syntax works but the handlers are still
+  Telegram-shaped (`chatId`/`topicId` params, not a `CommandContext`
+  object). That's a larger, higher-risk mechanical refactor across 4 handler
+  files best done as its own reviewed unit — deferred in favor of shipping
+  Phase 2 next, which the plan's own "Suggested next action" already flagged
+  as the cheapest phase to start in parallel (no Slack/command-layer
+  dependency).
+- **2026-07-22, commit `919699f`** — **Phase 2, first slice shipped:**
+  `POST /webhook/coderabbit` (`backend/src/webhook.ts` +
+  `backend/src/webhook/processCodeRabbitEvent.ts`) receives CodeRabbit's
+  PR-review-complete webhook, normalizes findings into `audit_tasks` (new
+  `source` column, default `'sentinel'`, set to `'coderabbit'` for these),
+  and posts a brief severity-summary notification. 8 new tests. Full suite
+  38/38 files, 284/284 tests, `tsc --noEmit` clean.
+  **Explicitly NOT verified (flagged in code comments, not guessed past):**
+  CodeRabbit's real webhook payload shape and signature-header name/scheme
+  — both were unknowns going in (section 2's research-pending list) and
+  remain unknowns; the implementation assumes a GitHub-convention-like shape
+  (`repository.full_name`, `pull_request.head.sha`, a findings array) and a
+  GitHub-style `sha256=` HMAC under a guessed header name
+  (`x-coderabbit-signature-256`), isolated behind `normalizePayload()` and
+  `verifyCodeRabbitSignature()` respectively so a correction only touches
+  one function each. **Must be checked against a real CodeRabbit webhook
+  delivery before this goes live** — do not point CodeRabbit's dashboard at
+  this endpoint yet.
+  **Not yet built:** the `claudeCodeAudit.ts` fallback-timeout path (still
+  primary/only audit engine in practice until this is wired in), the
+  audit-summary reuse in `auditSummaryFormatter.ts` described in Phase 2's
+  design (this slice's summary formatting is local to
+  `processCodeRabbitEvent.ts`, not yet shared with Telegram's existing
+  audit-complete message), and Slack posting (Phase 1 doesn't exist yet —
+  notification is Telegram-only for now).
+
+**Flagged 2026-07-22 (round 7): the two largest remaining pieces both touch
+wide production surface area and are deliberately NOT being done as a fast
+autonomous pass:**
+- **Fallback-timeout wiring** — `triggerAudit()` (the function that would
+  need to become "fallback-only, timeout-gated") is called from 9 different
+  call sites across the codebase (`crossRepoCoordinator.ts`, `api.ts` ×2,
+  `commands/repoOps.ts`, `repoOnboarder.ts`, `telegramAI.ts`,
+  `telegramCommands.ts`, `workers/buildPollWorker.ts`,
+  `workers/dailyReportWorker.ts`). Making it conditional on "did CodeRabbit's
+  webhook already handle this commit" is a change to the actual production
+  audit-trigger path everywhere, not a contained addition — deserves a
+  deliberate per-call-site review, not a blind pass.
+- **`CommandContext` refactor** (Phase 0's remaining piece) — touches all 4
+  command handler files across roughly 150 call sites of
+  `sendTelegramMessage`/`chatId`/`topicId`. Also deliberately deferred as its
+  own reviewed unit rather than rushed.
+
+Both are real, both are next — just flagged here as "picked up carefully,
+not skipped" rather than attempted in the same fast cycle as the smaller
+slices above.
 
 ## 1. Goal
 
