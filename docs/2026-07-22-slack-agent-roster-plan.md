@@ -212,6 +212,32 @@ slices above.
   — every repo-specific Sentinel reply reaches Slack once real credentials
   and channel mappings exist; approve/skip/menu flows remain text-only in
   Slack until buttons are built.
+- **2026-07-22, commit `f643cdd`** — **Phase 1 complete (as originally
+  scoped).** Block Kit buttons shipped for the primary audit
+  execute/skip flow: new `express.urlencoded()` body parser (Slack's
+  interactivity payloads use a different content type than every other
+  webhook this app receives), `sendSlackButtons()` in `slackClient.ts`, a
+  new `POST /webhook/slack/interactions` receiver
+  (`slackInteractions.ts`) that routes button clicks to the exact same
+  `executeApprovedTasks`/`stopAllTasksForRepo` functions Telegram's
+  callback handler already calls, and `auditOrchestrator.ts`'s
+  audit-complete notification now sends both platforms' buttons side by
+  side. 13 new tests. Full suite 42/42 files, 329/329 tests, `tsc --noEmit`
+  clean.
+  **Deliberately out of scope, noted in file headers, not implied
+  complete:** this covers only the execute/skip flow — `telegramMenus.ts`
+  has several other menu types (main menu, repo control panel, approvals
+  menu, help sections) that remain Telegram-only. Extending those to Slack
+  would follow the exact same pattern now established (button grid →
+  `sendSlackButtons`, `action_id` → handler in `slackInteractions.ts`) —
+  not attempted here since none of them block calling Phase 1 "done" the
+  way execute/skip did.
+  **Phase 1 summary — what actually works end-to-end now, pending only real
+  Slack credentials + channel mappings:** `@mention` commands dispatch
+  identically to Telegram; every repo-specific reply fans out to the
+  correct Slack channel; audit-complete notifications include working
+  execute/skip buttons in both platforms; new repos get their Slack channel
+  auto-created on onboarding.
 
 ## 1. Goal
 
