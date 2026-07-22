@@ -193,6 +193,25 @@ slices above.
   follow-up rather than left implicit.
   **Remaining for full Slack parity: only item 2 (Block Kit buttons for
   approve/skip/menu) plus the repoName-null audit above.**
+- **2026-07-22, commit `36031c9`** — **the repoName-null audit shipped,
+  done properly this time.** The first attempt at this (same day, mid-cycle)
+  was abandoned after a regex-based sweep (`sendTelegramMessage\([^,]+,\s*
+  null,`) turned out to miss multi-line calls — rather than ship an
+  incomplete/inconsistent fix, it was deferred. Redone by reading
+  `commands/repoOps.ts` and `commands/reports.ts` function-by-function
+  directly: ~17 call sites fixed (stop/status/builds/retry, execute, audit,
+  tasks, skip-batch, lock/unlock, force-execute, security's per-repo
+  branch, security-scan, security-approve, reset-failed, `business <repo>`,
+  `impact <repo>`). Left as `null` where it's actually correct: usage/error
+  messages with no repo parsed yet, and genuinely portfolio-wide summaries
+  (bare `security`, `repos scan`, `sync-metrics`). `commands/agents.ts` and
+  `commands/sprint.ts` were audited too and need no changes — neither has
+  any repo-specific reply. 9 new/updated tests. Full suite 41/41 files,
+  319/319 tests, `tsc --noEmit` clean.
+  **Phase 1 is now functionally complete except Block Kit buttons** (item 2)
+  — every repo-specific Sentinel reply reaches Slack once real credentials
+  and channel mappings exist; approve/skip/menu flows remain text-only in
+  Slack until buttons are built.
 
 ## 1. Goal
 
