@@ -68,7 +68,11 @@ if (dsn) {
       'EPIPE',
       'socket hang up',
     ],
-    integrations: [] // expressIntegration added later if express layer needed
+    // Sentry.expressIntegration() ships in @sentry/node itself as of v8 —
+    // no separate @sentry/express package exists (it was imported
+    // dynamically further below and silently failed every startup with
+    // SENTRY_DSN set, since that package was never a real dependency).
+    integrations: [Sentry.expressIntegration()],
   });
   logger.info('🔍 Sentry initialized');
 } else {
@@ -140,14 +144,6 @@ if (process.env['NODE_ENV'] === 'production' && !process.env['SENTINEL_UI_KEY']?
 }
 
 const app = express();
-
-// Sentry v8+ Express integration
-if (dsn) {
-  (async () => {
-    const sentryExpress = await import('@sentry/express');
-    app.use(sentryExpress.expressIntegration());
-  })();
-}
 
 interface RawBodyRequest extends express.Request {
   rawBody?: Buffer;
