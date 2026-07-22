@@ -418,6 +418,26 @@ slices above.
   and Interactivity button click have also still not been tested live —
   only the channel-creation and `url_verification` handshake paths have
   been empirically confirmed so far.
+- **2026-07-22 — live `@mention` testing attempted, blocked, parked (owner
+  call, not resolved).** The Sentinel bot's Slack username auto-suffixed to
+  `sentinel2` (a different, pre-existing app already owns `@sentinel` in
+  this workspace) — confirmed genuinely installed (`auth.test` returns a
+  valid token for `user: sentinel2`, team `ObsidianMedia`; the app "Project
+  Sentinel" is visible in the workspace's Apps list) and confirmed a member
+  of every repo channel via `users.conversations`. **Despite all of that,
+  `@sentinel2` never appears in Slack's inline mention-autocomplete
+  dropdown**, and zero HTTP requests have ever reached
+  `/webhook/slack/events` in production (checked via `railway logs --http`
+  and `--since`-scoped deployment logs) even after a full reinstall. Root
+  cause not identified — candidates not yet ruled out: workspace-level
+  app-approval/restriction (couldn't verify without `admin.apps:read`,
+  which needs an admin-scoped token requiring its own separate consent
+  flow), a Slack client-side cache/propagation delay for newly created bot
+  users, or something in the Events Subscription config that looks correct
+  in the dashboard but isn't actually active. **Owner explicitly parked
+  this — do not assume it's fixed, and do not claim `@mention` dispatch
+  works until a real message is confirmed reaching
+  `/webhook/slack/events` in production logs.**
 
 ## 1. Goal
 
