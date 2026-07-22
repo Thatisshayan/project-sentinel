@@ -1,7 +1,7 @@
 # Slack + Multi-Agent Roster Plan
 
 **Created:** 2026-07-22
-**Last updated:** 2026-07-22 (round 7 — Phase 0 first slice shipped)
+**Last updated:** 2026-07-22 (round 8 — Phase 6 shipped, Phase 7 in progress)
 **Status:** In progress — see "Implementation log" below
 **Owner:** thatisshayan
 
@@ -438,6 +438,50 @@ slices above.
   this — do not assume it's fixed, and do not claim `@mention` dispatch
   works until a real message is confirmed reaching
   `/webhook/slack/events` in production logs.**
+- **2026-07-22, commit `9f77d24` — Phase 6 shipped (Viktor delegate-CEO
+  authority), built directly (not via subagent) while a forked subagent
+  built Phase 7 in parallel in an isolated worktree.** New
+  `viktor_authority` allow-list table (three action types seeded —
+  `sprint_approve`, `security_patch`, `delegate` — **all disabled by
+  default**, per the plan's "bounded authority, not blanket" requirement;
+  the owner must deliberately enable each one) and a new
+  `agent_authority_log` audit table (`backend/src/viktorAuthority.ts`).
+  `backend/src/agents/viktorWatcher.ts` recognizes three message patterns
+  from Viktor ("approve sprint", "approve security <repo>", "delegate
+  <agent> <repo> <task>"), checks each against the allow-list, and
+  executes via the *same* orchestrator functions Telegram's approve flows
+  already call (`approveSprint`, `resolveAllOpenIssues`, `dispatchToAgent`)
+  — every attempt, approved or denied, is logged. `security_patch`'s scope
+  is tightened beyond a simple on/off: even when enabled, an open
+  high/critical-severity issue always denies (there's no "safe" tag in
+  `securityDb.ts`'s schema, so low/medium severity is the honest stand-in
+  for the plan's "patches tagged safe"). Kill switch made real: `pause`/
+  `resume` now also set/clear a new `system_settings.sentinel_paused` flag
+  (previously pause only cancelled auto-approve and idled agents — this
+  column is what actually gates Viktor's path, closing the exact gap
+  Phase 6 point 5 flagged as unverified). New `viktor log [repo]` /
+  `viktor rules` commands surface the audit trail and current allow-list
+  state. 45 new tests, full suite 50/50 files, 401/401 tests, `tsc --noEmit`
+  clean.
+  **Honestly unverified, by design, not an oversight:** Viktor's real Slack
+  user/bot ID could not be confirmed this session — the Slack MCP tool
+  available this session is connected to a *different* workspace than the
+  one this app actually runs in (confirmed: it has no knowledge of
+  "sentinel" or "coderabbit", both definitely present in the real
+  ObsidianMedia workspace). Rather than guess an ID the way CodeRabbit's
+  payload shape was guessed in Phase 2, `VIKTOR_SLACK_USER_ID` ships unset —
+  every Viktor-authority code path is fully unit-tested but **completely
+  inert in production** until the owner finds the real ID (Slack admin
+  panel or an admin-scoped `users.list` call) and sets it in Railway. Do
+  not claim this "works" until that's configured and a real message from
+  Viktor is confirmed reaching it — same honesty bar as the still-unverified
+  `@mention` delivery item directly above.
+  **Also genuinely open, not attempted here:** the pause check is "checked
+  before starting a new Viktor action," not "aborts an already-in-flight
+  one" — same class of limitation `autoApprover.ts`'s existing cancel
+  already has (cancels a pending job, not one already executing). The
+  plan's exit criterion ("tested with a deliberately slow/delayed task") is
+  not met by anything built here.
 
 ## 1. Goal
 
