@@ -1,50 +1,66 @@
 # Project Sentinel
 
-> **⚠️ REBUILD IN PROGRESS — Phase 6/7 active.**
-> Current status: `STATUS.md` | Plan: `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md`
-> Audit: `2026-07-16-DeepCodebaseAudit.md`
-> Before contributing, read `AGENTS.md` and check current phase requirements.
+> **Status:** actively evolving. The canonical, continuously-updated log of
+> what's shipped vs. designed-only is
+> `docs/2026-07-22-slack-agent-roster-plan.md` (Slack transport, CodeRabbit
+> ingestion, external agent roster, Viktor authority, roundtable) — read its
+> "Implementation log" section first for anything Slack/agent-related.
+> Architecture/tech-debt tracking (TypeScript migration, error handling,
+> security hardening) lives separately in `STATUS.md` / `AGENTS.md`.
 
-An autonomous DevOps AI that manages a portfolio of GitHub repositories for a solo founder. Sentinel monitors commits, audits code, generates improvement tasks, executes them via AI agents, opens PRs, and reports business intelligence — all through Telegram.
+An autonomous DevOps AI that manages a portfolio of GitHub repositories for a solo founder. Sentinel monitors commits, audits code, generates improvement tasks, executes them via AI agents, opens PRs, and reports business intelligence — through **both Telegram and Slack**, and can dispatch work to a roster of external Slack-native AI agents alongside its own internal ones.
 
 ---
 
 ## What it does
 
-1. **Watches** every push across 12+ GitHub repos via webhooks
-2. **Audits** code using NVIDIA NIM (free) — generates 10 prioritised improvement tasks per repo
+1. **Watches** every push across the portfolio via GitHub webhooks
+2. **Audits** code — CodeRabbit is the primary engine (via its own GitHub App, ingested from PR review comments); Sentinel's own NVIDIA-NIM-based audit runs as a delayed fallback if CodeRabbit never responds
 3. **Executes** safe tasks automatically using [aider](https://aider.chat) with your chosen AI provider
 4. **Opens PRs** for completed tasks; tracks merge/reject status
 5. **Reports** daily portfolio health, CEO-level summaries, security posture, sprint velocity
-6. **Coordinates** agents in a Telegram group with individual bot identities per AI provider
+6. **Coordinates** its own internal AI-model agents in a Telegram group, and dispatches to a roster of *external* Slack-native agents (Kilo, Devin, Manus, Viktor, Claude, Codex, Hermes, Replit) via `@mention` in each repo's Slack channel
+7. **Commands work identically from Telegram and Slack** — verb-first syntax (`audit costpilot`, `sprint status`), no prefix required
 
-No Anthropic API required. Everything runs on free/cheap AI providers: NVIDIA NIM, Gemini, DashScope Qwen, DeepSeek.
+No Anthropic API required for the core loop. Everything runs on free/cheap AI providers: NVIDIA NIM, Gemini, DashScope Qwen, DeepSeek.
 
 ---
 
 ## Architecture
 
 ```
-GitHub webhooks
+GitHub webhooks                              Slack (Events API + Interactivity)
+      │                                              │
+      ▼                                              ▼
+Railway (Node.js + Express, full TypeScript)  ◄──────┘
       │
-      ▼
-Railway (Node.js + Express)
-      │
-      ├── Webhook handler    → extracts commit, finds Notion project, updates dashboard
-      ├── Audit engine       → NVIDIA NIM generates 10 tasks as JSON
-      ├── Task queue         → PostgreSQL (audit_tasks) + Redis/BullMQ
-      ├── Builder agents     → aider CLI with pluggable AI providers
-      ├── PR creator         → GitHub API opens PRs, tracks outcomes
-      ├── Sprint planner     → weekly AI-generated sprint proposals via Telegram
-      ├── Security scanner   → dependency + secret + OWASP scanning on every push
-      ├── Self-scaler        → auto-adjusts batch size based on budget burn rate
-      ├── Cross-repo coord   → triggers dependent repo audits (e.g. session-guard → tapcash)
-      └── Telegram bot       → commands, inline menus, multi-agent room, conversation memory
+      ├── Webhook handler       → extracts commit, finds Notion project, updates dashboard
+      ├── CodeRabbit ingestion  → PR review comments → audit_tasks (primary audit path)
+      ├── Audit engine (fallback) → NVIDIA NIM generates tasks as JSON, only if CodeRabbit
+      │                             never responds within the fallback delay
+      ├── Task queue            → PostgreSQL (audit_tasks) + Redis/BullMQ
+      ├── Builder agents        → aider CLI with pluggable AI providers
+      ├── PR creator            → GitHub API opens PRs, tracks outcomes
+      ├── Sprint planner        → weekly AI-generated sprint proposals
+      ├── Security scanner      → dependency + secret + OWASP scanning on every push
+      ├── Self-scaler           → auto-adjusts batch size based on budget burn rate
+      ├── Cross-repo coord      → triggers dependent repo audits
+      ├── commandRegistry       → verb-first command dispatch, shared by both transports
+      ├── Telegram bot          → commands, inline menus, multi-agent room, conversation memory
+      ├── Slack transport       → outbound fan-out (repoName → channel), inbound @mention +
+      │                          Block Kit buttons, same command dispatch as Telegram
+      ├── External agent roster → dispatch/reply-correlation to Kilo, Devin, Manus, Viktor,
+      │                          Claude, Codex, Hermes, Replit via Slack @mention
+      ├── Viktor authority       → bounded, audited, fail-closed delegate actions (approve
+      │                          sprint / security patch / delegate) triggered by Viktor's
+      │                          own Slack messages
+      └── Roundtable            → fans a question out to a repo's agents, collects replies,
+                                   synthesizes via LLM, posts back to the thread
             │
             └── Per-agent bots (Nemotron, Qwen, Gemini, DeepSeek, Qwen Dash)
 ```
 
-**Stack:** Node.js 20 · Express · PostgreSQL · Redis · BullMQ · aider · simple-git · @notionhq/client
+**Stack:** Node.js 20 · TypeScript · Express · PostgreSQL · Redis · BullMQ · aider · simple-git · @notionhq/client · Slack Web API + Events API
 
 ---
 
@@ -52,7 +68,7 @@ Railway (Node.js + Express)
 
 | Provider | Env Var | Used for |
 |---|---|---|
-| NVIDIA NIM | `NVIDIA_API_KEY` | Audits, analysis, primary builder |
+| NVIDIA NIM | `NVIDIA_API_KEY` | Audits (fallback), analysis, primary builder |
 | Google Gemini | `GEMINI_API_KEY` | Debugging, creative tasks, fallback builder |
 | DashScope (Qwen) | `DASHSCOPE_API_KEY` | Code tasks (Qwen 2.5 Coder), fast batch work |
 | DeepSeek | `DEEPSEEK_API_KEY` | Cheap fallback, routine tasks |
@@ -62,6 +78,9 @@ Railway (Node.js + Express)
 
 ## Environment Variables
 
+Full, actively-maintained list with inline explanations: **`backend/.env.example`**.
+Highlights by category:
+
 ### Required
 ```
 GITHUB_WEBHOOK_SECRET     GitHub webhook signature secret
@@ -69,6 +88,8 @@ NOTION_API_KEY            Notion integration token
 NOTION_DATABASE_ID        ID of your Projects database in Notion
 TELEGRAM_BOT_TOKEN        Main Sentinel bot token (from BotFather)
 TELEGRAM_CHAT_ID          Your Telegram group chat ID
+DEBUGGER_SHARED_SECRET    Telegram webhook validation secret
+GITHUB_ORG                Your GitHub organization or username
 ```
 
 ### Phase 2+ (enable full features)
@@ -76,52 +97,52 @@ TELEGRAM_CHAT_ID          Your Telegram group chat ID
 GITHUB_TOKEN              Personal access token (repo + webhook scope)
 DATABASE_URL              PostgreSQL connection string
 REDIS_URL                 Redis connection string
-DEBUGGER_SHARED_SECRET    Telegram webhook validation secret
 NVIDIA_API_KEY            NVIDIA NIM API key (primary AI provider)
-GEMINI_API_KEY            Google Gemini API key
-DASHSCOPE_API_KEY         Alibaba DashScope API key (Qwen models)
-DEEPSEEK_API_KEY          DeepSeek API key
+GEMINI_API_KEY / DASHSCOPE_API_KEY / DEEPSEEK_API_KEY
 ```
 
-### Optional
+### Slack (see `docs/2026-07-22-slack-agent-roster-plan.md`)
 ```
-TELEGRAM_CHAT_ID          Group chat ID
+SLACK_BOT_TOKEN           Bot token from the Slack app (docs/slack-app-manifest.json)
+SLACK_SIGNING_SECRET      Verifies inbound Slack requests
+VIKTOR_SLACK_USER_ID      Real Slack user ID for the Viktor external agent — required
+                          before Phase 6's authority features do anything at all
+ROUNDTABLE_TIMEOUT_MIN    Minutes before an unanswered roundtable forces synthesis (5)
+CODERABBIT_FALLBACK_DELAY_MIN  Minutes before Sentinel's own fallback audit runs (45)
+```
+
+### Optional (full list in `.env.example`)
+```
 AGENT_ROOM_TOPIC_ID       Topic ID for #agent-room thread
 WATCHED_REPOS             Comma-separated list of repos to auto-onboard
 RAILWAY_PUBLIC_DOMAIN     Auto-set by Railway; used for webhook URLs
 AUDIT_AGENT_ENABLED       Set to false to disable automatic audits (default: true)
 BUILDER_AGENT_ENABLED     Set to false to disable task execution (default: true)
-SPRINT_AUTO_APPROVE       Set to true to auto-approve sprints after 2h (default: false)
 TASK_BATCH_SIZE           Tasks per execution batch (default: 5)
 MAX_BUILDER_TASKS_PER_DAY Max tasks executed per day per repo (default: 10)
 SPRINT_MONTHLY_BUDGET     Monthly AI spend budget in USD (default: 30)
 CROSS_REPO_DEPS           JSON dependency map for cross-repo audit triggers
 METRICS_SOURCES           JSON array of HTTP metric connectors for business data
 AUDIT_COOLDOWN_HOURS      Hours between audits per repo (default: 12)
-```
-
-### Per-agent bot tokens
-```
-BOT_TOKEN_NEMOTRON        @nemotronsintelbot token
-BOT_TOKEN_QWEN_CODER      @qwencodersintenelbot token
-BOT_TOKEN_QWEN_CODER_DASH @qwendashsentinelbot token
-BOT_TOKEN_GEMINI          @geminisentinelbot token
-BOT_TOKEN_DEEPSEEK        @deepseeksentinelBot token
+SENTRY_DSN                Sentry error monitoring (optional)
 ```
 
 ---
 
 ## Deployment (Railway)
 
-1. Fork this repo and connect it to Railway
-2. Set environment variables in Railway dashboard
+1. Fork this repo and connect it to Railway as two services: `sentinel-backend` (root `backend/`) and `sentinel-ui` (root `ui/`)
+2. Set environment variables in Railway's dashboard for each service
 3. Railway auto-deploys on every push to `main`
-4. Set up GitHub webhooks for each repo:
+4. Set up GitHub webhooks for each repo (done automatically for repos onboarded after Slack existed; see `repoOnboarder.ts`):
    - URL: `https://<your-railway-domain>/webhook/github`
-   - Events: **Push**, **Pull request**
+   - Events: **Push**, **Pull request**, **Pull request review comment** (the last one is how CodeRabbit's findings arrive)
    - Secret: same as `GITHUB_WEBHOOK_SECRET`
+5. Create the Slack app from `docs/slack-app-manifest.json` (App Manifest tab at api.slack.com/apps), install it to your workspace, and set `SLACK_BOT_TOKEN`/`SLACK_SIGNING_SECRET`
 
-The Dockerfile installs Node.js 20, Python 3, Git, and aider. The app starts on port 3000.
+The Dockerfile installs Node.js 20, Python 3, Git, and aider. The app starts on port 3000 (Railway maps its own `PORT`).
+
+Always verify a deploy actually succeeded via `railway status` (look for `Online`, not just "no error printed") — Railway's auto-deploy-on-push has been unreliable historically for this project; `railway up --service <name> --detach` from the repo root works as a direct manual deploy when needed.
 
 ---
 
@@ -159,66 +180,78 @@ and `SENTINEL_UI_KEY` to match the backend's value.
 
 ---
 
-## Telegram Commands
+## Commands — Telegram and Slack (identical syntax)
+
+Verb-first, no `/sentinel` prefix needed (legacy `/sentinel <subcommand>` syntax still works). In Slack, `@mention` the bot with the same text; in Telegram, just type it in the group.
 
 ### Core
 | Command | What it does |
 |---|---|
-| `/sentinel audit <repo>` | Force a fresh audit — generates 10 tasks |
-| `/sentinel execute <repo>` | Start executing queued tasks |
-| `/sentinel force-execute <repo>` | Unlock all tasks (including unsafe) and execute |
-| `/sentinel stop <repo>` | Stop all activity on a repo |
-| `/sentinel tasks <repo>` | List queued tasks |
-| `/sentinel status <repo>` | Current build + task status |
+| `audit <repo>` | Force a fresh audit — generates tasks (validated against the real tracked-repo list first) |
+| `execute <repo>` | Start executing queued tasks |
+| `execute force <repo>` | Unlock all tasks (including unsafe) and execute |
+| `stop <repo>` | Stop all activity on a repo |
+| `tasks <repo>` | List queued tasks |
+| `status <repo>` | Current build + task status |
 
 ### Reports
 | Command | What it does |
 |---|---|
-| `/sentinel report` | Send daily portfolio report |
-| `/sentinel dashboard` | Live status card (health, agents, budget) |
-| `/sentinel health` | Portfolio health scores for all repos |
-| `/sentinel weekly` | Weekly business + tech report |
-| `/sentinel ceo` | Generate CEO-level summary |
-| `/sentinel velocity` | Sprint velocity trend |
-| `/sentinel costs` | API spend breakdown |
-| `/sentinel business <repo>` | Business metrics for a repo |
-| `/sentinel security <repo>` | Security posture for a repo |
-| `/sentinel patterns` | Cross-repo pattern analysis |
-| `/sentinel impact <repo>` | PR impact analysis |
+| `report` | Send daily portfolio report |
+| `dashboard` | Live status card (health, agents, budget) |
+| `health` | Portfolio health scores for all repos |
+| `weekly` | Weekly business + tech report |
+| `ceo` | Generate CEO-level summary |
+| `velocity` | Sprint velocity trend |
+| `costs` | API spend breakdown |
+| `business <repo>` | Business metrics for a repo |
+| `security <repo>` | Security posture for a repo |
+| `patterns` | Cross-repo pattern analysis |
+| `impact <repo>` | PR impact analysis |
 
 ### Sprint
 | Command | What it does |
 |---|---|
-| `/sentinel propose-sprint` | Generate weekly sprint proposal |
-| `/sentinel approve-sprint` | Approve the pending sprint |
-| `/sentinel skip-sprint` | Skip this week's sprint |
-| `/sentinel sprint-status` | Current sprint progress |
-| `/sentinel run-sprint` | Resume sprint execution |
-| `/sentinel pause-sprint` | Pause sprint |
+| `sprint propose` | Generate weekly sprint proposal |
+| `sprint approve` | Approve the pending sprint |
+| `sprint skip` | Skip this week's sprint |
+| `sprint status` | Current sprint progress |
+| `sprint run` | Resume sprint execution |
+| `sprint pause` | Pause sprint |
 
-### Agents
+### Agents (internal AI-model roster)
 | Command | What it does |
 |---|---|
-| `/sentinel agents` | Show all agents and current status |
-| `/sentinel what` | What are agents doing right now? |
-| `/sentinel standup` | Run agent standup (shows 7-day real stats) |
-| `/sentinel leaderboard` | Post agent performance leaderboard |
-| `/sentinel test-bots` | Test all configured agent bots |
-| `/sentinel bots` | Show configured vs. missing bot tokens |
+| `agents` | Show all agents and current status |
+| `active` | What are agents doing right now? |
+| `standup` | Run agent standup (7-day real stats) |
+| `leaderboard` | Post agent performance leaderboard |
+| `bots test` | Test all configured agent bots |
+| `bots` | Show configured vs. missing bot tokens |
+
+### External agent roster (Slack-native — Kilo, Devin, Manus, Viktor, Claude, Codex, Hermes, Replit)
+| Command | What it does |
+|---|---|
+| `assign <agent-id> <repo> <task>` | Dispatch a task to an external agent via `@mention` in the repo's channel |
+| `roundtable <repo> <question>` | Fan a question out to the repo's agents, collect replies, post a synthesized summary |
+| `viktor log [repo]` | View Viktor's recent authority-log decisions (approved/denied/executed) |
+| `viktor rules` | View the current Viktor authority allow-list (all disabled by default) |
 
 ### System
 | Command | What it does |
 |---|---|
-| `/sentinel webhook-status` | Which repos are sending webhook events |
-| `/sentinel self-audit` | Run Sentinel self-audit |
-| `/sentinel self-approve` | Approve Sentinel's own improvement tasks |
-| `/sentinel lock <repo>` | Lock a repo (no agents will touch it) |
-| `/sentinel unlock <repo>` | Unlock a repo |
-| `/sentinel security-scan <repo>` | Run security scan manually |
-| `/sentinel memory` | Show last 10 conversation exchanges |
-| `/sentinel help` | Interactive command menu |
+| `webhook status` | Which repos are sending webhook events |
+| `self audit` | Run Sentinel self-audit |
+| `self approve` | Approve Sentinel's own improvement tasks |
+| `lock <repo>` | Lock a repo (no agents will touch it) |
+| `unlock <repo>` | Unlock a repo |
+| `security scan <repo>` | Run security scan manually |
+| `security approve <repo>` | Resolve all open security issues for a repo |
+| `memory` | Show last 10 conversation exchanges |
+| `pause` / `resume` | Pause/resume all automation — also gates Viktor's authority path |
+| `help` | Interactive command menu |
 
-### Natural language (just type in the group)
+### Natural language (Telegram only — free-text AI routing)
 ```
 start working on tapcash
 audit AlphonsoEcosystem
@@ -239,13 +272,15 @@ GitHub webhook → Sentinel backend
         ↓
 Risk assessment + deduplication check
         ↓
-NVIDIA NIM audits the repo → 10 tasks (JSON)
+CodeRabbit reviews the PR (its own GitHub App) → findings ingested via PR review
+comments → audit_tasks. If CodeRabbit never responds within the fallback delay,
+Sentinel's own NVIDIA NIM audit runs instead.
         ↓
 Tasks saved to PostgreSQL + Notion
         ↓
-Telegram: "Audit complete — ✅ Execute 7 safe tasks / ⏭ Skip"
+Telegram + Slack: "Audit complete — ✅ Execute N safe tasks / ⏭ Skip"
         ↓
-[You tap ✅ Execute]
+[You tap ✅ Execute — works identically in both platforms]
         ↓
 aider runs in a Docker container with AI provider's API
 Heartbeat every 2 min: "Agent working on task 3/7 — 4m elapsed"
@@ -263,11 +298,11 @@ Sprint velocity updated → leaderboard → CEO report (Sunday)
 
 ---
 
-## Agent Roster
+## Internal Agent Roster (AI models, dispatched via aider/Claude Code)
 
 | Agent ID | Model | Specialty |
 |---|---|---|
-| `nvidia` | Nemotron 70B (NVIDIA NIM) | Audits, analysis, portfolio intelligence |
+| `nvidia` | Nemotron 70B (NVIDIA NIM) | Audits (fallback), analysis, portfolio intelligence |
 | `qwen_coder` | Qwen 2.5 Coder 32B (NVIDIA) | Code implementation, PR author |
 | `qwen_coder_dash` | Qwen 2.5 Coder (DashScope) | Code tasks (DashScope tier) |
 | `qwen_max` | Qwen Max (DashScope) | Strong reasoning, complex tasks |
@@ -276,7 +311,31 @@ Sprint velocity updated → leaderboard → CEO report (Sunday)
 | `deepseek` | DeepSeek Coder | Cheap fallback, routine tasks |
 | `llama_fast` | Llama 3.1 8B (NVIDIA) | Ultra-fast, low-complexity batch |
 
-Builder fallback chain: if the assigned builder fails, Sentinel automatically retries with the next tier (e.g. nvidia → qwen_coder → gemini → deepseek).
+Builder fallback chain: if the assigned builder fails, Sentinel automatically retries with the next tier.
+
+## External Agent Roster (Slack-native, dispatched via `@mention`)
+
+A DATA-driven roster (`external_agents` table) — adding a new agent is an `INSERT`, not a new file. Currently seeded:
+
+| Agent | Slack handle | Role |
+|---|---|---|
+| Kilo | `@kilo` | worker |
+| Viktor | `@viktor` | authority (see Viktor Authority below) |
+| Devin | `@devin` | worker |
+| Manus | `@manus` | worker |
+| CodeRabbit | `@coderabbit` | auditor (primary audit engine, invoked via its own GitHub App, not `@mention`) |
+| Claude | `@claude` | worker |
+| Codex | `@codex` | worker |
+| Hermes | `@hermes` | assistant |
+| Replit | `@replit` | worker |
+
+### Viktor Authority
+
+Viktor can trigger real production actions from a Slack message — approve a sprint, approve security patches, or delegate a task to another agent — but only within an explicit, per-action-type allow-list (`viktor_authority` table, **every row ships disabled by default**), and every attempt (approved or denied) is logged to `agent_authority_log`. `pause`/`resume` gate this path too. Requires `VIKTOR_SLACK_USER_ID` to be configured (real Slack user ID) — unconfigured means completely inert.
+
+### Roundtable
+
+`roundtable <repo> <question>` fans a question out to a repo's enabled worker agents via one `@mention` message, collects replies (5-minute timeout forces a synthesis regardless), and posts an LLM-generated synthesis (agreement / disagreement / recommended path) back into the thread.
 
 ---
 
@@ -319,10 +378,11 @@ Metrics feed the CEO report, priority engine, and ROI scorer.
 
 ## Security
 
-- Every High-risk push (auth files, env files, secrets) triggers an immediate security scan
+- Every high-risk push (auth files, env files, secrets) triggers an immediate security scan
 - Full security scans run after every passing build
 - Monthly security posture report sent automatically
-- `/sentinel security-patch <repo>` auto-fixes safe issues and opens a PR
+- `security patch <repo>` auto-fixes safe issues and opens a PR
+- Snyk is also connected via its own GitHub webhook on several repos (not yet integrated into Sentinel's own reporting)
 
 ---
 
@@ -330,11 +390,14 @@ Metrics feed the CEO report, priority engine, and ROI scorer.
 
 ```bash
 cd backend
-npm test          # 37 tests
-npm run test:coverage
+npm test          # 53 suites / 431+ tests
+npx tsc --noEmit  # type-check, should be clean
 ```
 
-Tests cover: payload extraction, webhook signature validation, PR event handling (merge/reject), Notion matching, risk assessment.
+```bash
+cd ui
+npm run build     # also type-checks the UI
+```
 
 ---
 
@@ -343,29 +406,41 @@ Tests cover: payload extraction, webhook signature validation, PR event handling
 ```
 backend/
 ├── src/
-│   ├── index.js                 # App entry, startup probes, schema init
-│   ├── webhook.js               # GitHub push + PR event handler
-│   ├── workers.js               # BullMQ cron workers (daily, sprint, build-poll)
-│   ├── auditOrchestrator.js     # Audit → tasks → execution flow
-│   ├── taskBuilder.js           # aider task execution with heartbeat
-│   ├── builderRouter.js         # AI provider selection + fallback chain
-│   ├── selfScaler.js            # Budget-aware auto-scaling
-│   ├── crossRepoCoordinator.js  # Dependency-triggered cross-repo audits
-│   ├── telegramCommands.js      # All /sentinel commands
-│   ├── telegramAI.js            # NL understanding + agent routing
-│   ├── sprintPlanner.js         # Weekly sprint proposal generation
-│   ├── notionClient.js          # Notion API (two-pass project matching)
-│   ├── securityScanner.js       # Security scanning pipeline
-│   ├── metricsFetcher.js        # Configurable HTTP metrics connector
-│   ├── conversationMemory.js    # 7-day conversation history per topic
-│   └── ...
-├── test/
-│   ├── extractPayload.test.js
-│   ├── webhook.test.js          # Includes PR merge/reject tests
-│   ├── notionClient.test.js
-│   └── riskAssessor.test.js
+│   ├── index.ts                    # App entry, startup probes, schema init
+│   ├── webhook.ts                  # GitHub webhook router
+│   ├── webhook/                    # push / PR / CodeRabbit event handlers
+│   ├── commandRegistry.ts          # Verb-first command dispatch, shared by Telegram + Slack
+│   ├── slackClient.ts              # Outbound Slack (chat.postMessage, buttons, channel creation)
+│   ├── slackEvents.ts              # Inbound Slack Events API (@mention, message events)
+│   ├── slackInteractions.ts        # Slack Block Kit button click handling
+│   ├── viktorAuthority.ts          # Viktor's bounded, audited authority allow-list
+│   ├── agents/
+│   │   ├── externalAgentRegistry.ts  # External agent roster + dispatch/reply-correlation
+│   │   ├── viktorWatcher.ts          # Inbound Viktor authority-action recognition
+│   │   └── roundtable.ts             # Multi-agent fan-out/collect/synthesize
+│   ├── commands/                   # agents.ts, repoOps.ts, reports.ts, sprint.ts, roundtable.ts
+│   ├── workers/                    # buildPollWorker, dailyReportWorker, sprintWorker,
+│   │                                #   agentCleanupWorker, scheduledJobsWorker (BullMQ)
+│   ├── auditOrchestrator.ts        # Audit → tasks → execution flow (also posts results to GitHub)
+│   ├── taskBuilder.ts              # aider task execution with heartbeat
+│   ├── builderRouter.ts            # AI provider selection + fallback chain
+│   ├── selfScaler.ts               # Budget-aware auto-scaling
+│   ├── telegramCommands.ts         # Legacy /sentinel command handling + AI-routed free text
+│   ├── telegramAI.ts               # NL understanding + agent routing
+│   ├── sprintOrchestrator.ts       # Sprint approve/pause/resume/execution
+│   ├── notionClient.ts             # Notion API (two-pass project matching)
+│   ├── securityScanner.ts          # Security scanning pipeline
+│   └── ...                         # ~90 files total, all TypeScript — no .js remains
+├── scripts/                        # One-off standalone diagnostic/backfill scripts (not TS-built)
+├── test/                           # 53 test files (.ts and .js), 431+ tests
 ├── Dockerfile
 └── railway.toml
+
+ui/                                 # Next.js 14 dashboard, see "Dashboard (UI)" above
+
+docs/
+├── 2026-07-22-slack-agent-roster-plan.md   # Living plan + implementation log — read first
+└── slack-app-manifest.json                 # Used to create the Slack app
 ```
 
 ---

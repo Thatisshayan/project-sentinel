@@ -29,12 +29,17 @@ For full details, see [RemoteCliControl/AGENTS.md](../RemoteCliControl/AGENTS.md
 
 ## Project Sentinel-Specific Context
 
-**Project Status**: ✅ Phases 0-7 complete, merged to `main`. Phase 6 (Architecture Refactoring) and Phase 7 (independent code audit + remediation) both landed via PR #26 and PR #27/#28.
+**Two separate "phase" tracks exist in this repo's docs — don't conflate them:**
+1. **Architecture/tech-debt track** (`STATUS.md`, this section below): TypeScript migration, error architecture, security hardening, test coverage, catch-pattern elimination, architecture refactoring. Phases 0-5 complete as of 2026-07-19; 6-7 were in progress as of that date — re-check `STATUS.md` directly before trusting its %-complete figures past a quick skim, they may be stale.
+2. **Slack + external-agent-roster track** (`docs/2026-07-22-slack-agent-roster-plan.md`): a completely different Phase 0-7 numbering, covering command-layer unification, Slack transport, CodeRabbit-as-primary-audit-engine, the external agent roster (Kilo/Devin/Manus/Viktor/Claude/Codex/Hermes/Replit), Viktor's bounded authority, and the multi-agent roundtable. As of 2026-07-22 this track's Phases 0-7 are all code-complete and unit-tested — **read that doc's "Implementation log" section for the real, current status**, including what's genuinely verified live vs. still unverified (Slack event delivery to `/webhook/slack/events` was confirmed working live in production on 2026-07-22, closing the single longest-standing open question in that doc).
 
-**Key Notes**:
-- Phase 6 (webhook.ts/workers.ts split, inline require() → top-level imports) complete — 191 tests passing
+**Key Notes** (architecture track):
+- Full TypeScript migration complete (2026-07-17) — **no `.js` files remain in `backend/src/`**; do not reference `.js` paths from memory or older docs.
+- Phase 6 (webhook.ts/workers.ts split, inline require() → top-level imports) complete
 - Phase 7 audit (2026-07-18): verified Phase 3-6 claims against actual code, not commit messages. Found and fixed: a documented-but-nonexistent dead-letter queue, an unenforced coverage gate, residual silent `catch {}` swallows, 0%-covered worker files, and unscoped child-process env in package-install exec calls. See `docs/governance/DEFERRED_WORK.md` for the full trace.
-- Remaining known gaps (tracked, not yet blocking): `backend/.env.example` was significantly behind actual env var usage (being closed out in Phase 8); `timingSafeEqual`'s length-check has a low-severity timing side-channel.
+- `backend/.env.example` now includes the Slack/agent-roster env vars added 2026-07-22 (`SLACK_BOT_TOKEN`, `VIKTOR_SLACK_USER_ID`, `ROUNDTABLE_TIMEOUT_MIN`, etc.) — was previously significantly behind actual env var usage.
+- `timingSafeEqual`'s length-check has a low-severity timing side-channel (still open, tracked, not blocking).
+- Full test suite as of 2026-07-22: 53 files, 431+ tests, `tsc --noEmit` clean across both `backend/` and `ui/`.
 
 ---
 
@@ -68,8 +73,8 @@ Project Sentinel uses a pool of AI agents to perform code audits, fixes, and por
 > avoid Nemotron reasoning models with Aider: they return `content: null`
 > and put output in `reasoning_content`/`<think>` blocks instead, which
 > breaks both Aider's diff parsing and this codebase's `message.content`
-> parsing (`ceoReport.js`, `sentinelBrain.js`, `sprintPlanner.js`,
-> `telegramAI.js`, `claudeCodeAudit.js`).
+> parsing (`ceoReport.ts`, `sentinelBrain.ts`, `sprintPlanner.ts`,
+> `telegramAI.ts`, `claudeCodeAudit.ts`).
 
 ## Configuration
 
@@ -95,11 +100,34 @@ Each agent can send Telegram messages under its own bot identity. Configure with
 | Audit | NVIDIA NIM (`mistralai/mistral-nemotron`) | Claude Code (aider) |
 | Sprint planning | NVIDIA NIM (`mistralai/mistral-nemotron`) | Gemini → DashScope → DeepSeek |
 | Strategic brain | NVIDIA NIM (`mistralai/mistral-nemotron`) | DeepSeek |
-| Build repair (aider) | NVIDIA NIM (`meta/llama-3.1-70b-instruct`, via `AIDER_MODEL`) | Gemini → DashScope → DeepSeek (see `builderRouter.js` `FALLBACK_CHAIN`) |
+| Build repair (aider) | NVIDIA NIM (`meta/llama-3.1-70b-instruct`, via `AIDER_MODEL`) | Gemini → DashScope → DeepSeek (see `builderRouter.ts` `FALLBACK_CHAIN`) |
 
 ## Status monitoring
 
-- `/sentinel agents` — current status of all registered agents
-- `/sentinel what` — agents currently working on a task
-- `/sentinel leaderboard` — weekly performance ranking
+- `agents` — current status of all registered agents (works from Telegram or Slack)
+- `active` — agents currently working on a task
+- `leaderboard` — weekly performance ranking
 - Agent errors surface in the UI agents panel and via Telegram startup alerts
+
+## External agent roster (Slack-native, separate from the internal AI-model pool above)
+
+Added 2026-07-22 — see `docs/2026-07-22-slack-agent-roster-plan.md` for full design/status.
+Data-driven (`external_agents` table, `backend/src/agents/externalAgentRegistry.ts`) —
+adding an agent is an `INSERT`, not a new file. Dispatched via `@mention` in a repo's
+Slack channel (`assign <agent-id> <repo> <task>`), not via this pool's aider/Claude-Code
+mechanism.
+
+| Agent | Slack handle | Role |
+|---|---|---|
+| Kilo | `@kilo` | worker |
+| Viktor | `@viktor` | authority — bounded, audited, fail-closed (`viktorAuthority.ts`) |
+| Devin | `@devin` | worker |
+| Manus | `@manus` | worker |
+| CodeRabbit | `@coderabbit` | auditor — primary audit engine, via its own GitHub App |
+| Claude | `@claude` | worker |
+| Codex | `@codex` | worker |
+| Hermes | `@hermes` | assistant |
+| Replit | `@replit` | worker |
+
+`roundtable <repo> <question>` fans a question out to a repo's agents and posts a
+synthesized reply (`backend/src/agents/roundtable.ts`).
