@@ -630,8 +630,10 @@ describe('Stage 5: PR lifecycle for mint sentinel branches', () => {
     await waitLong();
     const lastCall = sendTelegramMessage.mock.calls[sendTelegramMessage.mock.calls.length - 1];
     const msg = lastCall[0];
-    // The PR merge handler passes null as repoName (uses topicId=null, sends to default topic)
-    expect(lastCall[1]).toBeNull();
+    // Fixed 2026-07-22: this previously hardcoded null (Telegram-only,
+    // never reached Slack) despite repoName being right there in scope —
+    // same bug class as the audit/build/debug orchestrators.
+    expect(lastCall[1]).toBe('mint');
     expect(msg).toContain('mint');
     expect(msg).toContain('#17');
   });

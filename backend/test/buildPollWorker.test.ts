@@ -123,7 +123,7 @@ describe('startBuildPollWorker', () => {
     expect(enqueueBuildCheckMock).not.toHaveBeenCalled();
     expect(sendTelegramMessageMock).toHaveBeenCalledWith(
       expect.stringContaining('Build Timeout'),
-      null,
+      baseJobData.repoName,
       baseJobData.topicId
     );
   });
@@ -155,7 +155,7 @@ describe('startBuildPollWorker', () => {
     }));
     expect(sendTelegramMessageMock).toHaveBeenCalledWith(
       expect.stringContaining('Build Passed'),
-      null,
+      baseJobData.repoName,
       baseJobData.topicId
     );
     expect(enqueueScheduledJobMock).toHaveBeenCalledWith(
@@ -213,7 +213,7 @@ describe('startBuildPollWorker', () => {
 
     expect(sendTelegramMessageMock).toHaveBeenCalledWith(
       expect.stringContaining('Build Failed'),
-      null,
+      baseJobData.repoName,
       baseJobData.topicId
     );
     expect(orchestrateDebugMock).toHaveBeenCalledTimes(1);
@@ -233,7 +233,7 @@ describe('startBuildPollWorker', () => {
     expect(dbQueryMock).toHaveBeenCalledTimes(1);
     expect(sendTelegramMessageMock).toHaveBeenCalledWith(
       expect.stringContaining('re-queued'),
-      null,
+      baseJobData.repoName,
       baseJobData.topicId
     );
   });

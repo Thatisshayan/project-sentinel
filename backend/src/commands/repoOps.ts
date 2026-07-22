@@ -126,12 +126,47 @@ async function handleManualAudit(repoArg: string, topicId: number | null): Promi
     await sendTelegramMessage('Usage: /sentinel audit <repo-name>', null, topicId);
     return true;
   }
-  const project = await findNotionProject(repoArg).catch(() => null);
-  await sendTelegramMessage(`Manual audit triggered for ${repoArg}...`, repoArg, topicId);
+
+  // Found live in production (2026-07-22): a natural-language mention like
+  // "@sentinel audit the costpilot repo" gets tokenized by the verb-first
+  // parser as repo="the" (the very next word, literally) — with no
+  // validation here, that went straight into triggerAudit(), which cloned
+  // "github.com/<org>/the.git", failed with an unhelpful raw git error deep
+  // in the logs, and gave the user no visible feedback at all. Validating
+  // against the actual tracked-repo list first turns a doomed clone
+  // attempt + silent-to-the-user failure into an immediate, clear reply.
+  const { getFullRepoList } = require('../repoDiscovery') as {
+    getFullRepoList: () => Promise<Array<{ repoName: string; repoFullName: string }>>;
+  };
+  const repos = await getFullRepoList().catch((err: any) => {
+    logger.warn({ err: err.message }, 'getFullRepoList failed during audit repo-name validation — proceeding without it');
+    return null;
+  });
+  const match = repos?.find(r => r.repoName.toLowerCase() === repoArg.toLowerCase());
+
+  if (repos && !match) {
+    await sendTelegramMessage(
+      [
+        `⚠️ No tracked repo named "${repoArg}" — not attempting an audit.`,
+        `Tracked repos: ${repos.map(r => r.repoName).join(', ') || '(none loaded)'}`,
+      ].join('\n'),
+      repoArg, topicId
+    );
+    return true;
+  }
+
+  // repos===null means the validation lookup itself failed (not that the
+  // repo is unknown) — proceed as before rather than block a legitimate
+  // audit on a transient GitHub API error.
+  const resolvedRepoName     = match?.repoName     || repoArg;
+  const resolvedRepoFullName = match?.repoFullName || repoFullName(repoArg);
+
+  const project = await findNotionProject(resolvedRepoName).catch(() => null);
+  await sendTelegramMessage(`Manual audit triggered for ${resolvedRepoName}...`, resolvedRepoName, topicId);
   triggerAudit({
-    repoFullName:  repoFullName(repoArg),
-    repoName:      repoArg,
-    projectName:   project?.projectName || repoArg,
+    repoFullName:  resolvedRepoFullName,
+    repoName:      resolvedRepoName,
+    projectName:   project?.projectName || resolvedRepoName,
     commitSha:     `manual-${Date.now()}`,
     commitMessage: '[manual-audit]',
     branchName:    'main',

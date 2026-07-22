@@ -66,7 +66,7 @@ export async function processPREvent(payload: any): Promise<void> {
       taskIds.length > 0 ? `${taskIds.length} task(s) marked complete` : '',
       ``,
       `Next batch will run on next commit or /sentinel run-sprint ${repoName}`,
-    ].filter(Boolean).join('\n'), null, null), { label: 'webhook' })
+    ].filter(Boolean).join('\n'), repoName, null), { label: 'webhook' })
 
   } else {
     const updated = await query(`
@@ -89,6 +89,6 @@ export async function processPREvent(payload: any): Promise<void> {
       `PR #${prNumber} closed without merging`,
       `Branch: ${branchName}`,
       count > 0 ? `${count} task(s) requeued — /sentinel run-sprint ${repoName} to retry` : '',
-    ].filter(Boolean).join('\n'), null, null), { label: 'webhook' })
+    ].filter(Boolean).join('\n'), repoName, null), { label: 'webhook' })
   }
 }

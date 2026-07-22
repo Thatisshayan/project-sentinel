@@ -141,7 +141,7 @@ describe('triggerAudit — loop-prevention rules', () => {
     expect(runAudit).not.toHaveBeenCalled();
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       expect.stringContaining('Audit Skipped'),
-      null,
+      basePayload.repoName,
       basePayload.topicId
     );
   });
@@ -240,7 +240,7 @@ describe('triggerAudit — happy path', () => {
     expect(updateAuditCycle).toHaveBeenCalledWith('cycle-1', { status: 'failed' });
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       expect.stringContaining('Audit Failed'),
-      null,
+      basePayload.repoName,
       basePayload.topicId
     );
   });
@@ -254,7 +254,7 @@ describe('executeApprovedTasks', () => {
 
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       expect.stringContaining('Builder disabled'),
-      null, null
+      'tapcash', null
     );
     expect(getActiveCycleForRepo).not.toHaveBeenCalled();
 
@@ -269,7 +269,7 @@ describe('executeApprovedTasks', () => {
 
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       expect.stringContaining('No queued tasks'),
-      null, null
+      'tapcash', null
     );
     expect(createAuditCycle).not.toHaveBeenCalled();
   });
@@ -311,7 +311,7 @@ describe('processNextBatch', () => {
 
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       expect.stringContaining('Daily Limit'),
-      null, null
+      'tapcash', null
     );
     expect(getNextBatch).not.toHaveBeenCalled();
   });
@@ -325,7 +325,7 @@ describe('processNextBatch', () => {
     expect(updateAuditCycle).toHaveBeenCalledWith('cycle-1', { status: 'complete' });
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       expect.stringContaining('All Safe Tasks Complete'),
-      null, null
+      'tapcash', null
     );
   });
 
@@ -354,7 +354,7 @@ describe('processNextBatch', () => {
     expect(createPullRequest).toHaveBeenCalled();
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       expect.stringContaining('Batch 1 Ready'),
-      null, null
+      'tapcash', null
     );
   });
 
@@ -412,7 +412,7 @@ describe('processNextBatch', () => {
     expect(createPullRequest).not.toHaveBeenCalled();
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       expect.stringContaining('Batch 1 Failed'),
-      null, null
+      'tapcash', null
     );
   });
 });
@@ -429,7 +429,7 @@ describe('handleBuildPassedAfterSentinelMerge', () => {
     expect(updateAuditCycle).toHaveBeenCalledWith('cycle-1', { status: 'complete' });
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       expect.stringContaining('All Safe Tasks Complete'),
-      null, null
+      'tapcash', null
     );
   });
 
@@ -455,7 +455,7 @@ describe('handleBuildPassedAfterSentinelMerge', () => {
     expect(markTasksDoneForBranch).toHaveBeenCalledWith('your-org/tapcash', 'sentinel/batch-1');
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       expect.stringContaining('Batch 2 Ready'),
-      null, null
+      'tapcash', null
     );
   });
 });

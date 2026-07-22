@@ -67,7 +67,7 @@ async function onboardRepo(repoName: string): Promise<void> {
     `Slack channel ${slackChannelId ? '✅ #' + repoName.toLowerCase() : '❌ — create manually (Slack not configured yet)'}`,
     `First audit triggered ${auditTriggered ? '✅' : '❌ — see logs'}`,
     `Sentinel is now monitoring ${repoName}.`,
-  ].join('\n'), null, null);
+  ].join('\n'), repoName, null);
 
   logger.info({ repoName, notionPageId, webhookRegistered, slackChannelId, auditTriggered }, 'Repo onboarding complete');
 }

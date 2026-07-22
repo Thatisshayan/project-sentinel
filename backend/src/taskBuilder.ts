@@ -63,7 +63,7 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
             const { sendTelegramMessage } = require('./telegramClient');
             fireAndForget(sendTelegramMessage(
               `Agent working on task ${task.task_number}/${tasks.length} — ${task.title}\nElapsed: ${elapsed}m | Builder: ${builderConfig.label}`,
-              null, topicId
+              repoName, topicId
             ), { label: 'taskBuilder' })
           }, 2 * 60 * 1000)
         : null;
@@ -149,7 +149,7 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
         const { sendTelegramMessage } = require('./telegramClient');
         fireAndForget(sendTelegramMessage(
           `Project Sentinel — Merge Conflict Risk ⚠️\n\nRepo: ${repoName}\nBase branch moved while the batch was running.\nThe PR may have conflicts — review before merging.`,
-          null, topicId
+          repoName, topicId
         ), { label: 'taskBuilder' })
       }
     } catch (e: any) {
@@ -272,7 +272,7 @@ async function runAiderForTask(repoPath: string, task: any, context: any, builde
       const { sendTelegramMessage } = require('./telegramClient');
       fireAndForget(sendTelegramMessage(
         `Project Sentinel — Aider Timeout ⏱️\n\nTask ${task.task_number}: ${task.title}\nRepo: ${context.repoName}\nAider killed after ${process.env['AIDER_TIMEOUT_MINUTES'] || 20}m — task skipped.`,
-        null, context.topicId
+        context.repoName, context.topicId
       ), { label: 'taskBuilder' })
       proc.kill('SIGTERM');
       resolve({ success: false, reason: 'Aider timed out' });

@@ -122,7 +122,7 @@ async function applySecurityPatches(repoFullName: string, repoName: string, issu
       `Only package.json updated — no app code touched.`,
       ``,
       prUrl || 'PR created on GitHub',
-    ].join('\n'), null, topicId), { label: 'securityPatcher' })
+    ].join('\n'), repoName, topicId), { label: 'securityPatcher' })
 
     if (prUrl) {
       await markIssuesPatchPending(autoFixable.map(i => i.id), prUrl, branchName);

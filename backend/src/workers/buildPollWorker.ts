@@ -59,7 +59,7 @@ export function startBuildPollWorker(): Worker | null {
         logger.warn({ repoFullName }, 'Build poll timeout');
         await safeFire(sendTelegramMessage(
           `Project Sentinel — Build Timeout ⏱️\n\nRepo: ${repoName}\nBuild still pending after 10 minutes.\nCheck manually: ${result.buildUrl || 'N/A'}`,
-          null,
+          repoName,
           topicId
         ), { label: 'workers' });
         return;
@@ -111,7 +111,7 @@ export function startBuildPollWorker(): Worker | null {
           `Provider: ${result.buildProvider}`,
           result.buildUrl ? `Build: ${result.buildUrl}` : '',
         ].filter(Boolean).join('\n'),
-        null,
+        repoName,
         topicId
       ), { label: 'workers' });
 
@@ -203,7 +203,7 @@ export function startBuildPollWorker(): Worker | null {
             ? `This was a Sentinel PR — tasks have been re-queued for retry.`
             : `Assessing whether automatic repair is safe...`,
         ].filter(Boolean).join('\n'),
-        null,
+        repoName,
         topicId
       ), { label: 'workers' });
 
@@ -225,7 +225,7 @@ export function startBuildPollWorker(): Worker | null {
           logger.info({ count, repoFullName }, 'Tasks re-queued after post-merge build failure');
           await safeFire(sendTelegramMessage(
             `🔁 ${count} task(s) re-queued for ${repoName} — use /sentinel tasks ${repoName} to review, then /sentinel force-execute ${repoName} to retry.`,
-            null, topicId
+            repoName, topicId
           ), { label: 'workers' });
         }
       } else {

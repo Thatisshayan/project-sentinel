@@ -161,7 +161,7 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
       prUrl ? `PR: ${prUrl}` : '',
       ``,
       `${sprint.total_tasks - task.execution_order} tasks remaining this sprint.`,
-    ].filter(Boolean).join('\n'), null, topicId), { label: 'sprintOrchestrator' })
+    ].filter(Boolean).join('\n'), task.repo_name, topicId), { label: 'sprintOrchestrator' })
 
     // Continue to next task after a brief pause. Persisted via BullMQ rather
     // than a bare setTimeout — a bare timer is lost on process restart
@@ -219,7 +219,7 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
       ``,
       `/sentinel resume-sprint  — skip failed task and continue`,
       `/sentinel skip-sprint    — abandon this sprint`,
-    ].join('\n'), null, topicId), { label: 'sprintOrchestrator' })
+    ].join('\n'), task.repo_name, topicId), { label: 'sprintOrchestrator' })
   }
 }
 

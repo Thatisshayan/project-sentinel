@@ -82,7 +82,7 @@ async function runPriorityEngine(): Promise<void> {
             `New priority: ${rule.newPriority.toUpperCase()}`,
             ``,
             `Sprint will prioritise ${repoName} tasks at next cycle.`,
-          ].join('\n'), null, null), { label: 'priorityEngine' })
+          ].join('\n'), repoName, null), { label: 'priorityEngine' })
         }
       }
     }

@@ -57,7 +57,7 @@ async function checkPostMergeImpact(impactId: any, repoName: string): Promise<vo
         `Impact: ${direction} (score: ${score})`,
         `48h after merge:`,
         deltaLines,
-      ].join('\n'), null, null), { label: 'correlationEngine' })
+      ].join('\n'), repoName, null), { label: 'correlationEngine' })
     }
   } catch (err: any) {
     logger.warn({ err: err.message, impactId }, 'Post-merge impact check failed');

@@ -1,4 +1,5 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
+import axios from 'axios';
 import logger from './logger';
 import { runAudit } from './claudeCodeAudit';
 import { writeTasksToNotion, updateNotionTaskStatus } from './auditTaskWriter';
@@ -44,6 +45,52 @@ const COOLDOWN_HOURS     = async (): Promise<number> => {
 const QUEUED_THRESHOLD   = (): number => parseInt(process.env['MIN_QUEUED_BEFORE_SKIP_AUDIT'] || '3');
 const APPROVAL_TIMEOUT_H = (): number => parseInt(process.env['AUDIT_APPROVAL_TIMEOUT_H']    || '24');
 
+/**
+ * Posts an audit's outcome (success summary or failure reason) as a GitHub
+ * commit comment, so it's visible somewhere other than Telegram/Slack —
+ * requested directly by the owner after a manual audit failed silently
+ * with no visible-to-them result. Manual/ad-hoc audits use a synthetic
+ * commitSha ('manual-<timestamp>'), which isn't a real commit to comment
+ * on, so this always resolves the actual latest commit on the given branch
+ * (or the repo's default branch, if none given) via the GitHub API rather
+ * than trusting the audit payload's commitSha. Fire-and-forget by design
+ * (called via `await` at the call site only to log a failure, never to
+ * block or fail the audit itself) — a GitHub API hiccup must never affect
+ * the Telegram/Slack notification that already succeeded.
+ */
+async function postAuditSummaryToGithub(repoFullName: string, branchName: string | undefined, text: string): Promise<void> {
+  const token = process.env['GITHUB_TOKEN'];
+  if (!token) return;
+
+  try {
+    const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' };
+    const { getDefaultBranch } = require('./repoDiscovery') as { getDefaultBranch: (r: string) => Promise<string> };
+    const branch = branchName || await getDefaultBranch(repoFullName);
+
+    const commitRes = await axios.get(
+      `https://api.github.com/repos/${repoFullName}/commits/${encodeURIComponent(branch)}`,
+      { headers, timeout: 10000 }
+    );
+    const sha = commitRes.data?.sha;
+    if (!sha) {
+      logger.warn({ repoFullName, branch }, 'postAuditSummaryToGithub: could not resolve a commit sha to comment on');
+      return;
+    }
+
+    // GitHub commit comments don't have a documented hard length cap, but
+    // truncate generously anyway to avoid an oversized-payload rejection.
+    const body = text.length > 60000 ? text.slice(0, 60000) + '\n\n[truncated]' : text;
+    await axios.post(
+      `https://api.github.com/repos/${repoFullName}/commits/${sha}/comments`,
+      { body },
+      { headers, timeout: 10000 }
+    );
+    logger.info({ repoFullName, sha }, 'Posted audit result as a GitHub commit comment');
+  } catch (err: any) {
+    logger.warn({ err: err.message, repoFullName }, 'Failed to post audit result to GitHub — Telegram/Slack notification is unaffected');
+  }
+}
+
 // ── THE 4 LOOP-PREVENTION RULES ───────────────────────────────────────────────
 
 async function checkAuditRules(data: any): Promise<{ pass: boolean; reason?: string }> {
@@ -70,7 +117,7 @@ async function checkAuditRules(data: any): Promise<{ pass: boolean; reason?: str
     logger.info({ repoName, queuedCount }, 'Rule 2: Tasks queued — audit skipped');
     await safeFire(sendTelegramMessage(
       `Project Sentinel — Audit Skipped ⏭️\n\nRepo: ${repoName}\n${queuedCount} tasks still in queue.\nAudit will run when queue clears.`,
-      null,
+      repoName,
       topicId
     ), { label: 'auditOrchestrator' })
     return { pass: false, reason: 'tasks_queued' };
@@ -160,7 +207,7 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
 
   await safeFire(sendTelegramMessage(
     `Project Sentinel — Audit Starting 🔍\n\nRepo: ${repoName}\nAnalyst: Claude Code\nBuilder assigned: ${builderConfig.label}`,
-    null,
+    repoName,
     topicId
   ), { label: 'auditOrchestrator' })
 
@@ -183,9 +230,10 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
     await updateAuditCycle(cycle.id, { status: 'failed' });
     await safeFire(sendTelegramMessage(
       `Project Sentinel — Audit Failed ❌\n\nRepo: ${repoName}\nError: ${err.message.substring(0, 300)}`,
-      null,
+      repoName,
       topicId
     ), { label: 'auditOrchestrator' })
+    await postAuditSummaryToGithub(repoFullName, branchName, `**Sentinel audit failed**\n\nError: ${err.message.substring(0, 500)}`);
     // A cycle WAS created (the process genuinely started) — it just failed
     // partway through, unlike the earlier early-returns where nothing began.
     return { started: true, reason: 'audit_run_failed' };
@@ -295,7 +343,7 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
       ],
     ]);
   } catch {
-    await safeFire(sendTelegramMessage(safeAuditText, null, topicId), { label: 'auditOrchestrator' })
+    await safeFire(sendTelegramMessage(safeAuditText, repoName, topicId), { label: 'auditOrchestrator' })
   }
 
   // Same buttons in Slack (Phase 1, docs/2026-07-22-slack-agent-roster-plan.md)
@@ -314,6 +362,7 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
   scheduleApprovalTimeout(cycle.id, repoFullName, repoName, topicId);
   logger.info({ repoFullName, cycleId: cycle.id, tasks: totalCount, safe: safeCount,
     batches: batchCount }, 'Audit complete — awaiting approval');
+  await postAuditSummaryToGithub(repoFullName, branchName, safeAuditText);
   return { started: true };
 }
 
@@ -323,7 +372,7 @@ async function executeApprovedTasks(repoFullName: string, repoName: string, topi
   if (!BUILDER_ENABLED()) {
     await safeFire(sendTelegramMessage(
       `Builder disabled (BUILDER_AGENT_ENABLED=false). Enable in Railway.`,
-      null, topicId
+      repoName, topicId
     ), { label: 'auditOrchestrator' })
     return;
   }
@@ -344,7 +393,7 @@ async function executeApprovedTasks(repoFullName: string, repoName: string, topi
       await safeFire(sendTelegramMessage([
         `No queued tasks for ${repoName}.`,
         `Run /sentinel audit ${repoName} to generate tasks first.`,
-      ].join('\n'), null, topicId), { label: 'auditOrchestrator' })
+      ].join('\n'), repoName, topicId), { label: 'auditOrchestrator' })
       return;
     }
 
@@ -359,7 +408,7 @@ async function executeApprovedTasks(repoFullName: string, repoName: string, topi
     if (!active) {
       await safeFire(sendTelegramMessage(
         `Could not start execution cycle for ${repoName}. Try /sentinel audit ${repoName} first.`,
-        null, topicId
+        repoName, topicId
       ), { label: 'auditOrchestrator' })
       return;
     }
@@ -378,7 +427,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
   if (todayCount >= DAILY_LIMIT()) {
     await safeFire(sendTelegramMessage(
       `Project Sentinel — Daily Limit ⏸️\n\nRepo: ${repoName}\nTasks today: ${todayCount}/${DAILY_LIMIT()}\nContinuing tomorrow.`,
-      null,
+      repoName,
       topicId
     ), { label: 'auditOrchestrator' })
     return;
@@ -395,7 +444,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
       `Repo: ${repoName}`,
       `Unsafe tasks remain in Notion for manual review.`,
       `Next audit available in ${await COOLDOWN_HOURS()}h after next human commit.`,
-    ].join('\n'), null, topicId), { label: 'auditOrchestrator' })
+    ].join('\n'), repoName, topicId), { label: 'auditOrchestrator' })
     return;
   }
 
@@ -416,7 +465,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
     `Builder: ${builderConfig.label}`,
     ``,
     taskTitles,
-  ].join('\n'), null, topicId), { label: 'auditOrchestrator' })
+  ].join('\n'), repoName, topicId), { label: 'auditOrchestrator' })
 
   const notionProject = await findNotionProject(repoName).catch(() => null);
 
@@ -435,7 +484,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
       logger.info({ primaryBuilder, fallback, repoFullName }, 'Primary builder failed — retrying with fallback');
       await safeFire(sendTelegramMessage(
         `Builder ${primaryBuilder} failed for ${repoName}. Retrying with ${fallback}...`,
-        null, topicId
+        repoName, topicId
       ), { label: 'auditOrchestrator' })
       batchResult = await executeBatch(tasks, {
         repoFullName, repoName,
@@ -494,7 +543,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
       batchResult.remainingTasks > 0
         ? `Merge to continue. ${batchResult.remainingTasks} tasks remain.`
         : `Merge to finish. This is the final batch.`,
-    ].filter(Boolean).join('\n'), null, topicId), { label: 'auditOrchestrator' })
+    ].filter(Boolean).join('\n'), repoName, topicId), { label: 'auditOrchestrator' })
 
   } else {
     // Re-queue all tasks so they can be retried — the builder failed (infra/API/aider),
@@ -520,7 +569,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
       errDetail ? `\nBuilder output:\n${errDetail}` : '',
       ``,
       `Tasks re-queued. /sentinel execute ${repoName} to retry.`,
-    ].filter(Boolean).join('\n'), null, topicId), { label: 'auditOrchestrator' })
+    ].filter(Boolean).join('\n'), repoName, topicId), { label: 'auditOrchestrator' })
 
     // Also log to agent_messages so it's visible in the UI without Telegram
     const { logAgentMessage } = require('./agentDb');
@@ -569,7 +618,7 @@ async function checkApprovalTimeout(cycleId: number, repoFullName: string, repoN
   // state transition instead of silently leaving the cycle stuck forever.
   await safeFire(sendTelegramMessage(
     `Project Sentinel — Audit Expired ⏱️\n\nRepo: ${repoName}\nNo response in ${APPROVAL_TIMEOUT_H()}h.\nTasks remain in Notion as Queued.\n/sentinel audit ${repoName} to re-audit.`,
-    null,
+    repoName,
     topicId
   ), { label: 'auditOrchestrator' })
 }
@@ -594,7 +643,7 @@ function scheduleApprovalTimeout(cycleId: number, repoFullName: string, repoName
     logger.error({ err: err.message, cycleId }, 'Failed to schedule approval timeout — cycle has no automatic expiry');
     fireAndForget(sendTelegramMessage(
       `⚠️ Project Sentinel — could not schedule the approval timeout for ${repoName} (cycle ${cycleId}). This audit will not auto-expire; approve or skip it manually.`,
-      null, topicId
+      repoName, topicId
     ), { label: 'auditOrchestrator' });
   });
 }
@@ -605,5 +654,6 @@ export = {
   processNextBatch,
   handleBuildPassedAfterSentinelMerge,
   checkApprovalTimeout,
+  postAuditSummaryToGithub,
 };
 

@@ -136,7 +136,7 @@ async function runSecurityScan(data: ScanData) {
       lines.push(`/sentinel security ${repoName} — full details`);
       // Critical always alerts to main group (topicId null)
       const alertTopic = critical.length > 0 ? null : topicId;
-      await safeFire(sendTelegramMessage(lines.join('\n'), null, alertTopic), { label: 'securityScanner' })
+      await safeFire(sendTelegramMessage(lines.join('\n'), repoName, alertTopic), { label: 'securityScanner' })
     }
 
     logger.info({ repoFullName, securityScore, ...counts }, 'Security scan complete');

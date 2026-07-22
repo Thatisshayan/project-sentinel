@@ -154,7 +154,7 @@ async function processCodeRabbitEvent(payload: any): Promise<void> {
   });
 
   const summary = buildSummaryText(repoName, findings, prUrl);
-  await safeFire(sendTelegramMessage(summary, null, null), { label: 'processCodeRabbitEvent' });
+  await safeFire(sendTelegramMessage(summary, repoName, null), { label: 'processCodeRabbitEvent' });
 
   logger.info({ repoFullName, cycleId: cycle.id, findings: findings.length }, 'CodeRabbit audit ingested');
 }
