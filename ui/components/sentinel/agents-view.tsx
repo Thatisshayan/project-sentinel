@@ -19,7 +19,13 @@ const STATUS_COLOR: Record<string, string> = {
 function AgentCard({ agent, index }: { agent: Agent; index: number }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const isOn = agent.status === "working";
+  // The backend toggle (POST /agents/:id/toggle) only flips idle <-> paused
+  // — 'idle' is the normal enabled/ready resting state, not an "off" state
+  // (agentDb.ts's schema defaults new rows to 'idle'). Gating "ON" on
+  // status === "working" showed idle agents as OFF; clicking that button
+  // read as "currently off, turn it on" but actually paused an already-
+  // enabled agent — the opposite of what the label implied.
+  const isOn = agent.status !== "paused";
 
   const toggle = async () => {
     setLoading(true);

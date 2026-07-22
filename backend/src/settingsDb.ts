@@ -133,10 +133,16 @@ async function updateSettings(updates: Record<string, any>) {
 
   setClauses.push(`updated_at = NOW()`);
 
+  // No WHERE clause, deliberately — system_settings is a singleton (exactly
+  // one row, enforced by initSettingsSchema's insert-if-count-zero check),
+  // and its id isn't guaranteed to stay 1 forever (SERIAL, no reset — a
+  // recreated row after a manual delete could land on a different id). A
+  // hardcoded `WHERE id = 1` would then silently update zero rows with no
+  // error — the UI's saveSettings() doesn't check the response, so a save
+  // would appear to succeed while doing nothing.
   const sql = `
     UPDATE system_settings
     SET ${setClauses.join(', ')}
-    WHERE id = 1
     RETURNING *
   `;
 

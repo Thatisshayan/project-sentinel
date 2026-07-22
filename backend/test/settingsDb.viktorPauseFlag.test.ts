@@ -37,4 +37,11 @@ describe('settingsDb — sentinel_paused (Phase 6 kill switch)', () => {
       [true]
     );
   });
+
+  it('updateSettings does not hardcode "WHERE id = 1" — system_settings is a singleton whose row id is not guaranteed to be 1', async () => {
+    queryMock.mockResolvedValue({ rows: [{ sentinel_paused: true }] });
+    await updateSettings({ sentinel_paused: true });
+    const sql = String(queryMock.mock.calls[0][0]);
+    expect(sql).not.toMatch(/WHERE\s+id\s*=\s*1\b/i);
+  });
 });
