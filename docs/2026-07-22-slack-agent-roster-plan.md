@@ -170,6 +170,29 @@ slices above.
   "done"), and Block Kit buttons for the approve/skip/menu flows
   (`telegramMenus.ts`'s equivalents). Both still don't require touching the
   4 command-handler files' internals.
+- **2026-07-22, commit `754e313`** — **item 1 shipped: inbound Events API
+  listener.** `POST /webhook/slack/events` (`slackEvents.ts`) answers
+  Slack's `url_verification` handshake, verifies requests with Slack's real
+  documented v0 HMAC-SHA256 signing scheme (not a guess — this one is
+  genuine public API documentation, unlike CodeRabbit's payload shape in
+  Phase 2, which remains unverified), and routes `app_mention` text (bot
+  mention stripped) through the *same* `commandRegistry.dispatchCommand()`
+  Phase 0 built for Telegram — Slack and Telegram now share identical
+  command-handling logic, only the inbound transport differs. 13 new tests.
+  Full suite 40/40 files, 313/313 tests, `tsc --noEmit` clean.
+  **Known gap, surfaced honestly rather than glossed over:** many existing
+  command-handler reply call sites pass `repoName: null` to
+  `sendTelegramMessage` (they rely on Telegram's `topicId` for routing
+  instead) — `slackClient.ts`'s fan-out looks up the destination channel by
+  `repoName`, so those specific replies will silently no-op in Slack even
+  once fully configured with real credentials. This means "type `@sentinel
+  audit costpilot` in Slack" will correctly *trigger* the audit (dispatch
+  works), but some of the resulting status messages may only land in
+  Telegram until the affected call sites are audited and given a real
+  `repoName`. Not fixed in this slice — flagged as the next concrete
+  follow-up rather than left implicit.
+  **Remaining for full Slack parity: only item 2 (Block Kit buttons for
+  approve/skip/menu) plus the repoName-null audit above.**
 
 ## 1. Goal
 
