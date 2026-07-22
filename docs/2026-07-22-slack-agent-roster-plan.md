@@ -1462,6 +1462,22 @@ summary posts back correctly attributing each agent's stance, a
 `roundtable_sessions` row is written, and the repo's living context
 doc (Notion + `CONTEXT.md`) reflects the outcome.
 
+- **2026-07-22, commit `14eab5f` — real bug found and fixed during a
+  from-scratch backend bug sweep, unrelated to any specific phase work in
+  progress.** `recordRoundtableReply()` read `agents_responded`, appended
+  the new reply in JS, then wrote the whole array back — two replies
+  landing close together (plausible any time more than one agent answers
+  quickly) would both read the same starting array and the second UPDATE
+  would silently clobber the first reply instead of appending to it,
+  permanently stalling that roundtable's completion count until the
+  timeout job forced synthesis with a reply missing. Fixed to append
+  atomically inside the UPDATE itself via Postgres's jsonb `||` operator.
+  Same sweep also fixed a case-mismatch bug in `utils/retry.ts` (lowercased
+  the message before checking it against still-uppercase ' ECONN'/'
+  ENOENT' substrings, so those never matched) — no live impact today since
+  that module has no current callers, but fixed for correctness before
+  anything wires it up.
+
 ---
 
 ## Phase 8 — Dust + Zapier (additive, lower priority)
