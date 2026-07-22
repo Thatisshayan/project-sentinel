@@ -62,6 +62,15 @@ describe('stripBotMention', () => {
   it('leaves text unchanged when there is no leading mention', () => {
     expect(stripBotMention('audit costpilot')).toBe('audit costpilot');
   });
+
+  it('recovers the real text when the mention is preceded by other formatting (confirmed live 2026-07-22)', () => {
+    // Exact raw text observed from a real production Slack event.
+    expect(stripBotMention('> • <@U0BJXH4MC3G> \nTest')).toBe('Test');
+  });
+
+  it('takes everything after the LAST mention when the text contains more than one', () => {
+    expect(stripBotMention('<@U0BOT> quoted <@U0BOT> audit costpilot')).toBe('audit costpilot');
+  });
 });
 
 describe('verifySlackSignature', () => {

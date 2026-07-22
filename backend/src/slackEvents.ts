@@ -82,9 +82,27 @@ function verifySlackSignature(req: any): boolean {
   return matches;
 }
 
-/** Strips a leading "<@BOTID>" (and optional following punctuation/space) from an app_mention's text. */
+/**
+ * Strips the bot's "<@BOTID>" mention from an app_mention's text. Confirmed
+ * live in production (2026-07-22) that this only handled a bare
+ * "@mention text" message correctly — any leading formatting before the
+ * mention (a blockquote, a bullet, anything) broke the old start-anchored
+ * regex and left the mention (and the junk before it) in the "command"
+ * text, so it correctly matched nothing rather than dispatching. Fixed by
+ * taking everything after the LAST mention occurrence anywhere in the
+ * text, rather than requiring the mention at position 0 — identical result
+ * for the common case, but now robust to arbitrary text/formatting before
+ * the mention.
+ */
 function stripBotMention(text: string): string {
-  return text.replace(/^\s*<@[A-Z0-9]+>[:,]?\s*/i, '').trim();
+  const mentionPattern = /<@[A-Z0-9]+>[:,]?\s*/gi;
+  let lastEnd = -1;
+  let match: RegExpExecArray | null;
+  while ((match = mentionPattern.exec(text)) !== null) {
+    lastEnd = match.index + match[0].length;
+  }
+  if (lastEnd === -1) return text.trim();
+  return text.slice(lastEnd).trim();
 }
 
 async function handleSlackEvent(req: any, res: any): Promise<void> {
