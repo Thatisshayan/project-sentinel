@@ -112,11 +112,46 @@ slices above.
   38/38 files, 288/288 tests, `tsc --noEmit` clean.
   **This resolves the "8 other call sites" concern raised when this was
   first flagged — it was never actually 9 call sites needing the same
-  treatment, only 1.** The `CommandContext` refactor (Phase 0's remaining
-  piece, ~150 call sites across 4 files) is still deliberately deferred as
-  its own reviewed unit — that one's scope genuinely doesn't narrow the same
-  way, since Slack (Phase 1) needs every command handler to work platform-
-  agnostically, not just one call site.
+  treatment, only 1.**
+
+- **2026-07-22, commit `4bd99e1`** — **Phase 1, first slice shipped, with a
+  design revision that changes what the `CommandContext` refactor above
+  actually needs to cover.** Realization: `sendTelegramMessage(text,
+  repoName, topicId)` already carries `repoName` on every one of its ~150
+  call sites — enough context to also post to Slack directly, without
+  threading a new `CommandContext` object through every command handler.
+  Added `slackClient.ts` (raw-https `chat.postMessage`, same low-dependency
+  style `telegramClient.ts` already uses for outbound Telegram sends — no
+  `@slack/bolt` needed for this piece) and a `slack_channels` table
+  (`repo_name` → `channel_id`). `sendTelegramMessage()` now fires a
+  non-blocking `sendSlackMessage()` alongside every existing send — **every
+  one of the ~150 call sites gets Slack delivery for free, with zero changes
+  to any of them.** Safe by construction: with no `SLACK_BOT_TOKEN` or no
+  mapped channel for a repo, it's a no-op (resolves `null`, logs at debug) —
+  current behavior is unchanged until real Slack credentials and channel
+  mappings exist. 6 new tests. Full suite 39/39 files, 294/294 tests, `tsc
+  --noEmit` clean.
+  **This substantially shrinks what the `CommandContext` refactor actually
+  needs to do.** It was originally scoped as "rewrite every handler to take
+  a platform-agnostic context object" — but *outbound delivery* (the bulk of
+  what those 150 call sites do) is now solved without touching them. What's
+  genuinely still needed for full Slack parity is narrower:
+  1. **Inbound**: a Slack Events API / Bolt listener that receives
+     `@mention`s and slash commands and calls the *same*
+     `commandRegistry.dispatchCommand()` Phase 0 already built — this needs
+     new code (a Slack-side entry point) but not a rewrite of the 4 handler
+     files, since they already work by calling `sendTelegramMessage`, which
+     now also reaches Slack.
+  2. **Interactive components** (buttons/menus) — `telegramMenus.ts`'s
+     inline-keyboard buttons don't have a Slack Block Kit equivalent yet;
+     approve/skip flows would be text-only in Slack until this is built.
+  3. **Channel auto-creation during onboarding** — `upsertSlackChannel()` is
+     built and exported but not yet called from `repoOnboarder.ts`; until it
+     is, `slack_channels` stays empty and Slack delivery stays a no-op even
+     with a real token configured.
+  None of these three require rewriting the existing command handlers —
+  they're additive, which is a meaningfully smaller and safer scope than
+  the original Phase 0 "CommandContext across 150 call sites" plan.
 
 ## 1. Goal
 
