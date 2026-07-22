@@ -53,6 +53,7 @@ async function initExternalAgentSchema(): Promise<void> {
     ['claude',     'Claude',     '@claude',     'worker'],
     ['codex',      'Codex',      '@codex',      'worker'],
     ['hermes',     'Hermes',     '@hermes',     'assistant'],
+    ['replit',     'Replit',     '@replit',     'worker'],
   ];
   for (const [id, displayName, slackMention, role] of seed) {
     await query(

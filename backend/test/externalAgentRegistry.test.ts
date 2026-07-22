@@ -17,15 +17,15 @@ import {
 describe('externalAgentRegistry — schema init', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('creates the table and seeds all 8 confirmed roster agents, self-correcting on conflict', async () => {
+  it('creates the table and seeds all 9 confirmed roster agents, self-correcting on conflict', async () => {
     queryMock.mockResolvedValue({ rows: [] });
     await initExternalAgentSchema();
 
     const insertCalls = queryMock.mock.calls.filter(c => String(c[0]).includes('INSERT INTO external_agents'));
-    expect(insertCalls).toHaveLength(8);
+    expect(insertCalls).toHaveLength(9);
     const seededIds = insertCalls.map(c => c[1][0]);
     expect(seededIds.sort()).toEqual(
-      ['claude', 'coderabbit', 'codex', 'devin', 'hermes', 'kilo', 'manus', 'viktor']
+      ['claude', 'coderabbit', 'codex', 'devin', 'hermes', 'kilo', 'manus', 'replit', 'viktor']
     );
     // Handle/name/role are correctable via redeploy (real installed handles
     // turned out lowercase, not the guessed capitalized ones) — but
