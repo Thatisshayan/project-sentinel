@@ -387,6 +387,37 @@ slices above.
   further this session. Multiple `railway up` redeploys shipped
   today's commits to production progressively; each verified via `railway
   status` (Online) rather than assumed.
+- **2026-07-22, commit `aab0349`** — **found and fixed live in production
+  logs, not from a test:** setting `SENTRY_DSN` today (the first time it
+  had ever been set) surfaced a dormant unhandled-promise-rejection at
+  every startup — `index.ts` dynamically imported `@sentry/express`, which
+  was never actually an installed dependency (only `@sentry/node` is in
+  `package.json`). `@sentry/node` v8 already exports `expressIntegration()`
+  directly; moved it into `Sentry.init()`'s `integrations` array (the
+  correct v8 pattern) and deleted the broken import entirely. Confirmed via
+  live `railway logs` before and after the fix, not just local tests.
+- **2026-07-22 — Slack channel backfill, run live against production.**
+  `createChannelForRepo()` only ever ran during *new* repo onboarding — the
+  11 repos onboarded before Slack existed had no channel/mapping. Wrote
+  `backend/scripts/backfillSlackChannels.js` (standalone, not a TS import,
+  to avoid needing a build step for a one-off run) and ran it via `railway
+  run` against the real Slack API and the production DB (via Postgres's
+  public proxy, same technique used earlier to check for duplicate
+  `task_number` data). **Result: 18 real Slack channels created/mapped**,
+  confirmed by row count. This is the first genuine end-to-end proof that
+  Slack channel creation works against the real API, not just mocks.
+  Incidentally surfaced a pre-existing data-quality inconsistency (not
+  fixed, out of scope) — `portfolio_metrics` has repo names in inconsistent
+  casing/spelling (`session-guard` vs `sessionguard`,
+  `obsidian-studio` vs `obsidianstudio`), which produced one real channel
+  per spelling variant rather than per actual repo.
+  **Still not done:** the bot/other agents (Kilo, Manus, etc.) are not
+  automatically invited into these channels — creating a channel via API
+  makes the bot the owner but doesn't invite anyone else; that's still a
+  manual `/invite` step per channel per agent. A real `@mention` round-trip
+  and Interactivity button click have also still not been tested live —
+  only the channel-creation and `url_verification` handshake paths have
+  been empirically confirmed so far.
 
 ## 1. Goal
 
