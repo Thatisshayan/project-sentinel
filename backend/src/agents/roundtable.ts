@@ -165,13 +165,22 @@ async function recordRoundtableReply(
   if (!session) return false;
 
   const hint = event.username || event.bot_id || event.user || 'unknown';
-  const responded: RoundtableReply[] = session.agents_responded || [];
-  responded.push({ hint, text: event.text, responded_at: new Date().toISOString() });
+  const newReply: RoundtableReply = { hint, text: event.text, responded_at: new Date().toISOString() };
 
-  await query(`UPDATE roundtable_sessions SET agents_responded = $2 WHERE id = $1`, [
-    session.id,
-    JSON.stringify(responded),
-  ]);
+  // Append atomically in the UPDATE itself (Postgres's jsonb `||` reads the
+  // current row value as part of the same statement) rather than
+  // read-modify-write in JS — two replies landing close together would
+  // otherwise both read the same starting array and the second UPDATE would
+  // silently clobber the first reply instead of appending to it, permanently
+  // stalling that roundtable's completion count.
+  const updated = await query(
+    `UPDATE roundtable_sessions
+     SET agents_responded = agents_responded || $2::jsonb
+     WHERE id = $1
+     RETURNING agents_responded`,
+    [session.id, JSON.stringify([newReply])]
+  );
+  const responded: RoundtableReply[] = updated.rows[0]?.agents_responded || [];
   logger.info({ sessionId: session.id, hint }, 'Recorded a roundtable reply');
 
   // Best-effort completion check — see file header on why this is a count

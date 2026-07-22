@@ -15,8 +15,8 @@ const DEFAULT_OPTIONS: Required<RetryOptions> = {
     return (
       message.includes('timeout') ||
       message.includes('network') ||
-      message.includes(' ECONN') ||
-      message.includes(' ENOENT') ||
+      message.includes(' econn') ||
+      message.includes(' enoent') ||
       error.name === 'AbortError'
     );
   },

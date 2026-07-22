@@ -113,21 +113,40 @@ describe('roundtable — recordRoundtableReply', () => {
   it('appends a reply and does not yet synthesize when fewer replies than agents_asked', async () => {
     queryMock
       .mockResolvedValueOnce({ rows: [{ id: 9, agents_asked: ['kilo', 'manus'], agents_responded: [] }] }) // SELECT
-      .mockResolvedValueOnce({ rows: [] }); // UPDATE
+      .mockResolvedValueOnce({ rows: [{ agents_responded: [{ hint: 'kilo', text: 'I think X', responded_at: '2026-01-01T00:00:00.000Z' }] }] }); // UPDATE ... RETURNING
 
     const matched = await recordRoundtableReply('C1', '111.222', { text: 'I think X', username: 'kilo' });
 
     expect(matched).toBe(true);
-    const updateCall = queryMock.mock.calls.find(c => String(c[0]).includes('UPDATE roundtable_sessions SET agents_responded'));
-    const storedReplies = JSON.parse(updateCall[1][1]);
-    expect(storedReplies).toEqual([{ hint: 'kilo', text: 'I think X', responded_at: expect.any(String) }]);
+    const updateCall = queryMock.mock.calls.find(c => String(c[0]).includes('agents_responded = agents_responded ||'));
+    const appendedReply = JSON.parse(updateCall[1][1]);
+    expect(appendedReply).toEqual([{ hint: 'kilo', text: 'I think X', responded_at: expect.any(String) }]);
     expect(cancelScheduledJobMock).not.toHaveBeenCalled();
+  });
+
+  it('appends via an atomic jsonb UPDATE, not a read-modify-write of the full array — guards against the lost-reply race', async () => {
+    // A pre-existing reply from another agent must already be in the row;
+    // the fix must not require reading it into JS to preserve it — the
+    // UPDATE's own `agents_responded || $2::jsonb` does that atomically.
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ id: 9, agents_asked: ['kilo', 'manus'], agents_responded: [{ hint: 'manus', text: 'earlier reply', responded_at: 'x' }] }] }) // SELECT
+      .mockResolvedValueOnce({ rows: [{ agents_responded: [
+        { hint: 'manus', text: 'earlier reply', responded_at: 'x' },
+        { hint: 'kilo', text: 'I think X', responded_at: '2026-01-01T00:00:00.000Z' },
+      ] }] }); // UPDATE ... RETURNING reflects both replies, not just this one
+
+    await recordRoundtableReply('C1', '111.222', { text: 'I think X', username: 'kilo' });
+
+    const updateCall = queryMock.mock.calls.find(c => String(c[0]).includes('agents_responded = agents_responded ||'));
+    expect(String(updateCall[0])).toContain('agents_responded || $2::jsonb');
+    // Only the new reply is sent as a param — never the full previously-read array.
+    expect(JSON.parse(updateCall[1][1])).toEqual([{ hint: 'kilo', text: 'I think X', responded_at: expect.any(String) }]);
   });
 
   it('triggers synthesis and cancels the timeout once replies reach agents_asked count', async () => {
     queryMock
       .mockResolvedValueOnce({ rows: [{ id: 9, agents_asked: ['kilo'], agents_responded: [] }] }) // SELECT in recordRoundtableReply
-      .mockResolvedValueOnce({ rows: [] }) // UPDATE agents_responded
+      .mockResolvedValueOnce({ rows: [{ agents_responded: [{ hint: 'kilo', text: 'reply', responded_at: 'x' }] }] }) // UPDATE agents_responded ... RETURNING
       .mockResolvedValueOnce({ rows: [{ id: 9, status: 'pending', question: 'q', agents_asked: ['kilo'], agents_responded: [{ hint: 'kilo', text: 'reply', responded_at: 'x' }], repo_name: 'costpilot', thread_ts: '111.222' }] }) // SELECT in runRoundtableSynthesis
       .mockResolvedValue({ rows: [] }); // UPDATE ... synthesis
 
