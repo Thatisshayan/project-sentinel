@@ -7,6 +7,7 @@ import { getAllAgents } from '../agentDb';
 import { runSelfAudit } from '../selfAuditor';
 import { executeApprovedTasks } from '../auditOrchestrator';
 import { dispatchToAgent, listExternalAgents } from '../agents/externalAgentRegistry';
+import { getRecentAuthorityLog, listAuthorityRules } from '../viktorAuthority';
 
 async function handleAgentsCmd(subcommand: string, parts: string[], chatId: string | null, topicId: number | null): Promise<boolean> {
   switch (subcommand) {
@@ -132,6 +133,45 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
           ? `📤 Dispatched to ${agentId} in ${repo}'s Slack channel: "${taskDescription}"`
           : `⚠️ Could not dispatch to ${agentId} — check the agent id is valid/enabled and Slack is configured with a channel for ${repo}.`,
         repo, topicId
+      );
+      return true;
+    }
+    case 'viktor-log': {
+      // Phase 6's audit-trail command — "view/audit Viktor's recent
+      // decisions" from the plan doc (name was left TBD there; "viktor log"
+      // matches this repo's verb-first naming convention). parts[2], if
+      // present, filters to one repo.
+      const repoFilter = parts[2] || null;
+      const entries = await getRecentAuthorityLog(20, repoFilter).catch((err: any) => {
+        logger.error({ err: err.message }, 'viktor-log query failed');
+        return [];
+      });
+      if (entries.length === 0) {
+        await sendTelegramMessage('No Viktor authority-log entries yet.', repoFilter, topicId);
+        return true;
+      }
+      const lines = entries.map((e: any) =>
+        `${new Date(e.created_at).toISOString()} — ${e.decision.toUpperCase()} — ${e.action}` +
+        (e.target_repo ? ` (${e.target_repo})` : '') +
+        (e.target_agent ? ` → ${e.target_agent}` : '') +
+        (e.reasoning ? ` — ${e.reasoning}` : '')
+      );
+      await sendTelegramMessage(['Viktor authority log (most recent first):', ...lines].join('\n'), repoFilter, topicId);
+      return true;
+    }
+    case 'viktor-rules': {
+      const rules = await listAuthorityRules().catch((err: any) => {
+        logger.error({ err: err.message }, 'viktor-rules query failed');
+        return [];
+      });
+      const lines = rules.map((r: any) =>
+        `${r.enabled ? '✅' : '⬜'} ${r.actionType}` +
+        (r.maxScope && Object.keys(r.maxScope).length ? ` — max_scope=${JSON.stringify(r.maxScope)}` : '') +
+        (r.canDelegateTo && r.canDelegateTo.length ? ` — can_delegate_to=[${r.canDelegateTo.join(', ')}]` : '')
+      );
+      await sendTelegramMessage(
+        ['Viktor authority rules:', ...lines, '', 'All rules ship disabled by default — enable directly in viktor_authority once you\'ve decided Viktor\'s actual scope.'].join('\n'),
+        null, topicId
       );
       return true;
     }

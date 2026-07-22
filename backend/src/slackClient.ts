@@ -211,6 +211,29 @@ async function sendSlackMessage(
   return postToSlackApi(BOT_TOKEN, payload);
 }
 
+/**
+ * Posts directly to a known Slack channel ID, bypassing the repoName →
+ * slack_channels lookup sendSlackMessage() uses. For Phase 6's
+ * viktorWatcher.ts, which replies in whatever channel Viktor's message
+ * arrived in (not always a repo channel — e.g. a bare "approve sprint" has
+ * no single repo to look up). Same safe-by-construction no-op when
+ * unconfigured.
+ */
+async function sendSlackMessageToChannel(
+  text: string,
+  channelId: string,
+  threadTs?: string | null
+): Promise<any> {
+  const BOT_TOKEN = process.env['SLACK_BOT_TOKEN'];
+  if (!BOT_TOKEN) {
+    logger.debug('Slack not configured (SLACK_BOT_TOKEN unset) — skipping direct-channel Slack message');
+    return null;
+  }
+  const payload: Record<string, any> = { channel: channelId, text };
+  if (threadTs) payload['thread_ts'] = threadTs;
+  return postToSlackApi(BOT_TOKEN, payload);
+}
+
 interface SlackButton {
   text: string;
   actionId: string;
@@ -261,6 +284,6 @@ async function sendSlackButtons(
 }
 
 export = {
-  initSlackSchema, sendSlackMessage, sendSlackButtons,
+  initSlackSchema, sendSlackMessage, sendSlackButtons, sendSlackMessageToChannel,
   getSlackChannelId, upsertSlackChannel, createChannelForRepo,
 };

@@ -18,6 +18,7 @@ async function initSettingsSchema(): Promise<void> {
       email_digest           BOOLEAN DEFAULT false,
       batch_size_override    INTEGER,
       daily_limit_override   INTEGER,
+      sentinel_paused        BOOLEAN DEFAULT false,
       updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
@@ -27,6 +28,14 @@ async function initSettingsSchema(): Promise<void> {
   // a live database never actually land there. Backfill them idempotently.
   await query(`ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS batch_size_override  INTEGER;`);
   await query(`ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS daily_limit_override INTEGER;`);
+  // sentinel_paused: Phase 6's kill-switch flag — set by repoOps.ts's
+  // 'pause'/'resume' cases, checked by viktorWatcher.ts before executing
+  // any Viktor-initiated action. Previously "pause" only cancelled
+  // auto-approve and idled agent_registry rows; it did not gate anything
+  // else, which the plan doc explicitly flagged as unverified ("don't
+  // assume this just works"). This column is what makes the kill switch
+  // real for Viktor's authority path specifically.
+  await query(`ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS sentinel_paused BOOLEAN DEFAULT false;`);
 
   // Ensure only one row exists (singleton pattern)
   const existing = await query(`SELECT COUNT(*) as cnt FROM system_settings`);
@@ -50,6 +59,7 @@ const SETTINGS_DEFAULTS = {
   email_digest: false,
   batch_size_override: null as number | null,
   daily_limit_override: null as number | null,
+  sentinel_paused: false,
 };
 
 async function getSettings() {
@@ -66,6 +76,7 @@ async function getSettings() {
       email_digest,
       batch_size_override,
       daily_limit_override,
+      sentinel_paused,
       updated_at
     FROM system_settings
     LIMIT 1
@@ -101,6 +112,7 @@ async function updateSettings(updates: Record<string, any>) {
     'email_digest',
     'batch_size_override',
     'daily_limit_override',
+    'sentinel_paused',
   ];
 
   // Build dynamic SET clause

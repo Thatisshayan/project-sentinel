@@ -61,6 +61,8 @@ function buildAliases(handlers: {
     { words: ['bots'],                legacy: 'bots',             handler: agents },
     { words: ['memory'],              legacy: 'memory',           handler: agents },
     { words: ['assign'],              legacy: 'assign',           handler: agents },
+    { words: ['viktor', 'log'],       legacy: 'viktor-log',       handler: agents },
+    { words: ['viktor', 'rules'],     legacy: 'viktor-rules',     handler: agents },
 
     // Repos
     { words: ['audit'],               legacy: 'audit',            handler: repoOps },

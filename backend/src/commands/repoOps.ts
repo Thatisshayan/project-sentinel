@@ -487,8 +487,18 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       } catch (err: any) {
         logger.error({ err: err.stack ?? err.message }, 'Telegram pause failed to update agent_registry');
       }
+      try {
+        // Phase 6's kill switch — viktorWatcher.ts checks this flag before
+        // executing any Viktor-initiated action. Without this, pause only
+        // ever gated auto-approve and idle agents, not Viktor's authority
+        // path, which the plan doc explicitly flagged as unverified.
+        const { updateSettings } = require('../settingsDb') as { updateSettings: (u: Record<string, any>) => Promise<any> };
+        await updateSettings({ sentinel_paused: true });
+      } catch (err: any) {
+        logger.error({ err: err.stack ?? err.message }, 'pause failed to set sentinel_paused — Viktor kill switch NOT engaged');
+      }
       await sendTelegramMessage(
-        '⏸ All automation paused.\nSprints, audits, and builds will not auto-execute. All idle agents have been paused.\nSend /sentinel resume to restart.',
+        '⏸ All automation paused.\nSprints, audits, and builds will not auto-execute. All idle agents have been paused. Viktor-initiated actions will be denied.\nSend /sentinel resume to restart.',
         null, topicId
       );
       return true;
@@ -499,7 +509,13 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       } catch (err: any) {
         logger.error({ err: err.stack ?? err.message }, 'Telegram resume failed to update agent_registry');
       }
-      await sendTelegramMessage('▶️ Automation resumed. Paused agents are idle again.', null, topicId);
+      try {
+        const { updateSettings } = require('../settingsDb') as { updateSettings: (u: Record<string, any>) => Promise<any> };
+        await updateSettings({ sentinel_paused: false });
+      } catch (err: any) {
+        logger.error({ err: err.stack ?? err.message }, 'resume failed to clear sentinel_paused');
+      }
+      await sendTelegramMessage('▶️ Automation resumed. Paused agents are idle again. Viktor-initiated actions will be evaluated again.', null, topicId);
       return true;
     }
     case 'reset-failed': {

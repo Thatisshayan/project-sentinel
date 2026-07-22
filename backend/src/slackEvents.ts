@@ -31,6 +31,7 @@ import crypto from 'crypto';
 import logger from './logger';
 import { dispatchCommand } from './commandRegistry';
 import { recordAgentReply } from './agents/externalAgentRegistry';
+import { handleViktorMessage } from './agents/viktorWatcher';
 
 const MAX_TIMESTAMP_SKEW_SECONDS = 60 * 5; // Slack's own documented replay-attack window
 
@@ -101,6 +102,18 @@ async function handleSlackEvent(req: any, res: any): Promise<void> {
       logger.info({ commandText, channel: event.channel }, 'Slack mention did not match any known command');
     }
     return;
+  }
+
+  // Phase 6 — Viktor authority: checked on every plain message (not just
+  // threaded replies, unlike reply correlation below — a bare "approve
+  // sprint" from Viktor isn't a reply to anything). Safe no-op unless
+  // VIKTOR_SLACK_USER_ID is configured and matches event.user — see
+  // viktorWatcher.ts's header for why that's unverified/unconfigured as of
+  // this session.
+  if (event.type === 'message' && typeof event.text === 'string' && event.channel) {
+    await handleViktorMessage(event).catch((err: any) => {
+      logger.error({ err: err.message, channel: event.channel }, 'handleViktorMessage failed');
+    });
   }
 
   // Phase 4 reply correlation — a threaded reply in a channel where a task
