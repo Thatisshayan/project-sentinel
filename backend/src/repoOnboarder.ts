@@ -1,6 +1,7 @@
 import logger from './logger';
 import axios from 'axios';
 import { sendTelegramMessage } from './telegramClient';
+import { createChannelForRepo } from './slackClient';
 import { triggerAudit } from './auditOrchestrator';
 import { findNotionProject } from './notionClient';
 import { repoFullName, getGithubOrg } from './repoResolver';
@@ -30,6 +31,15 @@ async function onboardRepo(repoName: string): Promise<void> {
     return false;
   });
 
+  // Phase 1 of docs/2026-07-22-slack-agent-roster-plan.md — best-effort,
+  // same pattern as Notion/webhook above: never blocks onboarding, reported
+  // in the summary message either way. No-op (returns null) if Slack isn't
+  // configured yet — see slackClient.ts.
+  const slackChannelId = await createChannelForRepo(repoName).catch((err: any) => {
+    logger.warn({ err: err.message, repoName }, 'Slack channel creation failed — create manually if needed');
+    return null;
+  });
+
   const auditTriggered = await triggerAudit({
     repoFullName:  repoFullName(repoName),
     repoName,
@@ -54,11 +64,12 @@ async function onboardRepo(repoName: string): Promise<void> {
     `🆕 New repo onboarded: ${repoName}`,
     `Notion row created ${notionPageId ? '✅' : '❌ — add manually'}`,
     `GitHub webhook registered ${webhookRegistered ? '✅' : '❌ — register manually'}`,
+    `Slack channel ${slackChannelId ? '✅ #' + repoName.toLowerCase() : '❌ — create manually (Slack not configured yet)'}`,
     `First audit triggered ${auditTriggered ? '✅' : '❌ — see logs'}`,
     `Sentinel is now monitoring ${repoName}.`,
   ].join('\n'), null, null);
 
-  logger.info({ repoName, notionPageId, webhookRegistered, auditTriggered }, 'Repo onboarding complete');
+  logger.info({ repoName, notionPageId, webhookRegistered, slackChannelId, auditTriggered }, 'Repo onboarding complete');
 }
 
 async function checkAndOnboardNewRepos(): Promise<void> {

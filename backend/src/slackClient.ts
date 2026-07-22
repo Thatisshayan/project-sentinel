@@ -90,6 +90,94 @@ function postToSlackApi(botToken: string, payload: Record<string, any>): Promise
   );
 }
 
+function callSlackApi(botToken: string, method: string, payload: Record<string, any>): Promise<any> {
+  const bodyJson = JSON.stringify(payload);
+  return retryWithBackoff(
+    () => new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: 'slack.com',
+        path:     `/api/${method}`,
+        method:   'POST',
+        headers:  {
+          'Content-Type':   'application/json; charset=utf-8',
+          'Authorization':  `Bearer ${botToken}`,
+          'Content-Length': Buffer.byteLength(bodyJson),
+        },
+      }, (res) => {
+        let data = '';
+        res.on('data', (chunk: any) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            if (!parsed.ok) {
+              reject(new Error(`Slack ${method}: ${parsed.error}`));
+            } else {
+              resolve(parsed);
+            }
+          } catch (e) {
+            reject(e);
+          }
+        });
+      });
+
+      req.on('error', reject);
+      req.setTimeout(10000, () => {
+        req.destroy();
+        reject(new Error(`Slack ${method} timed out after 10s`));
+      });
+
+      req.write(bodyJson);
+      req.end();
+    }),
+    { maxRetries: 2, baseDelay: 500 }
+  );
+}
+
+/**
+ * Creates (or reuses, if a channel of that name already exists — Slack's
+ * name_taken error is treated as success) a #<repoName> channel per the
+ * naming convention in docs/2026-07-22-slack-agent-roster-plan.md — no
+ * "sentinel-" prefix — and persists the mapping. Called during repo
+ * onboarding (repoOnboarder.ts), same best-effort pattern as Notion-row and
+ * GitHub-webhook creation there: never throws, resolves null on any
+ * failure (including "not configured") so onboarding can report a partial
+ * success rather than aborting.
+ */
+async function createChannelForRepo(repoName: string): Promise<string | null> {
+  const BOT_TOKEN = process.env['SLACK_BOT_TOKEN'];
+  if (!BOT_TOKEN) {
+    logger.debug({ repoName }, 'Slack not configured — skipping channel creation');
+    return null;
+  }
+
+  const channelName = repoName.toLowerCase().replace(/[^a-z0-9_-]/g, '-').slice(0, 80);
+
+  try {
+    const created = await callSlackApi(BOT_TOKEN, 'conversations.create', { name: channelName });
+    const channelId = created.channel?.id;
+    if (channelId) await upsertSlackChannel(repoName, channelId);
+    return channelId || null;
+  } catch (err: any) {
+    // "name_taken" means the channel already exists — look it up instead
+    // of treating this as a failure.
+    if (String(err.message).includes('name_taken')) {
+      try {
+        const list = await callSlackApi(BOT_TOKEN, 'conversations.list', { limit: 1000 });
+        const match = (list.channels || []).find((c: any) => c.name === channelName);
+        if (match?.id) {
+          await upsertSlackChannel(repoName, match.id);
+          return match.id;
+        }
+      } catch (lookupErr: any) {
+        logger.warn({ err: lookupErr.message, repoName }, 'Slack channel existed but lookup-after-name_taken failed');
+      }
+    } else {
+      logger.warn({ err: err.message, repoName }, 'Slack channel creation failed');
+    }
+    return null;
+  }
+}
+
 /**
  * Same signature shape as telegramClient's sendTelegramMessage (text,
  * repoName, optional thread pointer) so it can be called alongside it
@@ -123,4 +211,4 @@ async function sendSlackMessage(
   return postToSlackApi(BOT_TOKEN, payload);
 }
 
-export = { initSlackSchema, sendSlackMessage, getSlackChannelId, upsertSlackChannel };
+export = { initSlackSchema, sendSlackMessage, getSlackChannelId, upsertSlackChannel, createChannelForRepo };

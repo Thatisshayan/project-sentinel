@@ -13,6 +13,11 @@ jest.mock('../src/auditOrchestrator', () => ({
   triggerAudit: (...a: any[]) => triggerAuditMock(...a),
 }));
 
+const createChannelForRepoMock = jest.fn().mockResolvedValue(null);
+jest.mock('../src/slackClient', () => ({
+  createChannelForRepo: (...a: any[]) => createChannelForRepoMock(...a),
+}));
+
 jest.mock('../src/repoResolver', () => ({
   repoFullName: (r: string) => `test-org/${r}`,
   getGithubOrg: () => 'test-org',
@@ -69,5 +74,25 @@ describe('onboardRepo', () => {
     const msg = sendTelegramMessageMock.mock.calls[0][0];
     expect(msg).toContain('GitHub webhook registered ❌');
     expect(msg).toContain('First audit triggered ❌');
+  });
+
+  it('reports the Slack channel in the summary when created successfully', async () => {
+    createNotionProjectMock.mockResolvedValue('page-123');
+    createChannelForRepoMock.mockResolvedValue('C123456');
+
+    await onboardRepo('New-Repo');
+
+    const msg = sendTelegramMessageMock.mock.calls[0][0];
+    expect(msg).toContain('Slack channel ✅ #new-repo');
+  });
+
+  it('reports Slack channel failure (not silent success) when Slack is unconfigured', async () => {
+    createNotionProjectMock.mockResolvedValue('page-123');
+    createChannelForRepoMock.mockResolvedValue(null);
+
+    await onboardRepo('new-repo');
+
+    const msg = sendTelegramMessageMock.mock.calls[0][0];
+    expect(msg).toContain('Slack channel ❌');
   });
 });
