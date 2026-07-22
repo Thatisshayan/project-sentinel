@@ -150,7 +150,7 @@ async function registerBotCommands(): Promise<void> {
 
   // Retry up to 2 times with exponential backoff
   await retryWithBackoff(
-    () => new Promise((resolve) => {
+    () => new Promise<void>((resolve) => {
       const options = {
         hostname: 'api.telegram.org',
         path:     `/bot${BOT_TOKEN}/setMyCommands`,
