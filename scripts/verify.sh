@@ -118,6 +118,37 @@ else
   notice "deploy" "no deploy target; smoke build already covered"
 fi
 
+# ---------------------------------------------------------------- 5. directive-lint
+# REPO_DIRECTIVE.md is the goal-layer constitution. Every task must trace to a
+# Phase/Sprint/Epic id defined in the same file. Orphan tasks = divergence risk.
+# ROLLOUT NOTE: missing directive is a `notice` (not `error`) during P8 rollout
+# so repos without one yet don't red-break main. Flip to `error` once every
+# portfolio repo has a linted REPO_DIRECTIVE.md (see project-sentinel P8).
+echo "== directive-lint =="
+if [ ! -f REPO_DIRECTIVE.md ]; then
+  notice "directive-lint" "REPO_DIRECTIVE.md not present yet (required after P8 rollout)"
+else
+  # collect defined ids: P<num>, S<num>, E<num>
+  defined=$(grep -oE '\b(P[0-9]+|S[0-9]+|E[0-9]+)\b' REPO_DIRECTIVE.md | sort -u)
+  # find task lines: "- [ ] T..." and require a traces-to: <id>
+  orphans=0
+  while IFS= read -r line; do
+    if echo "$line" | grep -qE '^[[:space:]]*- \[ \] T[0-9]+'; then
+      if ! echo "$line" | grep -qE 'traces-to:'; then
+        error "directive-lint" "orphan task (no traces-to): ${line:0:80}"
+        orphans=1
+      else
+        ref=$(echo "$line" | grep -oE 'traces-to:[^|]*' | sed 's/traces-to://' | tr -d ' ' | cut -d/ -f1)
+        if ! echo "$defined" | grep -qx "$ref"; then
+          error "directive-lint" "task references undefined id '$ref': ${line:0:80}"
+          orphans=1
+        fi
+      fi
+    fi
+  done < <(grep -E '^[[:space:]]*- \[ \] T[0-9]+' REPO_DIRECTIVE.md)
+  if [ "$orphans" -eq 0 ]; then notice "directive-lint" "all tasks trace to a defined phase/sprint/epic"; fi
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo "VERIFY FAILED"
   exit 1

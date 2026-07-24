@@ -113,5 +113,35 @@ if (Test-Path (Join-Path $RepoRoot 'vercel.json')) {
   Notice "deploy" "no deploy target; smoke build already covered"
 }
 
+# ---------------------------------------------------------------- 5. directive-lint
+# REPO_DIRECTIVE.md is the goal-layer constitution. Every task must trace to a
+# Phase/Sprint/Epic id defined in the same file. Orphan tasks = divergence risk.
+# ROLLOUT NOTE: missing directive is a Notice (not Err) during P8 rollout so
+# repos without one yet don't red-break main. Flip to Err once every portfolio
+# repo has a linted REPO_DIRECTIVE.md (see project-sentinel P8).
+Write-Host "== directive-lint =="
+$dirFile = Join-Path $RepoRoot 'REPO_DIRECTIVE.md'
+if (-not (Test-Path $dirFile)) {
+  Notice "directive-lint" "REPO_DIRECTIVE.md not present yet (required after P8 rollout)"
+} else {
+  $text = Get-Content $dirFile -Raw
+  $defined = [regex]::Matches($text, '\b(P[0-9]+|S[0-9]+|E[0-9]+)\b') | ForEach-Object { $_.Value } | Sort-Object -Unique
+  $orphans = $false
+  $taskLines = Select-String -Path $dirFile -Pattern '^\s*- \[ \] T[0-9]+' | ForEach-Object { $_.Line }
+  foreach ($line in $taskLines) {
+    if ($line -notmatch 'traces-to:') {
+      Err "directive-lint" "orphan task (no traces-to): $($line.Substring(0, [Math]::Min(80,$line.Length)))"
+      $orphans = $true
+    } else {
+      $ref = ([regex]::Match($line, 'traces-to:([^|]*)')).Groups[1].Value.Trim() -split '/' | Select-Object -First 1
+      if ($defined -notcontains $ref) {
+        Err "directive-lint" "task references undefined id '$ref': $($line.Substring(0, [Math]::Min(80,$line.Length)))"
+        $orphans = $true
+      }
+    }
+  }
+  if (-not $orphans) { Notice "directive-lint" "all tasks trace to a defined phase/sprint/epic" }
+}
+
 if ($failed) { Write-Host "VERIFY FAILED"; exit 1 }
 Write-Host "VERIFY PASSED"
