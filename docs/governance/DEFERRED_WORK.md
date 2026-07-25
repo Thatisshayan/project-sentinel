@@ -1,8 +1,8 @@
 # Deferred Work Register
 
-> Updated: 2026-07-17
-> Agent: Codex
-> Last audit: `audits/17.07.2026CodexPhase2Audit.md`
+> Updated: 2026-07-25
+> Agent: Hermes
+> Last audit: `audits/2026-07-25_Hermes_PostAuditRemediation_Audit.md`
 
 ---
 
@@ -62,6 +62,30 @@
 ### D-007: `timingSafeEqual` has a residual timing side-channel via early length-check
 **Scope**: `utils/timingSafeCompare.ts` returned `false` immediately when `a.length !== b.length`, before ever reaching `crypto.timingSafeEqual`. This leaks the correct secret's length via response timing (early string-length comparison is fast; the constant-time compare is not reached at all).
 **Status**: **Fixed** in Phase 8 (2026-07-18) — see below. Both inputs are now HMAC'd with a random-per-call key before comparison, so the compared buffers are always a fixed 32 bytes regardless of input length, and no length branch is needed. Moved out of "deferred" into "completed" below.
+
+### D-008: 651 uses of `any` across 90/120 files in `backend/src`
+**Scope**: Found in the 2026-07-25 code-level audit (`audits/2026-07-25_Hermes_PostAuditRemediation_Audit.md`). Heaviest concentration: `commands/repoOps.ts` (53), `api.ts` (45), `workers/dailyReportWorker.ts` (34), `agentRoom.ts` (21), `sentinelBrain.ts` (20), `notionClient.ts`/`telegramAI.ts` (19 each).
+**Reason deferred**: Large, cross-cutting cleanup, not a bug — the TypeScript migration converted every file but a large share typed its way out rather than in. Fixing it well means threading real request/response shapes through the busiest orchestration and webhook code, which is exactly the code most likely to silently mishandle a malformed payload if done carelessly.
+**Proposed resolution**: Tackle the 5 files above first (largest + busiest). Prefer per-file `noImplicitAny` tightening over a repo-wide flag flip, to keep each PR reviewable and testable independently.
+**Status**: Deferred — open, not yet started.
+
+### D-009: `execAsync` runs commands through a shell string, not an argv array
+**Scope**: `backend/src/utils/execAsync.ts:32` wraps `child_process.exec` (shell-string), unlike the `spawn(cmd, args[])` calls used for `aider`/`claude` which sidestep shell parsing entirely.
+**Reason deferred**: No live injection today — every current call site (`npm audit fix`, `npm audit --json`, `aider --version 2>&1`, `git --version 2>&1`) passes a fixed literal string. Fixing it requires an API change (`execAsync(cmd, args[])`) across 6 call sites (`securityPatcher.ts`, `taskBuilder.ts`, `commands/repoOps.ts`, `index.ts`, `dependencyScanner.ts`), not a one-line patch, and risks behavior changes in shell-feature-dependent calls (e.g. `2>&1` redirection in the `git --version`/`aider --version` health-check calls).
+**Proposed resolution**: Migrate to `execFile`/`spawn` with an argv array; preserve the existing `scoped` (childEnv allowlist) behavior; handle stderr redirection explicitly in code instead of via shell `2>&1`.
+**Status**: Deferred — open, footgun for future callers, not a present vulnerability.
+
+### D-010: 9 open Dependabot PRs (#36–#44) all failing CI identically
+**Scope**: `dependabot/npm_and_yarn/*` (3), `dependabot/docker/*` (2, including Node 20→26-alpine base image bumps for both `backend` and `ui`), `dependabot/github_actions/*` (4).
+**Reason deferred**: Root-caused during the 2026-07-25 audit — not a bad dependency bump. Every branch predates the `retry.ts` → `utils/retry.ts` move already on `main`, so `telegramClient.ts` fails `tsc` (`Cannot find module './retry'`) on every one of them, identically, on both the `backend` and `ui` CI jobs.
+**Action taken**: `@dependabot rebase` requested on all 9 PRs (2026-07-25) to pull in current `main` and get an accurate CI signal.
+**Proposed resolution**: Once rebased, review each on its own merits. The two Docker base-image bumps (`#41` backend, `#37` ui — Node 20→26-alpine) deserve a real build/run pass before merge, not just green CI, since a Node major version can shift native-module ABI and base-image behavior.
+**Status**: Deferred — rebase requested, awaiting fresh CI + Shayan's review/merge decision (R26 — Shayan approves, not an agent).
+
+### D-011: root `.gitignore` does not cover Windows `desktop.ini` (REPO_RULES R19 gap)
+**Scope**: R19 requires every repo to ship a `.gitignore` "covering secrets, `node_modules`, build output, and IDE files (`.vs`, `desktop.ini`)" from first commit. An untracked `desktop.ini` was observed locally during the 2026-07-25 audit session and left untouched — not this agent's file to add or remove without a dedicated pass.
+**Proposed resolution**: Add `desktop.ini` (and confirm `.vs/` is covered) to the root `.gitignore` in a small `chore/` branch.
+**Status**: Deferred — open, low risk, easy fix.
 
 ---
 
