@@ -113,7 +113,7 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
           const st = await repoGit.status();
           gitStatus = `modified:${st.modified.length} new:${st.created.length} staged:${(st.staged||[]).length}`;
         } catch (e: any) {
-          logger.debug({ err: e?.message }, 'taskBuilder: git status check failed, continuing without gitStatus detail');
+          logger.warn({ err: e instanceof Error ? (e.stack ?? e.message) : String(e) }, 'taskBuilder: git status check failed, continuing without gitStatus detail');
         }
         logger.warn({
           taskNumber: task.task_number,
@@ -189,7 +189,7 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
     return { status: 'error', reason: err.message };
   } finally {
     try { tmpDir.removeCallback(); } catch (e: any) {
-      logger.debug({ err: e?.message, repoFullName }, 'taskBuilder: tmpDir cleanup failed');
+      logger.warn({ err: e instanceof Error ? (e.stack ?? e.message) : String(e), repoFullName }, 'taskBuilder: tmpDir cleanup failed');
     }
   }
 }
@@ -285,7 +285,7 @@ async function runAiderForTask(repoPath: string, task: any, context: any, builde
     proc.on('close', (code: number | null) => {
       clearTimeout(timer);
       try { fs.unlinkSync(msgFile); } catch (e: any) {
-        logger.debug({ err: e?.message, msgFile }, 'taskBuilder: aider message-file cleanup failed');
+        logger.warn({ err: e instanceof Error ? (e.stack ?? e.message) : String(e), msgFile }, 'taskBuilder: aider message-file cleanup failed');
       }
       resolve({ success: code === 0, exitCode: code, stdout, stderr });
     });

@@ -143,7 +143,7 @@ async function runAider(repoPath: string, context: AiderContext): Promise<AiderR
 
       // Clean up temp message file
       try { fs.unlinkSync(msgFile); } catch (e: any) {
-        logger.debug({ err: e?.message, msgFile }, 'aiderRunner: message-file cleanup failed');
+        logger.warn({ err: e instanceof Error ? (e.stack ?? e.message) : String(e), msgFile }, 'aiderRunner: message-file cleanup failed');
       }
 
       logger.info({ code, attempt: context.attemptNumber }, 'Aider process exited');
@@ -268,7 +268,7 @@ async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
   } finally {
     // Always clean up temp directory
     try { tmpDir.removeCallback(); } catch (e: any) {
-      logger.debug({ err: e?.message }, 'aiderRunner: tmpDir cleanup failed');
+      logger.warn({ err: e instanceof Error ? (e.stack ?? e.message) : String(e) }, 'aiderRunner: tmpDir cleanup failed');
     }
   }
 }
