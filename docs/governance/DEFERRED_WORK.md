@@ -87,6 +87,13 @@
 **Proposed resolution**: Add `desktop.ini` (and confirm `.vs/` is covered) to the root `.gitignore` in a small `chore/` branch.
 **Status**: Deferred — open, low risk, easy fix.
 
+### D-012: `agent/hermes-governance-bootstrap`'s `be246e8` overwrote this register with an empty template
+**Scope**: The `chore(governance): bootstrap repo governance (REPO_RULES v1.0.0)` commit (2026-07-23) on `agent/hermes-governance-bootstrap` replaced this file's full D-001–D-007 history + Completed Work log with an empty `## Items\n(none yet)` template — apparently the governance-bootstrap tooling writes a canned `DEFERRED_WORK.md` unconditionally without checking whether the repo already has one.
+**Reason it mattered**: Flagged as "Finding G" in `audits/2026-07-25_Hermes_PostAuditRemediation_Audit.md` — merging that branch as-is would have silently destroyed this register, a direct R12/R33 violation.
+**Resolution**: Reconciled by merging current `main` (post PR #46/#47) into `agent/hermes-governance-bootstrap` and resolving the conflict in favor of `main`'s full register — this D-012 entry itself is proof the merge preserved history rather than repeating the wipe.
+**Proposed follow-up**: Whatever script/tool generated `be246e8`'s `DEFERRED_WORK.md` template should check for an existing file and append/preserve rather than overwrite, so this doesn't recur the next time governance bootstrap runs (e.g. on a new portfolio repo per REPO_DIRECTIVE P10).
+**Status**: Resolved (2026-07-25) — this file is intact; follow-up (fixing the bootstrap tooling itself) remains open.
+
 ---
 
 ## Completed Work (no action needed)
