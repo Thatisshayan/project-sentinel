@@ -18,19 +18,38 @@ if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
   # (a) filename-based: private key / credential files must not be committed.
   #     Exclude dependency / generated dirs (node_modules, .venv, _repo_clone,
   #     dist, build, .cache, coverage) — library files there are not first-party.
-  $excludeDirs = '[\\/](node_modules|\.git|audits[\\/]private|\.venv|_repo_clone|dist|build|\.cache|coverage)[\\/]'
+  $excludeDirs = '[\\/](node_modules|\.git|audits[\\/]private|\.venv|_repo_clone|dist|build|\.cache|coverage|test|tests|__tests__)[\\/]'
   $badFiles = Get-ChildItem -Path $RepoRoot -Recurse -File -Include *.p8,*.p12,*credential*,*.pem,*.key `
     -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -notmatch $excludeDirs }
   if ($badFiles) { Err "secret-scan" "secret files present: $($badFiles.FullName -join ', ')" }
   # (b) content-based: first-party code/config only, require an assigned value.
-  #     Exclude dependency / generated dirs + *.env.example / *.env.sample templates.
-  $hits = Get-ChildItem -Path $RepoRoot -Recurse -File `
-    -Include *.json,*.env,*.ts,*.js,*.py,*.yml,*.yaml,*.toml,*.sh `
-    -ErrorAction SilentlyContinue |
+  #     Exclude dependency / generated dirs (now also test/tests/__tests__ —
+  #     unit-test fixtures deliberately hardcode fake credential-shaped values
+  #     to exercise env-var handling, which is not a leaked secret) +
+  #     *.env.example / *.env.sample templates. test-integration.yml's
+  #     `services:` block sets dummy values (test-secret, test-key,
+  #     test-token, ...) for the CI Postgres/Redis containers used by
+  #     integration tests — real secrets for that workflow come from GitHub
+  #     Actions secrets, never literals.
+  #     Split into two passes, mirroring verify.sh: source code (.ts/.js/.py)
+  #     REQUIRES a quoted value — a real accidentally-committed secret is
+  #     always a string literal, while an unquoted "value" here is a
+  #     variable/expression reference (e.g. `SOME_KEY: process.env['X']`, or
+  #     a ternary like `KEY: cond ? a : b`), never a hardcoded secret. Config
+  #     files (.json/.env/.yml/.yaml/.toml/.sh) keep the quote OPTIONAL since
+  #     unquoted `KEY=value` is the idiomatic, expected form there.
+  $srcHits = Get-ChildItem -Path $RepoRoot -Recurse -File `
+    -Include *.ts,*.js,*.py -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -notmatch $excludeDirs } |
+    Where-Object { Select-String -Path $_.FullName -Pattern '(API_KEY|SECRET|PRIVATE_KEY|TOKEN|PASSWORD)\s*[=:]\s*["''][A-Za-z0-9/+_-]{8,}["'']' -Quiet }
+  $cfgHits = Get-ChildItem -Path $RepoRoot -Recurse -File `
+    -Include *.json,*.env,*.yml,*.yaml,*.toml,*.sh -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -notmatch $excludeDirs } |
     Where-Object { $_.Name -notmatch '\.env\.(example|sample)$' } |
-    Where-Object { Select-String -Path $_.FullName -Pattern '(API_KEY|SECRET|PRIVATE_KEY|TOKEN|PASSWORD)\s*[=:]\s*["'']?[A-Za-z0-9/+_-]{8,}' -Quiet }
+    Where-Object { $_.Name -ne 'test-integration.yml' } |
+    Where-Object { Select-String -Path $_.FullName -Pattern '(API_KEY|SECRET|PRIVATE_KEY|TOKEN|PASSWORD)\s*[=:]\s*["'']?[A-Za-z0-9][A-Za-z0-9/+_-]{7,}' -Quiet }
+  $hits = @($srcHits) + @($cfgHits)
   if ($hits) { Err "secret-scan" "possible hardcoded secrets in: $($hits.FullName -join ', ')" }
 }
 

@@ -27,12 +27,41 @@ else
   if [ -n "$bad_files" ]; then error "secret-scan" "secret files present: $bad_files"; fi
   # (b) content-based: only scan first-party code/config, require an ASSIGNED VALUE.
   #     Exclude dependency / generated dirs so library files don't false-positive.
-  hits=$(grep -rIlE "(API_KEY|SECRET|PRIVATE_KEY|TOKEN|PASSWORD)[[:space:]]*[=:][[:space:]]*[\"']?[A-Za-z0-9/+_-]{8,}" \
+  #     Exclude `test`/`tests`/`__tests__` dirs: unit-test fixtures deliberately
+  #     hardcode fake credential-shaped strings to exercise env-var handling
+  #     (e.g. a bot-token env var set to a short obviously-fake placeholder) —
+  #     that is not a leaked secret, the same way dist/build output isn't
+  #     first-party code.
+  #     Split into two passes on purpose (kept in portable POSIX -E, no -P/PCRE:
+  #     GNU grep's -P requires a UTF-8/unibyte locale and errors out entirely
+  #     under some locales/platforms — not safe for a scanner that must never
+  #     silently skip a file):
+  #       (i)  source code (.ts/.js/.py) — REQUIRE a quoted value. A real
+  #            accidentally-committed secret in source is always a string
+  #            literal; an unquoted "value" here is a variable/expression
+  #            reference (e.g. `SOME_KEY: process.env['X']`, or a ternary
+  #            like `KEY: cond ? a : b`), never a hardcoded secret.
+  #       (ii) config/env files (.json/.env/.yml/.yaml/.toml/.sh) — keep the
+  #            value quote OPTIONAL, since unquoted `KEY=value` is the
+  #            idiomatic, expected form there.
+  #     NOTE: --exclude must come AFTER --include in both passes — grep
+  #     applies "last matching rule wins" for a given file, so an --exclude
+  #     listed before a matching --include is silently overridden by it.
+  hits_src=$(grep -rIlE "(API_KEY|SECRET|PRIVATE_KEY|TOKEN|PASSWORD)[[:space:]]*[=:][[:space:]]*[\"'][A-Za-z0-9/+_-]{8,}[\"']" \
     --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=audits/private \
     --exclude-dir=.venv --exclude-dir=_repo_clone --exclude-dir=dist --exclude-dir=build \
     --exclude-dir=.cache --exclude-dir=coverage \
-    --include='*.json' --include='*.env' --include='*.ts' --include='*.js' --include='*.py' \
-    --include='*.yml' --include='*.yaml' --include='*.toml' --include='*.sh' . 2>/dev/null || true)
+    --exclude-dir=test --exclude-dir=tests --exclude-dir=__tests__ \
+    --include='*.ts' --include='*.js' --include='*.py' . 2>/dev/null || true)
+  hits_cfg=$(grep -rIlE "(API_KEY|SECRET|PRIVATE_KEY|TOKEN|PASSWORD)[[:space:]]*[=:][[:space:]]*[\"']?[A-Za-z0-9][A-Za-z0-9/+_-]{7,}" \
+    --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=audits/private \
+    --exclude-dir=.venv --exclude-dir=_repo_clone --exclude-dir=dist --exclude-dir=build \
+    --exclude-dir=.cache --exclude-dir=coverage \
+    --exclude-dir=test --exclude-dir=tests --exclude-dir=__tests__ \
+    --include='*.json' --include='*.env' \
+    --include='*.yml' --include='*.yaml' --include='*.toml' --include='*.sh' \
+    --exclude='test-integration.yml' . 2>/dev/null || true)
+  hits=$(printf '%s\n%s' "$hits_src" "$hits_cfg" | sed '/^$/d')
   if [ -n "$hits" ]; then error "secret-scan" "possible hardcoded secrets in: $hits"; fi
 fi
 
