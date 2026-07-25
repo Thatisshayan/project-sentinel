@@ -19,7 +19,7 @@ if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
   #     Exclude dependency / generated dirs (node_modules, .venv, _repo_clone,
   #     dist, build, .cache, coverage) — library files there are not first-party.
   $excludeDirs = '[\\/](node_modules|\.git|audits[\\/]private|\.venv|_repo_clone|dist|build|\.cache|coverage|test|tests|__tests__)[\\/]'
-  $badFiles = Get-ChildItem -Path $RepoRoot -Recurse -File -Include *.p8,*.p12,*credential*,*.pem,*.key `
+  $badFiles = Get-ChildItem -Path $RepoRoot -Recurse -File -Force -Include *.p8,*.p12,*credential*,*.pem,*.key `
     -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -notmatch $excludeDirs }
   if ($badFiles) { Err "secret-scan" "secret files present: $($badFiles.FullName -join ', ')" }
@@ -39,11 +39,11 @@ if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
   #     a ternary like `KEY: cond ? a : b`), never a hardcoded secret. Config
   #     files (.json/.env/.yml/.yaml/.toml/.sh) keep the quote OPTIONAL since
   #     unquoted `KEY=value` is the idiomatic, expected form there.
-  $srcHits = Get-ChildItem -Path $RepoRoot -Recurse -File `
+  $srcHits = Get-ChildItem -Path $RepoRoot -Recurse -File -Force `
     -Include *.ts,*.js,*.py -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -notmatch $excludeDirs } |
     Where-Object { Select-String -Path $_.FullName -Pattern '(API_KEY|SECRET|PRIVATE_KEY|TOKEN|PASSWORD)\s*[=:]\s*["''][A-Za-z0-9/+_-]{8,}["'']' -Quiet }
-  $cfgHits = Get-ChildItem -Path $RepoRoot -Recurse -File `
+  $cfgHits = Get-ChildItem -Path $RepoRoot -Recurse -File -Force `
     -Include *.json,*.env,*.yml,*.yaml,*.toml,*.sh -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -notmatch $excludeDirs } |
     Where-Object { $_.Name -notmatch '\.env\.(example|sample)$' } |
@@ -56,13 +56,21 @@ if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
 # ---------------------------------------------------------------- 2. doc-freshness
 Write-Host "== doc-freshness =="
 if (-not (Test-Path (Join-Path $RepoRoot 'README.md'))) { Err "doc-freshness" "README.md missing" }
-$newest = Get-ChildItem -Path (Join-Path $RepoRoot 'audits') -Recurse -Filter *.md -ErrorAction SilentlyContinue |
+# Audit age is derived from the YYYY-MM-DD embedded in the required audit
+# filename (Rule 6), never from LastWriteTime — a fresh clone/checkout
+# stamps every file with the checkout time, so a stale audit would
+# otherwise look freshly-modified and silently pass this gate every run.
+$auditDates = Get-ChildItem -Path (Join-Path $RepoRoot 'audits') -File -Filter *.md -ErrorAction SilentlyContinue |
   Where-Object { $_.FullName -notmatch '[\\/]audits[\\/]private[\\/]' } |
-  Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $newest) { Err "doc-freshness" "no audit found under audits/" }
-else {
-  $age = ([datetime]::Now - $newest.LastWriteTime).Days
-  if ($age -gt 30) { Err "doc-freshness" "newest audit is $age days old (>30)" }
+  ForEach-Object {
+    if ($_.Name -match '^(\d{4}-\d{2}-\d{2})') { $Matches[1] }
+  } | Sort-Object -Descending
+if (-not $auditDates) {
+  Err "doc-freshness" "no audit under audits/ matches the required YYYY-MM-DD_<Agent>_<Scope>_Audit.md naming convention (Rule 6)"
+} else {
+  $newestDate = [datetime]::ParseExact($auditDates[0], 'yyyy-MM-dd', $null)
+  $age = ([datetime]::Now - $newestDate).Days
+  if ($age -gt 30) { Err "doc-freshness" "newest audit ($($auditDates[0])) is $age days old (>30)" }
 }
 $baselinePath = Join-Path $RepoRoot 'docs/_baseline.json'
 if (-not (Test-Path $baselinePath)) {
@@ -86,9 +94,18 @@ elseif (Test-Path (Join-Path $RepoRoot 'yarn.lock')) { $PM = 'yarn' }
 elseif (Test-Path (Join-Path $RepoRoot 'package-lock.json')) { $PM = 'npm' }
 
 function RunTimed($secs, $label, $cmd) {
-  $p = Start-Process -NoNewWindow -PassThru -Wait $cmd[0] $cmd[1..($cmd.Count-1)]
-  if ($p.ExitCode -eq 124) { Err $label "timed out after ${secs}s (likely network/install hang)" }
-  elseif ($p.ExitCode -ne 0) { Err $label "failed (rc=$($p.ExitCode))" }
+  # `Start-Process -Wait` blocks indefinitely regardless of $secs and never
+  # produces a distinct timeout exit code — the previous version's timeout
+  # was a no-op. Start without -Wait, bound the wait with WaitForExit, and
+  # kill + report explicitly if the process is still running past $secs.
+  $p = Start-Process -NoNewWindow -PassThru $cmd[0] $cmd[1..($cmd.Count-1)]
+  $exited = $p.WaitForExit($secs * 1000)
+  if (-not $exited) {
+    try { $p.Kill() } catch {}
+    Err $label "timed out after ${secs}s (likely network/install hang)"
+    return
+  }
+  if ($p.ExitCode -ne 0) { Err $label "failed (rc=$($p.ExitCode))" }
   else { Notice $label "ok" }
 }
 
@@ -143,8 +160,14 @@ $dirFile = Join-Path $RepoRoot 'REPO_DIRECTIVE.md'
 if (-not (Test-Path $dirFile)) {
   Notice "directive-lint" "REPO_DIRECTIVE.md not present yet (required after P8 rollout)"
 } else {
+  # Collect defined ids ONLY from heading declarations ("### P1 — ...",
+  # "### S1 (maps to P6) — ...", "### E1 — ..."), never from anywhere else in
+  # the file. Matching the whole document (the previous approach) would pick
+  # up every ID a task's own `traces-to:` line mentions — including a
+  # made-up one — so any reference always "found itself" and no orphan could
+  # ever be caught.
   $text = Get-Content $dirFile -Raw
-  $defined = [regex]::Matches($text, '\b(P[0-9]+|S[0-9]+|E[0-9]+)\b') | ForEach-Object { $_.Value } | Sort-Object -Unique
+  $defined = [regex]::Matches($text, '(?m)^### (P[0-9]+|S[0-9]+|E[0-9]+)\b') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
   $orphans = $false
   $taskLines = Select-String -Path $dirFile -Pattern '^\s*- \[ \] T[0-9]+' | ForEach-Object { $_.Line }
   foreach ($line in $taskLines) {
@@ -152,10 +175,17 @@ if (-not (Test-Path $dirFile)) {
       Err "directive-lint" "orphan task (no traces-to): $($line.Substring(0, [Math]::Min(80,$line.Length)))"
       $orphans = $true
     } else {
-      $ref = ([regex]::Match($line, 'traces-to:([^|]*)')).Groups[1].Value.Trim() -split '/' | Select-Object -First 1
-      if ($defined -notcontains $ref) {
-        Err "directive-lint" "task references undefined id '$ref': $($line.Substring(0, [Math]::Min(80,$line.Length)))"
-        $orphans = $true
+      # Validate EVERY slash-delimited id (e.g. all of P7, S2, E1 in
+      # "traces-to: P7/S2/E1"), not just the first — the previous version
+      # only checked the first segment, so "P7/S999/E999" passed as long
+      # as P7 existed.
+      $refs = ([regex]::Match($line, 'traces-to:([^|]*)')).Groups[1].Value.Trim() -split '/'
+      foreach ($ref in $refs) {
+        if ([string]::IsNullOrWhiteSpace($ref)) { continue }
+        if ($defined -notcontains $ref) {
+          Err "directive-lint" "task references undefined id '$ref': $($line.Substring(0, [Math]::Min(80,$line.Length)))"
+          $orphans = $true
+        }
       }
     }
   }

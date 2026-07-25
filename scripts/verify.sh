@@ -74,15 +74,26 @@ if command -v markdown-link-check >/dev/null 2>&1; then
     -not -path './audits/private/*' -print0 2>/dev/null \
     | xargs -0 -r -n1 markdown-link-check || error "doc-freshness" "broken doc links"
 fi
-# audit age (≤ 30 days)
-newest=$(find audits -name '*.md' -not -path '*/private/*' -printf '%T@ %p\n' 2>/dev/null \
-  | sort -n | tail -1 | cut -d' ' -f1)
-if [ -z "$newest" ]; then
-  error "doc-freshness" "no audit found under audits/"
+# audit age (≤ 30 days) — derived from the YYYY-MM-DD embedded in the
+# required audit filename (Rule 6), never from filesystem mtime: a fresh
+# `git clone`/CI checkout stamps every file with the checkout time, so an
+# audit from a year ago would otherwise look freshly-modified and silently
+# pass this gate every single run.
+audit_dates=$(find audits -maxdepth 1 -name '*.md' -not -path '*/private/*' 2>/dev/null \
+  | xargs -n1 basename 2>/dev/null \
+  | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}' || true)
+if [ -z "$audit_dates" ]; then
+  error "doc-freshness" "no audit under audits/ matches the required YYYY-MM-DD_<Agent>_<Scope>_Audit.md naming convention (Rule 6)"
 else
-  now=$(date +%s)
-  age=$(( (now - ${newest%.*}) / 86400 ))
-  if [ "$age" -gt 30 ]; then error "doc-freshness" "newest audit is $age days old (>30)"; fi
+  newest_date=$(echo "$audit_dates" | sort -r | head -1)
+  newest_epoch=$(date -d "$newest_date" +%s 2>/dev/null || date -j -f "%Y-%m-%d" "$newest_date" +%s 2>/dev/null)
+  if [ -z "$newest_epoch" ]; then
+    error "doc-freshness" "could not parse date '$newest_date' from newest audit filename"
+  else
+    now=$(date +%s)
+    age=$(( (now - newest_epoch) / 86400 ))
+    if [ "$age" -gt 30 ]; then error "doc-freshness" "newest audit ($newest_date) is $age days old (>30)"; fi
+  fi
 fi
 # doc baseline
 if [ ! -f docs/_baseline.json ]; then
@@ -157,8 +168,13 @@ echo "== directive-lint =="
 if [ ! -f REPO_DIRECTIVE.md ]; then
   notice "directive-lint" "REPO_DIRECTIVE.md not present yet (required after P8 rollout)"
 else
-  # collect defined ids: P<num>, S<num>, E<num>
-  defined=$(grep -oE '\b(P[0-9]+|S[0-9]+|E[0-9]+)\b' REPO_DIRECTIVE.md | sort -u)
+  # Collect defined ids ONLY from heading declarations ("### P1 — ...",
+  # "### S1 (maps to P6) — ...", "### E1 — ..."), never from anywhere else in
+  # the file. Extracting from the whole document (the previous approach) would
+  # pick up every ID a task's own `traces-to:` line mentions — including a
+  # made-up one — so any reference always "found itself" and no orphan could
+  # ever be caught.
+  defined=$(grep -oE '^### (P[0-9]+|S[0-9]+|E[0-9]+)\b' REPO_DIRECTIVE.md | sed 's/^### //' | sort -u)
   # find task lines: "- [ ] T..." and require a traces-to: <id>
   orphans=0
   while IFS= read -r line; do
@@ -167,11 +183,20 @@ else
         error "directive-lint" "orphan task (no traces-to): ${line:0:80}"
         orphans=1
       else
-        ref=$(echo "$line" | grep -oE 'traces-to:[^|]*' | sed 's/traces-to://' | tr -d ' ' | cut -d/ -f1)
-        if ! echo "$defined" | grep -qx "$ref"; then
-          error "directive-lint" "task references undefined id '$ref': ${line:0:80}"
-          orphans=1
-        fi
+        # Validate EVERY slash-delimited id (e.g. all of P7, S2, E1 in
+        # "traces-to: P7/S2/E1"), not just the first — a previous version
+        # only checked the first segment, so "P7/S999/E999" passed as long
+        # as P7 existed.
+        refs=$(echo "$line" | grep -oE 'traces-to:[^|]*' | sed 's/traces-to://' | tr -d ' ' | tr '/' '\n')
+        bad=0
+        for ref in $refs; do
+          [ -z "$ref" ] && continue
+          if ! echo "$defined" | grep -qx "$ref"; then
+            error "directive-lint" "task references undefined id '$ref': ${line:0:80}"
+            bad=1
+          fi
+        done
+        [ "$bad" -eq 1 ] && orphans=1
       fi
     fi
   done < <(grep -E '^[[:space:]]*- \[ \] T[0-9]+' REPO_DIRECTIVE.md)

@@ -164,6 +164,10 @@ npm run dev                  # http://localhost:3000 (backend must be running se
 
 Or via `docker-compose up` from the repo root, which starts Postgres, Redis, the
 backend, and the UI together (UI reachable at `http://localhost:3001`).
+`POSTGRES_PASSWORD` (optional, defaults to `sentinel`) controls both the
+Postgres container's password and the backend's `DATABASE_URL` — set it in
+your shell before running `docker-compose up` if you want a non-default
+local password; both are wired to the same value.
 
 ### Environment Variables
 

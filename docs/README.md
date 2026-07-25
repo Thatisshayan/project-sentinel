@@ -5,6 +5,7 @@ Index of project documentation. Every important doc must have an inbound link he
 - Governance: [../REPO_RULES.md](../REPO_RULES.md)
 - Branch & CI policy: [governance/BRANCH_POLICY.md](governance/BRANCH_POLICY.md)
 - Deferred work register: [governance/DEFERRED_WORK.md](governance/DEFERRED_WORK.md)
-- Audits: [../../audits/](../../audits/)
+- Repo directive (goal-layer constitution): [../REPO_DIRECTIVE.md](../REPO_DIRECTIVE.md)
+- Audits: [../audits/](../audits/)
 
 When you add a new doc, link it from this index. Do not leave important docs orphaned.

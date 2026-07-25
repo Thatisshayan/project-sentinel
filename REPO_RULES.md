@@ -246,7 +246,11 @@ All checks must be green to merge. See `scripts/verify.sh` / `scripts/verify.ps1
 
 - Baseline captured on first apply into `docs/_baseline.json` (`{"md_count": N}`).
 - Any drop below baseline without an approved deletion (Rule 14) fails CI.
-- Audit age computed from file mtime of the newest `audits/*.md` (excluding `audits/private/`).
+- Audit age is computed from the `YYYY-MM-DD` date encoded in the newest
+  correctly-named `audits/*.md` file (excluding `audits/private/`), per the
+  Rule 6 naming convention — never from filesystem mtime. A fresh `git clone`
+  or CI checkout resets every file's mtime to checkout time, which would make
+  a stale audit look freshly-modified and silently defeat this gate.
 
 ## Appendix D — Apply Script Usage
 
