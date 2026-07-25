@@ -1,8 +1,8 @@
 # Deferred Work Register
 
-> Updated: 2026-07-17
-> Agent: Codex
-> Last audit: `audits/17.07.2026CodexPhase2Audit.md`
+> Updated: 2026-07-25
+> Agent: Hermes
+> Last audit: `audits/2026-07-25_Hermes_PostAuditRemediation_Audit.md`
 
 ---
 
