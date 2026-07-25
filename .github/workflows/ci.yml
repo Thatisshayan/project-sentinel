@@ -94,3 +94,25 @@ jobs:
         env:
           SENTINEL_API_URL: http://localhost:3000
           SENTINEL_UI_KEY: ci-placeholder
+
+  # The backend/ui jobs above run npm directly on the runner's Node (pinned to
+  # '20' regardless of what backend/Dockerfile or ui/Dockerfile actually pin —
+  # a Dockerfile-only change (e.g. bumping the base image) can go fully green
+  # here while the real Docker build silently breaks. This job closes that gap
+  # by actually invoking `docker build` against each service's own Dockerfile,
+  # on the ubuntu-latest runner's built-in Docker daemon (no extra setup
+  # needed). backend/Dockerfile is what Railway itself builds in production
+  # (backend/railway.toml: builder = "dockerfile") — this repo has already had
+  # one severe incident (see git history: "production container has been
+  # crash-looping since the TS migration") from exactly this class of change
+  # reaching main unverified.
+  docker-build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [backend, ui]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build ${{ matrix.service }} Docker image
+        run: docker build -t "sentinel-${{ matrix.service }}:ci" "./${{ matrix.service }}"
