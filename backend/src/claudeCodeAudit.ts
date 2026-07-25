@@ -339,7 +339,9 @@ async function runAudit(payload: AuditPayload): Promise<any> {
     return auditResult;
 
   } finally {
-    try { tmpDir.removeCallback(); } catch (e) {}
+    try { tmpDir.removeCallback(); } catch (e: any) {
+      logger.warn({ err: e instanceof Error ? (e.stack ?? e.message) : String(e) }, 'claudeCodeAudit: tmpDir cleanup failed');
+    }
   }
 }
 
