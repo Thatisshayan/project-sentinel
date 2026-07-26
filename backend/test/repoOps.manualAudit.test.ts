@@ -22,7 +22,11 @@ jest.mock('../src/auditOrchestrator', () => ({
 jest.mock('../src/auditDb', () => ({ stopAllTasksForRepo: jest.fn(), updateAuditTask: jest.fn() }));
 
 const getFullRepoListMock = jest.fn();
-jest.mock('../src/repoDiscovery', () => ({ getFullRepoList: (...a: any[]) => getFullRepoListMock(...a) }));
+const getDefaultBranchMock = jest.fn().mockResolvedValue('main');
+jest.mock('../src/repoDiscovery', () => ({
+  getFullRepoList: (...a: any[]) => getFullRepoListMock(...a),
+  getDefaultBranch: (...a: any[]) => getDefaultBranchMock(...a),
+}));
 
 import { handleRepoOpsCmd } from '../src/commands/repoOps';
 
