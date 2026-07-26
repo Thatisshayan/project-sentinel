@@ -45,7 +45,7 @@ export async function processPREvent(payload: any): Promise<void> {
       UPDATE audit_tasks
       SET status = 'done', updated_at = NOW()
       WHERE repo_full_name = $1
-        AND (pr_url = $2 OR pr_number = $3)
+        AND (pr_url = $2 OR (pr_url IS NULL AND pr_number = $3))
         AND status IN ('build_check', 'in_progress')
       RETURNING id, notion_page_id
     `, [repoFullName, prUrl, prNumber]).catch(() => null);
@@ -74,7 +74,7 @@ export async function processPREvent(payload: any): Promise<void> {
       SET status = 'queued', branch_name = NULL, commit_sha = NULL,
           pr_url = NULL, pr_number = NULL, updated_at = NOW()
       WHERE repo_full_name = $1
-        AND (pr_url = $2 OR pr_number = $3)
+        AND (pr_url = $2 OR (pr_url IS NULL AND pr_number = $3))
         AND status IN ('build_check', 'in_progress')
       RETURNING id
     `, [repoFullName, prUrl, prNumber]).catch(() => null);

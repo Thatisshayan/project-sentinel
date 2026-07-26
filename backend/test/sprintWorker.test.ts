@@ -52,8 +52,17 @@ describe('startSprintWorker', () => {
     const scheduledNames = queueAddMock.mock.calls.map((c) => c[0]);
     expect(scheduledNames).toEqual(['propose', 'midweek', 'self-audit']);
 
+    // H-1 regression guard: repeat crons must NOT pass a constant jobId —
+    // BullMQ dedupes repeatables by (name + pattern) internally, but a
+    // constant jobId collides with the retained completed job after the
+    // first fire, silently killing every subsequent schedule call.
+    for (const call of queueAddMock.mock.calls) {
+      expect(call[2]).not.toHaveProperty('jobId');
+      expect(call[2]).toHaveProperty('repeat');
+    }
+
     const proposeOpts = queueAddMock.mock.calls[0][2];
-    expect(proposeOpts.jobId).toBe('sprint-proposal-cron');
+    expect(proposeOpts).not.toHaveProperty('jobId');
     expect(proposeOpts.repeat.pattern).toBe('0 20 * * 0');
   });
 

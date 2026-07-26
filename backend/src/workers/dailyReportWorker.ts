@@ -46,84 +46,73 @@ export function startDailyReportWorker(): Worker | null {
 
   const queue = new Queue('daily-report', { connection: conn });
 
+  // NOTE: `repeat` crons MUST NOT also pass a constant `jobId` — BullMQ dedupes
+  // repeatable schedulers by (name + pattern) internally, but a constant
+  // `jobId` collides with the retained completed job after the first fire,
+  // making every subsequent schedule call a silent no-op. See autoApprover.ts
+  // comment for the same trap in the delayed-job path.
   queue.add('report', {}, {
     repeat:  { pattern: '0 9 * * *', tz: SENTINEL_TZ },
-    jobId:   'daily-report-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule daily report cron'));
 
   queue.add('morning-briefing', {}, {
     repeat: { pattern: '0 8 * * *', tz: SENTINEL_TZ },
-    jobId:  'morning-briefing-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule morning briefing cron'));
 
   queue.add('pull-metrics', {}, {
     repeat: { pattern: '0 6 * * *', tz: SENTINEL_TZ },
-    jobId:  'metrics-pull-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule metrics pull cron'));
 
   queue.add('weekly-report', {}, {
     repeat: { pattern: '0 8 * * 1', tz: SENTINEL_TZ },
-    jobId:  'weekly-report-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule weekly report cron'));
 
   queue.add('monthly-security', {}, {
     repeat: { pattern: '0 8 1 * *', tz: SENTINEL_TZ },
-    jobId:  'monthly-security-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule monthly security cron'));
 
   queue.add('priority-engine', {}, {
     repeat: { pattern: '30 6 * * *', tz: SENTINEL_TZ },
-    jobId:  'priority-engine-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule priority engine cron'));
 
   queue.add('agent-standup', {}, {
     repeat: { pattern: '0 9 * * *', tz: SENTINEL_TZ },
-    jobId:  'agent-standup-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule agent standup cron'));
 
   queue.add('ceo-report', {}, {
     repeat: { pattern: '0 22 * * 0', tz: SENTINEL_TZ },
-    jobId:  'ceo-report-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule CEO report cron'));
 
   queue.add('agent-leaderboard', {}, {
     repeat: { pattern: '30 22 * * 0', tz: SENTINEL_TZ },
-    jobId:  'agent-leaderboard-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule agent leaderboard cron'));
 
   queue.add('weekly-audit', {}, {
     repeat: { pattern: '0 23 * * 0', tz: SENTINEL_TZ },
-    jobId:  'weekly-audit-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule weekly audit cron'));
 
   queue.add('stale-tasks', {}, {
     repeat: { pattern: '0 17 * * 5', tz: SENTINEL_TZ },
-    jobId:  'stale-tasks-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule stale tasks cron'));
 
   queue.add('provider-health', {}, {
     repeat: { pattern: '0 5 * * *', tz: SENTINEL_TZ },
-    jobId:  'provider-health-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule provider health cron'));
 
   queue.add('github-metrics-sync', {}, {
     repeat: { every: 3 * 60 * 60 * 1000 },
-    jobId:  'github-metrics-sync-repeat',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule GitHub metrics sync'));
 
   queue.add('repo-discovery', {}, {
     repeat: { every: 30 * 60 * 1000 },
-    jobId:  'repo-discovery-repeat',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule repo discovery'));
 
   queue.add('brain-outcome', {}, {
     repeat: { pattern: '55 6 * * *', tz: SENTINEL_TZ },
-    jobId:  'brain-outcome-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule brain outcome cron'));
 
   queue.add('brain-strategy', {}, {
     repeat: { pattern: '0 7 * * *', tz: SENTINEL_TZ },
-    jobId:  'brain-strategy-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule brain strategy cron'));
 
   const worker = new Worker('daily-report', async (job: any) => {
@@ -168,6 +157,7 @@ export function startDailyReportWorker(): Worker | null {
     }
     if (job.name === 'weekly-audit') {
       const { REPO_LIST } = require('../portfolioAnalytics');
+      const { getDefaultBranch } = require('../repoDiscovery');
       let audited = 0;
       for (const repo of REPO_LIST) {
         try {
@@ -177,7 +167,7 @@ export function startDailyReportWorker(): Worker | null {
             projectName:   repo.repoName,
             commitSha:     `weekly-audit-${Date.now()}`,
             commitMessage: '[weekly-audit]',
-            branchName:    'main',
+            branchName:    await getDefaultBranch(repo.repoFullName).catch(() => 'main'),
             authorName:    'Sentinel',
             authorEmail:   '',
             topicId:       null,

@@ -18,19 +18,21 @@ export function startSprintWorker(): Worker | null {
 
   const queue = new Queue('sprint', { connection: conn });
 
+  // NOTE: `repeat` crons MUST NOT also pass a constant `jobId` — BullMQ dedupes
+  // repeatable schedulers by (name + pattern) internally, but a constant
+  // `jobId` collides with the retained completed job after the first fire,
+  // making every subsequent schedule call a silent no-op. See autoApprover.ts
+  // comment for the same trap in the delayed-job path.
   queue.add('propose', {}, {
     repeat: { pattern: '0 20 * * 0', tz: SENTINEL_TZ },
-    jobId:  'sprint-proposal-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule sprint proposal cron'));
 
   queue.add('midweek', {}, {
     repeat: { pattern: '0 9 * * 3', tz: SENTINEL_TZ },
-    jobId:  'sprint-midweek-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule sprint midweek cron'));
 
   queue.add('self-audit', {}, {
     repeat: { pattern: '0 21 * * 0', tz: SENTINEL_TZ },
-    jobId:  'self-audit-cron',
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule self-audit cron'));
 
   const worker = new Worker('sprint', async (job: any) => {

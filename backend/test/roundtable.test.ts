@@ -147,8 +147,11 @@ describe('roundtable — recordRoundtableReply', () => {
     queryMock
       .mockResolvedValueOnce({ rows: [{ id: 9, agents_asked: ['kilo'], agents_responded: [] }] }) // SELECT in recordRoundtableReply
       .mockResolvedValueOnce({ rows: [{ agents_responded: [{ hint: 'kilo', text: 'reply', responded_at: 'x' }] }] }) // UPDATE agents_responded ... RETURNING
-      .mockResolvedValueOnce({ rows: [{ id: 9, status: 'pending', question: 'q', agents_asked: ['kilo'], agents_responded: [{ hint: 'kilo', text: 'reply', responded_at: 'x' }], repo_name: 'costpilot', thread_ts: '111.222' }] }) // SELECT in runRoundtableSynthesis
-      .mockResolvedValue({ rows: [] }); // UPDATE ... synthesis
+      // runRoundtableSynthesis's atomic claim UPDATE — conditional on
+      // status='pending', so the row only returns for the one caller that
+      // wins the race. Mirrors what a real conditional UPDATE would return.
+      .mockResolvedValueOnce({ rows: [{ id: 9, question: 'q', agents_asked: ['kilo'], agents_responded: [{ hint: 'kilo', text: 'reply', responded_at: 'x' }], repo_name: 'costpilot', thread_ts: '111.222' }] })
+      .mockResolvedValue({ rows: [] }); // UPDATE ... status='complete'
 
     axiosPostMock.mockResolvedValue({ data: { choices: [{ message: { content: 'synthesis text' } }] } });
     process.env['NVIDIA_API_KEY'] = 'test-key';
@@ -170,14 +173,14 @@ describe('roundtable — runRoundtableSynthesis', () => {
   });
   afterEach(() => { delete process.env['NVIDIA_API_KEY']; });
 
-  it('is idempotent — a session already complete is a no-op', async () => {
-    queryMock.mockResolvedValue({ rows: [{ id: 1, status: 'complete' }] });
+  it('is idempotent — the conditional claim UPDATE matches zero rows for a session already complete (or not pending), so the function returns early without calling the LLM or posting', async () => {
+    queryMock.mockResolvedValue({ rows: [] }); // session already 'complete' — the conditional UPDATE to set status='synthesizing' WHERE status='pending' matches zero rows, so the function returns early
     await runRoundtableSynthesis(1);
     expect(axiosPostMock).not.toHaveBeenCalled();
     expect(sendSlackMessageMock).not.toHaveBeenCalled();
   });
 
-  it('logs a warning and does nothing for an unknown session id', async () => {
+  it('logs and does nothing for an unknown session id (claim matches zero rows)', async () => {
     queryMock.mockResolvedValue({ rows: [] });
     await expect(runRoundtableSynthesis(999)).resolves.toBeUndefined();
     expect(axiosPostMock).not.toHaveBeenCalled();
@@ -218,5 +221,27 @@ describe('roundtable — runRoundtableSynthesis', () => {
 
     const updateCall = queryMock.mock.calls.find(c => String(c[0]).includes("status = 'complete'"));
     expect(updateCall[1]).toEqual([3, 'agreement/disagreement/plan']);
+  });
+
+  it('does not double-call callSynthesisLLM when two concurrent runRoundtableSynthesis invocations race — the conditional UPDATE claim ensures only one proceeds', async () => {
+    // First caller's claim-WHERE-pending UPDATE sees the row and proceeds.
+    // Second caller's claim-WHERE-pending UPDATE sees zero rows (already
+    // moved to 'synthesizing' by the first) and returns early. This
+    // regression-fences M-2: without the atomic claim, both read
+    // status='pending', both call the LLM, both post Slack synthesis.
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ id: 7, question: 'q', agents_asked: ['kilo'], agents_responded: [{ hint: 'kilo', text: 'reply', responded_at: 'x' }], repo_name: 'costpilot', thread_ts: '1.2' }] })
+      .mockResolvedValueOnce({ rows: [] }); // second concurrent claim UPDATE sees 0 rows
+    axiosPostMock.mockResolvedValue({ data: { choices: [{ message: { content: 'synthesis' } }] } });
+    sendSlackMessageMock.mockResolvedValue({ ok: true });
+
+    const [a, b] = await Promise.all([runRoundtableSynthesis(7), runRoundtableSynthesis(7)]);
+
+    expect(a).toBeUndefined();
+    expect(b).toBeUndefined();
+    // Exactly one claim UPDATE proceeded — exactly one LLM call.
+    expect(axiosPostMock).toHaveBeenCalledTimes(1);
+    // Exactly one synthesis Slack post.
+    expect(sendSlackMessageMock).toHaveBeenCalledTimes(1);
   });
 });

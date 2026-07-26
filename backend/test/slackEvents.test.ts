@@ -22,6 +22,16 @@ jest.mock('../src/agents/externalAgentRegistry', () => ({
   recordAgentReply: (...a: any[]) => recordAgentReplyMock(...a),
 }));
 
+const recordRoundtableReplyMock = jest.fn().mockResolvedValue(false);
+jest.mock('../src/agents/roundtable', () => ({
+  recordRoundtableReply: (...a: any[]) => recordRoundtableReplyMock(...a),
+}));
+
+const handleViktorMessageMock = jest.fn().mockResolvedValue(undefined);
+jest.mock('../src/agents/viktorWatcher', () => ({
+  handleViktorMessage: (...a: any[]) => handleViktorMessageMock(...a),
+}));
+
 import { handleSlackEvent, verifySlackSignature, stripBotMention } from '../src/slackEvents';
 
 function signedRequest(bodyObj: any, opts: { secret?: string; badSig?: boolean; staleTimestamp?: boolean } = {}) {
@@ -226,5 +236,53 @@ describe('handleSlackEvent', () => {
     });
     const res = mockRes();
     await expect(handleSlackEvent(req, res)).resolves.toBeUndefined();
+  });
+
+  // H-2 echo guard — Slack re-delivers Sentinel's own chat.postMessage
+  // outputs as `message` events with `subtype: 'bot_message'`. Without the
+  // filter, Sentinel's own synthesis posts feed back into the reply
+  // correlation handlers, inflating counts and triggering duplicate
+  // synthesis + double LLM spend.
+  it('filters out a bot_message (subtype) event — does NOT dispatch to recordAgentReply/recordRoundtableReply/handleViktorMessage even with a thread_ts', async () => {
+    const req = signedRequest({
+      type: 'event_callback',
+      event: { type: 'message', subtype: 'bot_message', text: 'synthesis echo', channel: 'C1', thread_ts: '123.456', bot_id: 'B0SENTINEL' },
+    });
+    const res = mockRes();
+    await handleSlackEvent(req, res);
+    expect(res.statusCode).toBe(200);
+    expect(recordAgentReplyMock).not.toHaveBeenCalled();
+    expect(recordRoundtableReplyMock).not.toHaveBeenCalled();
+    expect(handleViktorMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('filters out a message event whose bot_id matches SLACK_BOT_ID (subtype undefined — falls through to the bot_id guard)', async () => {
+    process.env.SLACK_BOT_ID = 'B0SENTINEL';
+    try {
+      const req = signedRequest({
+        type: 'event_callback',
+        event: { type: 'message', text: 'synthesis echo (no subtype)', channel: 'C1', thread_ts: '123.456', bot_id: 'B0SENTINEL' },
+      });
+      const res = mockRes();
+      await handleSlackEvent(req, res);
+      expect(res.statusCode).toBe(200);
+      expect(recordAgentReplyMock).not.toHaveBeenCalled();
+      expect(recordRoundtableReplyMock).not.toHaveBeenCalled();
+      expect(handleViktorMessageMock).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.SLACK_BOT_ID;
+    }
+  });
+
+  it('still dispatches a normal human-authored message event (no subtype, no bot_id) to the reply correlation + Viktor paths', async () => {
+    const req = signedRequest({
+      type: 'event_callback',
+      event: { type: 'message', text: 'real reply', channel: 'C1', thread_ts: '123.456' },
+    });
+    const res = mockRes();
+    await handleSlackEvent(req, res);
+    expect(recordAgentReplyMock).toHaveBeenCalledWith('C1', '123.456', 'real reply');
+    expect(recordRoundtableReplyMock).toHaveBeenCalledWith('C1', '123.456', expect.objectContaining({ text: 'real reply' }));
+    expect(handleViktorMessageMock).toHaveBeenCalledWith(expect.objectContaining({ text: 'real reply' }));
   });
 });

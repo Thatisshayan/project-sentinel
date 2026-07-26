@@ -246,14 +246,29 @@ async function callSynthesisLLM(question: string, repliesText: string): Promise<
  * shape as CODERABBIT_FALLBACK_JOB's hasCodeRabbitAuditedCommit check.
  */
 async function runRoundtableSynthesis(sessionId: number): Promise<void> {
-  const r = await query(`SELECT * FROM roundtable_sessions WHERE id = $1`, [sessionId]);
-  const session = r.rows[0];
+  // Atomic claim of the synthesis work — a single conditional UPDATE
+  // transitions `status` from 'pending' to 'synthesizing' for exactly
+  // one caller, even if the timeout job and the final reply race here
+  // concurrently. The RETURNING clause gives the winner everything
+  // needed to run synthesis (SELECT is now redundant on the loser path,
+  // which sees zero rows and returns). Without this, two concurrent
+  // callers both read status='pending', both call the LLM, both send
+  // Slack synthesis twice (M-2 in 2026-07-25 audit).
+  const claim = await query(
+    `UPDATE roundtable_sessions
+       SET status = 'synthesizing'
+     WHERE id = $1 AND status = 'pending'
+     RETURNING id, question, agents_asked, agents_responded, repo_name, thread_ts`,
+    [sessionId],
+  );
+  const session = claim.rows[0];
   if (!session) {
-    logger.warn({ sessionId }, 'runRoundtableSynthesis called for an unknown session id');
-    return;
-  }
-  if (session.status === 'complete') {
-    logger.info({ sessionId }, 'Roundtable session already synthesized — skipping');
+    // Either the session id is unknown, OR it existed but wasn't in
+    // 'pending' state — both are legitimate "nothing to do here"
+    // outcomes (the previous explicit 'already complete' check now falls
+    // under this branch). Logging at info level since the timeout-job
+    // path commonly hits this after the early-completion path won.
+    logger.info({ sessionId }, 'runRoundtableSynthesis — session not pending (already handled or unknown); skipping');
     return;
   }
 

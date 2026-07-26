@@ -77,7 +77,14 @@ jest.mock('../src/sentinelBrain', () => ({
   recordBrainOutcome: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../src/providerHealthCheck', () => ({ probeAIProviders: jest.fn().mockResolvedValue(undefined) }));
-jest.mock('../src/repoDiscovery', () => ({ discoverAndOnboardRepos: jest.fn().mockResolvedValue(undefined) }));
+jest.mock('../src/repoDiscovery', () => ({
+  discoverAndOnboardRepos: jest.fn().mockResolvedValue(undefined),
+  // M-6: weekly-audit resolves the repo default branch via getDefaultBranch
+  // instead of hardcoding 'main'. Mock returns 'develop' so the regression
+  // test asserts a non-main branch — a real getDefaultBranch returns 'main'
+  // when GITHUB_TOKEN is unset, but this catches the hardcoded-'main' bug.
+  getDefaultBranch: jest.fn().mockResolvedValue('develop'),
+}));
 jest.mock('../src/portfolioDb', () => ({ getDailyCost: jest.fn().mockResolvedValue(0) }));
 
 import { startDailyReportWorker } from '../src/workers/dailyReportWorker';
@@ -104,6 +111,14 @@ describe('startDailyReportWorker', () => {
       'agent-leaderboard', 'weekly-audit', 'stale-tasks', 'provider-health',
       'github-metrics-sync', 'repo-discovery', 'brain-outcome', 'brain-strategy',
     ]);
+    // H-1 regression guard: repeat crons must NOT pass a constant jobId —
+    // BullMQ dedupes repeatables by (name + pattern) internally, but a
+    // constant jobId collides with the retained completed job after the
+    // first fire, silently killing every subsequent schedule call.
+    for (const call of queueAddMock.mock.calls) {
+      expect(call[2]).not.toHaveProperty('jobId');
+      expect(call[2]).toHaveProperty('repeat');
+    }
   });
 
   it('morning-briefing job sends the briefing', async () => {
@@ -139,6 +154,11 @@ describe('startDailyReportWorker', () => {
     startDailyReportWorker();
     await capturedProcessor!({ name: 'weekly-audit' });
     expect(triggerAuditMock).toHaveBeenCalledTimes(2);
+    // M-6: branchName must come from getDefaultBranch (mocked -> 'develop'),
+    // not the previously-hardcoded 'main'.
+    for (const call of triggerAuditMock.mock.calls) {
+      expect(call[0].branchName).toBe('develop');
+    }
     expect(sendTelegramMessageMock).toHaveBeenCalledWith(
       expect.stringContaining('2/2 repos queued'),
       null, null
