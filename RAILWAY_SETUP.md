@@ -23,7 +23,7 @@ Root directory: `backend/`
 
 ## Step 3: Deploy
 Railway will auto-deploy when the repo is connected.
-The app starts with: `node src/index.js`
+The app starts with: `node dist/index.js`
 Health check: `/health`
 
 ## Step 4: Get Webhook URL

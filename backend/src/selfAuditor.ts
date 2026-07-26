@@ -7,6 +7,7 @@ import { runAudit } from './claudeCodeAudit';
 import { writeTasksToNotion } from './auditTaskWriter';
 import { createAuditCycle, updateAuditCycle } from './auditDb';
 import { createSelfAuditCycle, updateSelfAuditCycle } from './selfAuditDb';
+import { getDefaultBranch } from './repoDiscovery';
 
 const SENTINEL_NAME = 'project-sentinel';
 const SENTINEL_REPO = repoFullName(SENTINEL_NAME);
@@ -42,7 +43,7 @@ async function runSelfAudit(): Promise<void> {
       projectName:   'Project Sentinel',
       commitSha,
       commitMessage: 'Self-audit',
-      branchName:    'main',
+      branchName:    await getDefaultBranch(SENTINEL_REPO).catch(() => 'main'),
     } as any);
 
     const cycleSha = `${commitSha}-self-${Date.now()}`;
