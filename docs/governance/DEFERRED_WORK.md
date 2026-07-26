@@ -153,6 +153,46 @@
 **Proposed**: Add `npm audit --audit-level=high --production` to ui job in `ci.yml` (or run it in a separate scheduled job with more memory). Investigate why `ui/` audit OOMs locally (V8 heap limit).
 **Status**: Deferred — needs CI adjustment + memory profiling.
 
+### D-019: Secret-scan gate false positive on untracked `.env`
+**Scope**: `scripts/verify.sh` (secret-scan job) flags `backend/.env` as "possible hardcoded secrets" even though the file is gitignored and not tracked (`git ls-files backend/.env` returns nothing).
+**Impact**: `verify.sh` fails the secret-scan gate on every local run, masking real secret leaks if any. CI may or may not hit this depending on checkout behavior.
+**Proposed**: Update `verify.sh` secret-scan to only scan tracked files (`git ls-files`) or explicitly exclude known gitignored paths like `**/.env*`. Document the false positive in onboarding.
+**Status**: Deferred — verify script fix needed; not a code bug.
+
+### D-020: Pre-existing uncommitted change in `backend/test/roundtable.test.ts`
+**Scope**: `git status` showed ` M backend/test/roundtable.test.ts` before any of my edits — a pre-existing uncommitted modification from a prior session. I did not investigate what the change was, whether it conflicts with my M-2 roundtable fixes, or whether it should be committed/reverted.
+**Impact**: Unknown test behavior change may be staged with my commit. Could be a fix, a test update, or a broken test.
+**Proposed**: Diff the file against `HEAD` to identify the change; decide to commit, revert, or amend based on content.
+**Status**: Deferred — needs triage.
+
+### D-021: No UI test / build / lint verification
+**Scope**: The fix scope was backend-only. I did not run `cd ui && npm test`, `npm run lint`, or `npm run build`. The repo rules require green CI including UI.
+**Impact**: If GitHub Actions CI runs UI jobs on this branch, they are untested against my changes (api.ts, ci.yml, etc. could affect UI if they share types or contracts).
+**Proposed**: Run `npm test && npm run lint && npm run build` in `ui/` locally (or wait for CI). Fix any breakage.
+**Status**: Deferred — backend-only fix pass; UI verification pending.
+
+### D-022: No end-to-end / integration verification
+**Scope**: All verification was unit tests + static checks (tsc, yaml lint). I did NOT:
+- Spin up Redis + run workers to verify H-1 cron behavior at runtime (first fire, then reschedule)
+- Send a real Slack event to verify H-2 bot-message filter
+- Trigger a real GitHub webhook redelivery after a simulated process restart to verify M-3 dedup persistence
+- Test the dashboard `/api/command` endpoint with a real Telegram bot to verify M-5 chatId=0 handling
+**Impact**: Mock-based tests prove code paths but not integrated system behavior. Real-world timing, network, and Redis persistence behaviors are untested.
+**Proposed**: Run integration tests on a Docker-enabled runner (see D-002) with real Redis, real Slack webhook (ngrok), real GitHub webhook redelivery, real Telegram bot token.
+**Status**: Deferred — blocked by no Docker in this environment (D-002/D-004).
+
+### D-023: No PR opened / CI not verified on GitHub
+**Scope**: Branch `fix/opencode-audit-remediation-2026-07-26` was pushed but no PR was opened. The required CI gate (secret-scan, build, test, doc-freshness, deploy-dry) has not run on this branch.
+**Impact**: Per R30, merge requires green CI. The branch is unproven in the actual CI environment.
+**Proposed**: Open PR via `gh pr create` or GitHub UI; watch all checks pass; address any failures (especially secret-scan false positive D-019 and any UI job failures D-021).
+**Status**: Deferred — process step after code complete.
+
+### D-024: Root and UI TypeScript configs not verified
+**Scope**: `npx tsc --noEmit` ran clean from `backend/` only. I did not verify `tsc --noEmit` at repo root (if root tsconfig exists) or in `ui/`.
+**Impact**: TypeScript errors in shared configs or UI could exist undetected.
+**Proposed**: Run `npx tsc --noEmit` in `ui/` and at root if `tsconfig.json` exists.
+**Status**: Deferred — quick verification step.
+
 ---
 
 ## Notes for Future Agents
