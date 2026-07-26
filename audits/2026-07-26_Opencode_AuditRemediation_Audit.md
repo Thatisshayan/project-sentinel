@@ -31,11 +31,22 @@
 **Tests**: Added regression guard loop asserting every `queue.add` options object has `repeat` and **lacks** `jobId`. Updated `sprintWorker.test.ts` assertion from `expect(jobId).toBe('...')` to `expect(opts).not.toHaveProperty('jobId')`. Updated `dailyReportWorker.test.ts` weekly-audit test to mock `getDefaultBranch` returning `'develop'` and assert the resolved branch is passed.
 **Risk**: None — this is the exact pattern BullMQ documents for repeat jobs. The `autoApprover.ts` comment in this codebase already warns about this trap.
 
-### M-6 — weekly-audit cron hardcodes `branchName: 'main'`
-**File**: `backend/src/workers/dailyReportWorker.ts:175-180`
-**Root cause**: The weekly-audit handler passed `branchName: 'main'` to `triggerAudit`. Prior bug #31 fixed this for API routes (`api.ts:374`, `api.ts:398`) via `getDefaultBranch()` but missed the cron.
-**Fix**: Inside weekly-audit handler, lazy-require `getDefaultBranch` from `../repoDiscovery` and pass `branchName: await getDefaultBranch(repo.repoFullName).catch(() => 'main')`. Uses same fallback semantics as other callers.
-**Tests**: Mocked `getDefaultBranch` returning `'develop'` in `dailyReportWorker.test.ts`; assert `triggerAuditMock` called with `branchName: 'develop'`.
+### M-6 — weekly-audit cron hardcodes `branchName: 'main'` + all triggerAudit entry points
+**Files**: 
+- `backend/src/workers/dailyReportWorker.ts:175-180` (weekly-audit cron)
+- `backend/src/commands/repoOps.ts:172` (CLI `/sentinel audit <repo>`)
+- `backend/src/crossRepoCoordinator.ts:52` (cross-repo dependency audits)
+- `backend/src/repoOnboarder.ts:49` (initial audit on repo onboarding)
+- `backend/src/selfAuditor.ts:45` (self-audit of Sentinel repo)
+- `backend/src/telegramAI.ts:420` (AI-triggered audits)
+
+**Root cause**: Multiple callers passed `branchName: 'main'` to `triggerAudit`. Prior bug #31 fixed this for API routes (`api.ts:374`, `api.ts:398`) via `getDefaultBranch()` but missed all other paths.
+
+**Fix**: Each caller now lazy-requires `getDefaultBranch` from `../repoDiscovery` and passes `branchName: await getDefaultBranch(repoFullName).catch(() => 'main')`. Uses same fallback semantics as the API routes. The `auditOrchestrator.ts:223` `branchName: branchName || 'main'` remains as defense-in-depth.
+
+**Tests**: 
+- `dailyReportWorker.test.ts`: mocked `getDefaultBranch` returning `'develop'`; assert `triggerAuditMock` called with `branchName: 'develop'`.
+- `repoOps.manualAudit.test.ts`: added mock for `getDefaultBranch` in `repoDiscovery`; all 4 tests pass.
 
 ### H-2 — Slack bot/self-message filtering missing (echo loop on synthesis post)
 **File**: `backend/src/slackEvents.ts:163-185`
@@ -143,24 +154,33 @@ The following issues were identified during the audit and remediation but are **
 - **Typecheck**: `cd backend && npx tsc --noEmit` → clean
 - **YAML lint**: `python -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"` → OK
 - **Files modified** (source + tests only, no docs outside audit dir):
-  - `backend/src/workers/dailyReportWorker.ts`
-  - `backend/src/workers/sprintWorker.ts`
-  - `backend/src/slackEvents.ts`
-  - `backend/src/agents/roundtable.ts`
-  - `backend/src/webhook/processPREvent.ts`
-  - `backend/src/deduplication.ts`
-  - `backend/src/api.ts`
-  - `backend/src/telegramCommands.ts`
-  - `.github/workflows/ci.yml`
-  - `backend/test/dailyReportWorker.test.ts`
-  - `backend/test/sprintWorker.test.ts`
-  - `backend/test/slackEvents.test.ts`
-  - `backend/test/roundtable.test.ts`
-  - `backend/test/processPREvent.test.ts` (new)
-  - `backend/test/deduplication.test.ts` (new)
-  - `backend/test/api.command.test.js` (new)
-  - `backend/test/telegramCommands.test.ts` (new)
-  - `audits/2026-07-26_Opencode_AuditRemediation_Audit.md` (this file)
+- `backend/src/workers/dailyReportWorker.ts`
+- `backend/src/workers/sprintWorker.ts`
+- `backend/src/slackEvents.ts`
+- `backend/src/agents/roundtable.ts`
+- `backend/src/webhook/processPREvent.ts`
+- `backend/src/deduplication.ts`
+- `backend/src/api.ts`
+- `backend/src/telegramCommands.ts`
+- `backend/src/commands/repoOps.ts`
+- `backend/src/crossRepoCoordinator.ts`
+- `backend/src/repoOnboarder.ts`
+- `backend/src/selfAuditor.ts`
+- `backend/src/telegramAI.ts`
+- `.github/workflows/ci.yml`
+- `backend/test/dailyReportWorker.test.ts`
+- `backend/test/sprintWorker.test.ts`
+- `backend/test/slackEvents.test.ts`
+- `backend/test/roundtable.test.ts`
+- `backend/test/processPREvent.test.ts` (new)
+- `backend/test/deduplication.test.ts` (new)
+- `backend/test/api.command.test.js` (new)
+- `backend/test/telegramCommands.test.ts` (new)
+- `backend/test/repoOps.manualAudit.test.ts` (updated)
+- `audits/2026-07-26_Opencode_AuditRemediation_Audit.md` (this file)
+- `docs/governance/DEFERRED_WORK.md` (updated)
+- `RAILWAY_SETUP.md` (fixed)
+- `ConfirmedBugs.md` (annotated)
 
 ---
 

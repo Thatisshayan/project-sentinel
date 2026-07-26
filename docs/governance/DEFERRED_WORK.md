@@ -127,19 +127,26 @@
 **Scope**: `RAILWAY_SETUP.md:26` says "The app starts with: `node src/index.js`". Actual runtime: `backend/railway.toml:6` `startCommand = "node dist/index.js"`; `backend/Dockerfile:55` `CMD ["node", "dist/index.js"]`; `package.json` `build` runs `tsc → dist/`. `src/index.ts` is TypeScript source — `node src/index.js` would fail (no such file).
 **Impact**: Fresh operator following the doc fails to start the backend. Violates R23 (README + .env.example must let a fresh agent stand the repo up with no hidden steps).
 **Proposed**: Update `RAILWAY_SETUP.md` to `node dist/index.js` (matching the actual deploy config).
-**Status**: Deferred — doc fix only, no code change needed.
+**Status**: **✅ COMPLETED** (2026-07-26) — Updated `RAILWAY_SETUP.md` to `node dist/index.js`.
 
 ### D-015: ConfirmedBugs.md bug #11 doc/code mismatch (DM-1)
 **Scope**: `ConfirmedBugs.md` entry 11 claims "`fix_pending → failed` is a bug, was fixed". Current `backend/src/portfolioAnalytics.ts:79-82` deliberately treats `fix_pending` as `failed` WITH a justifying comment ("Covers 'fix_pending' too: a fix PR being open isn't the same as merged — the repo's main branch is still red until the merge webhook confirms it.").
 **Impact**: Either the prior audit overstated the fix, or a later commit reverted to original behavior. The code is internally consistent and defensible; the doc is stale.
 **Proposed**: Per R15, annotate `ConfirmedBugs.md` entry 11 as "behavior is intentional per portfolioAnalytics.ts:80-82 comment — supersede this entry".
-**Status**: Deferred — doc annotation only.
+**Status**: **✅ COMPLETED** (2026-07-26) — Added R15 annotation note to `ConfirmedBugs.md` entry.
 
-### D-016: auditOrchestrator.ts defense-in-depth `|| 'main'` fallback
+### D-016: auditOrchestrator.ts defense-in-depth `|| 'main'` fallback + all triggerAudit entry points
 **Scope**: `backend/src/auditOrchestrator.ts:223` has `branchName: branchName || 'main'` as a final fallback for the git clone inside the audit. The M-6 fix only corrected the `weekly-audit` cron caller (`dailyReportWorker.ts:180`) to pass `getDefaultBranch()`. This fallback is the last-resort net — if ANY caller omits branchName, it defaults to 'main'.
-**Impact**: Not a bug — intentional defense. Worth noting that `repoOps.ts:172` (CLI `/sentinel audit <repo>`) also hardcodes `'main'` and would hit this fallback.
-**Proposed**: If we want all paths to use `getDefaultBranch()`, update `repoOps.ts:172` and audit the 2 other `triggerAudit` callers that don't pass branchName (crossRepoCoordinator, scheduledJobsWorker, telegramAI).
-**Status**: Deferred — not in fix scope; defense is working as designed.
+**Impact**: Not a bug — intentional defense. Worth noting that `repoOps.ts:172` (CLI `/sentinel audit <repo>`) also hardcodes `'main'` and would hit this fallback, plus 4 other callers.
+**Proposed**: Update all `triggerAudit` callers to use `getDefaultBranch()`.
+**Status**: **✅ COMPLETED** (2026-07-26) — All 6 triggerAudit callers now use `getDefaultBranch()`:
+- `repoOps.ts:172` (CLI `/sentinel audit <repo>`)
+- `crossRepoCoordinator.ts:52` (cross-repo dependency audits)
+- `repoOnboarder.ts:49` (initial audit on repo onboarding)
+- `selfAuditor.ts:45` (self-audit of Sentinel repo)
+- `telegramAI.ts:420` (AI-triggered audits)
+- `dailyReportWorker.ts:180` (weekly-audit cron)
+The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-depth.
 
 ### D-017: Lockfile freshness — local node_modules mismatches
 **Scope**: `npm ls` in both `backend/` and `ui/` shows version mismatches vs lockfile (e.g. `@anthropic-ai/sdk@0.104.1` vs `^0.115.0`). CI uses `npm ci` from consistent lockfile.
