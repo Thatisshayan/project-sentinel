@@ -156,23 +156,23 @@ async function handleSlackEvent(req: any, res: any): Promise<void> {
 
   // Phase 1-7 echo guard — Slack re-delivers Sentinel's own chat.postMessage
   // outputs back to this subscription as `message` events with
-  // `subtype: 'bot_message'` (set by Slack for any bot-authored message,
-  // including this app's own posts). Without this filter, Sentinel's own
-  // synthesis / notifications would feed back into recordAgentReply,
-  // recordRoundtableReply, and handleViktorMessage as if they were external
-  // agent replies — inflating respond counts, triggering duplicate
-  // synthesis (double LLM spend + double Slack post), and wasting Viktor
-  // cycles on Sentinel's own posts. The `subtype` check is the primary
-  // guard (catches ALL bot messages, including Sentinel's own, regardless
-  // of whether SLACK_BOT_ID is configured); the optional SLACK_BOT_ID
-  // match is a backup path for the rare case where a real agent's reply
-  // arrives without `subtype` but still carries Sentinel's own bot_id.
-  // (H-2 in 2026-07-25 audit.)
-  if (event.type === 'message' && event.subtype === 'bot_message') {
-    return;
-  }
-  if (event.type === 'message' && event.bot_id && event.bot_id === process.env['SLACK_BOT_ID']) {
-    return;
+  // `subtype: 'bot_message'` (set by Slack for any bot-authored message).
+  // We MUST NOT blanket-drop all `bot_message` events because legitimate
+  // external-agent replies (Kilo, Manus, etc.) are also delivered as
+  // `bot_message` and must reach `recordAgentReply`/`recordRoundtableReply`.
+  // Instead, we only filter Sentinel's own messages by matching `bot_id`
+  // against our known Sentinel bot ID. If `SLACK_BOT_ID` is not configured,
+  // we cannot safely filter and must accept the echo-loop risk (documented
+  // as dormant since SLACK_BOT_TOKEN is unset today) — but we log a loud
+  // warning so operators know echo protection is degraded.
+  if (event.type === 'message') {
+    const isSelf = event.bot_id && event.bot_id === process.env['SLACK_BOT_ID'];
+    if (isSelf) {
+      return;
+    }
+    if (!process.env['SLACK_BOT_ID'] && process.env['SLACK_BOT_TOKEN']) {
+      logger.warn({ subtype: event.subtype }, 'SLACK_BOT_ID not set — echo protection degraded; Sentinel may process its own messages');
+    }
   }
 
   // Phase 6 — Viktor authority: checked on every plain message (not just

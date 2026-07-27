@@ -26,6 +26,11 @@ function pruneExpired(): void {
   }
 }
 
+/**
+ * Checks if a (repo, commit) pair has already been processed.
+ * Pure read — does NOT claim the slot.
+ * For atomic claim, use claimProcessing().
+ */
 async function isAlreadyProcessed(repoName: string, commitSha: string): Promise<boolean> {
   const redis = getRedisConnection();
   if (redis) {
@@ -39,8 +44,6 @@ async function isAlreadyProcessed(repoName: string, commitSha: string): Promise<
       return false;
     } catch (err: any) {
       // Fall back to the in-memory store if Redis is reachable-but-broken
-      // (e.g. brief network blip) — preserves behavior across the
-      // restart-during-redelivery race this dedup is built for.
       logger.warn({ err: err.message, repoName }, 'Redis dedup GET failed — falling back to in-memory');
     }
   }
@@ -57,6 +60,50 @@ async function isAlreadyProcessed(repoName: string, commitSha: string): Promise<
 
   logger.info({ repoName, commitSha: commitSha.slice(0, 7) }, 'Duplicate event detected');
   return true;
+}
+
+/**
+ * Atomically claims the dedup slot for a (repo, commit) pair.
+ * Returns true if this caller won the claim (first to arrive), false if
+ * another caller already holds the claim (duplicate).
+ * Uses Redis SET NX for atomic check-and-set; falls back to in-memory Map.
+ */
+async function claimProcessing(repoName: string, commitSha: string): Promise<boolean> {
+  const redis = getRedisConnection();
+  if (redis) {
+    try {
+      const rKey = makeRedisKey(repoName, commitSha);
+      // SET key '1' PX ttl NX — only sets if key does NOT exist.
+      // Returns 'OK' if we won the claim, null if key already existed.
+      const result = await redis.set(rKey, '1', 'PX', TTL_MS, 'NX');
+      if (result === 'OK') {
+        logger.info({ repoName, commitSha: commitSha.slice(0, 7) }, 'Dedup claim acquired (redis)');
+        return true;
+      }
+      logger.info({ repoName, commitSha: commitSha.slice(0, 7) }, 'Duplicate event detected (redis)');
+      return false;
+    } catch (err: any) {
+      // Fall back to in-memory store if Redis is reachable-but-broken
+      logger.warn({ err: err.message, repoName }, 'Redis dedup claim failed — falling back to in-memory');
+    }
+  }
+
+  const key = makeKey(repoName, commitSha);
+  const entry = store.get(key);
+
+  if (!entry) {
+    store.set(key, { ts: Date.now() });
+    return true;
+  }
+
+  if (Date.now() - entry.ts > TTL_MS) {
+    store.delete(key);
+    store.set(key, { ts: Date.now() });
+    return true;
+  }
+
+  logger.info({ repoName, commitSha: commitSha.slice(0, 7) }, 'Duplicate event detected');
+  return false;
 }
 
 async function markAsProcessed(repoName: string, commitSha: string): Promise<void> {
@@ -90,9 +137,9 @@ async function markAsProcessed(repoName: string, commitSha: string): Promise<voi
 }
 
 /**
- * Releases a claim made by markAsProcessed() — used when processing failed
- * in a way that should allow a webhook redelivery to retry (e.g. a
- * transient Notion API error), so the claim-then-release pattern in
+ * Releases a claim made by markAsProcessed() or claimProcessing() — used when
+ * processing failed in a way that should allow a webhook redelivery to retry
+ * (e.g. a transient Notion API error), so the claim-then-release pattern in
  * processWebhook.ts doesn't leave a commit permanently marked "processed"
  * despite nothing actually succeeding.
  */
@@ -111,4 +158,4 @@ async function unmarkProcessed(repoName: string, commitSha: string): Promise<voi
   store.delete(makeKey(repoName, commitSha));
 }
 
-export = { isAlreadyProcessed, markAsProcessed, unmarkProcessed };
+export = { isAlreadyProcessed, markAsProcessed, unmarkProcessed, claimProcessing };

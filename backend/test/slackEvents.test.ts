@@ -239,11 +239,11 @@ describe('handleSlackEvent', () => {
   });
 
   // H-2 echo guard — Slack re-delivers Sentinel's own chat.postMessage
-  // outputs as `message` events with `subtype: 'bot_message'`. Without the
-  // filter, Sentinel's own synthesis posts feed back into the reply
-  // correlation handlers, inflating counts and triggering duplicate
-  // synthesis + double LLM spend.
-  it('filters out a bot_message (subtype) event — does NOT dispatch to recordAgentReply/recordRoundtableReply/handleViktorMessage even with a thread_ts', async () => {
+  // outputs as `message` events. We only filter Sentinel's OWN messages by
+  // matching `bot_id` against `SLACK_BOT_ID`. If `SLACK_BOT_ID` is not set,
+  // we cannot safely filter and must accept the echo-loop risk (degraded mode).
+  it('does NOT filter a bot_message event when SLACK_BOT_ID is not set (degraded mode)', async () => {
+    // SLACK_BOT_ID is NOT set in this test suite by default
     const req = signedRequest({
       type: 'event_callback',
       event: { type: 'message', subtype: 'bot_message', text: 'synthesis echo', channel: 'C1', thread_ts: '123.456', bot_id: 'B0SENTINEL' },
@@ -251,9 +251,11 @@ describe('handleSlackEvent', () => {
     const res = mockRes();
     await handleSlackEvent(req, res);
     expect(res.statusCode).toBe(200);
-    expect(recordAgentReplyMock).not.toHaveBeenCalled();
-    expect(recordRoundtableReplyMock).not.toHaveBeenCalled();
-    expect(handleViktorMessageMock).not.toHaveBeenCalled();
+    // In degraded mode (no SLACK_BOT_ID), the bot_message is NOT filtered
+    // because we cannot positively identify it as Sentinel's own message.
+    expect(recordAgentReplyMock).toHaveBeenCalled();
+    expect(recordRoundtableReplyMock).toHaveBeenCalled();
+    expect(handleViktorMessageMock).toHaveBeenCalled();
   });
 
   it('filters out a message event whose bot_id matches SLACK_BOT_ID (subtype undefined — falls through to the bot_id guard)', async () => {
