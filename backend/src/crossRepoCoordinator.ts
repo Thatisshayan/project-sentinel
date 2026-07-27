@@ -1,5 +1,6 @@
 import logger from './logger';
 import { getGithubOrg } from './repoResolver';
+import { getDefaultBranch } from './repoDiscovery';
 
 const DEFAULT_DEPS: Record<string, string[]> = {
   'session-guard':      ['tapcash', 'AlphonsoEcosystem'],
@@ -39,17 +40,19 @@ async function notifyDependents(pushedRepo: string, pushedCommitSha: string, aut
   logger.info({ pushedRepo, dependents }, 'Cross-repo dependency triggered');
 
   const { triggerAudit } = require('./auditOrchestrator') as { triggerAudit: (...args: any[]) => Promise<any> };
+  const { getDefaultBranch } = require('./repoDiscovery') as { getDefaultBranch: (r: string) => Promise<string> };
   const GITHUB_OWNER = getGithubOrg();
 
   for (const depRepo of dependents) {
     logger.info({ pushedRepo, depRepo }, 'Triggering dependent repo audit');
+    const branchName = await getDefaultBranch(`${GITHUB_OWNER}/${depRepo}`).catch(() => 'main');
     triggerAudit({
       repoFullName:  `${GITHUB_OWNER}/${depRepo}`,
       repoName:      depRepo,
       projectName:   depRepo,
       commitSha:     `cross-repo-${pushedCommitSha.slice(0, 7)}`,
       commitMessage: `[cross-repo] Dependency ${pushedRepo} was updated by ${authorName}`,
-      branchName:    'main',
+      branchName,
       authorName:    `Sentinel (cross-repo from ${pushedRepo})`,
       authorEmail:   'sentinel@project-sentinel.app',
       topicId:       null,

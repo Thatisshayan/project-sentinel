@@ -3,7 +3,7 @@ import logger from '../logger';
 import { extractPayload } from '../extractPayload';
 import { findNotionProject, updateNotionProject, appendChangelog } from '../notionClient';
 import { sendTelegramMessage } from '../telegramClient';
-import { isAlreadyProcessed, markAsProcessed, unmarkProcessed } from '../deduplication';
+import { claimProcessing, unmarkProcessed } from '../deduplication';
 import { enqueueBuildCheck } from '../queueClient';
 import dbClient from '../dbClient';
 import { upsertRepoMetrics } from '../portfolioDb';
@@ -41,20 +41,13 @@ export async function processWebhook(payload: any): Promise<void> {
     'Processing webhook'
   );
 
-  const seen = await isAlreadyProcessed(repoName, commitSha);
-  if (seen) {
+  // Atomic claim: returns true if we won the right to process this event,
+  // false if another process already claimed it (duplicate).
+  const claimed = await claimProcessing(repoName, commitSha);
+  if (!claimed) {
     logger.info({ repoName, commitSha: commitSha.substring(0, 7) }, 'Duplicate — skipping');
     return;
   }
-
-  // Claim immediately (not after Notion succeeds) so a near-simultaneous
-  // redelivery during the Notion round-trip can't slip past the dedup check
-  // and fully re-run Notion updates, changelog appends, Telegram messages,
-  // security scans, and build-check enqueues. Released below on the specific
-  // failure paths that should allow a genuine retry (transient Notion
-  // errors) — everything else keeps the claim, matching the original intent
-  // of only retrying on errors that are actually worth retrying.
-  await markAsProcessed(repoName, commitSha);
 
   let notionProject: any;
   try {

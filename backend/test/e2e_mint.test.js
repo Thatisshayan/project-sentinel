@@ -66,6 +66,7 @@ jest.mock('../src/portfolioDb', () => ({
 
 jest.mock('../src/deduplication', () => ({
   isAlreadyProcessed: jest.fn().mockResolvedValue(false),
+  claimProcessing:    jest.fn().mockResolvedValue(true),
   markAsProcessed:    jest.fn().mockResolvedValue(undefined),
   unmarkProcessed:    jest.fn().mockResolvedValue(undefined),
 }));
@@ -122,7 +123,7 @@ const webhookRouter = require('../src/webhook');
 
 const { findNotionProject, updateNotionProject } = require('../src/notionClient');
 const { sendTelegramMessage }                    = require('../src/telegramClient');
-const { isAlreadyProcessed }                     = require('../src/deduplication');
+const { claimProcessing }                        = require('../src/deduplication');
 const { upsertRepoMetrics }                      = require('../src/portfolioDb');
 const { enqueueBuildCheck }                      = require('../src/queueClient');
 const { query }                                  = require('../src/dbClient');
@@ -254,7 +255,7 @@ describe('Stage 3: webhook pipeline for mint repo', () => {
       url:         'https://notion.so/mint',
     });
     updateNotionProject.mockResolvedValue(undefined);
-    isAlreadyProcessed.mockResolvedValue(false);
+    claimProcessing.mockResolvedValue(true);
     sendTelegramMessage.mockResolvedValue(true);
     upsertRepoMetrics.mockResolvedValue(undefined);
   });
@@ -359,7 +360,7 @@ describe('Stage 3: webhook pipeline for mint repo', () => {
   });
 
   test('skips duplicate mint commits without notifying Telegram', async () => {
-    isAlreadyProcessed.mockResolvedValue(true);
+    claimProcessing.mockResolvedValue(false);
     const body = mintPush();
     await request(app)
       .post('/webhook/github')

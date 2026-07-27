@@ -43,6 +43,7 @@ jest.mock('../src/portfolioDb', () => ({
 
 jest.mock('../src/deduplication', () => ({
   isAlreadyProcessed: jest.fn().mockResolvedValue(false),
+  claimProcessing:    jest.fn().mockResolvedValue(true),
   markAsProcessed:    jest.fn().mockResolvedValue(undefined),
   unmarkProcessed:    jest.fn().mockResolvedValue(undefined),
 }));
@@ -55,8 +56,7 @@ const webhookRouter                     = require('../src/webhook');
 const { findNotionProject,
         updateNotionProject }           = require('../src/notionClient');
 const { sendTelegramMessage }           = require('../src/telegramClient');
-const { isAlreadyProcessed,
-        markAsProcessed,
+const { claimProcessing,
         unmarkProcessed }               = require('../src/deduplication');
 const { upsertRepoMetrics }             = require('../src/portfolioDb');
 
@@ -99,8 +99,8 @@ beforeEach(() => {
     url:         'https://notion.so/tapcash',
   });
   updateNotionProject.mockResolvedValue(undefined);
-  isAlreadyProcessed.mockResolvedValue(false);
-  markAsProcessed.mockResolvedValue(undefined);
+  claimProcessing.mockResolvedValue(true);
+  unmarkProcessed.mockResolvedValue(undefined);
   sendTelegramMessage.mockResolvedValue(true);
   upsertRepoMetrics.mockResolvedValue(undefined);
 });
@@ -179,7 +179,7 @@ describe('POST /webhook/github', () => {
   });
 
   test('skips duplicate commits', async () => {
-    isAlreadyProcessed.mockResolvedValue(true);
+    claimProcessing.mockResolvedValue(false);
     await request(app)
       .post('/webhook/github')
       .set('x-hub-signature-256', sign(payload))
@@ -226,7 +226,7 @@ describe('POST /webhook/github', () => {
       .set('x-hub-signature-256', sign(payload))
       .send(payload);
     await wait(200);
-    expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(claimProcessing).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
     expect(unmarkProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
   });
 
@@ -237,7 +237,7 @@ describe('POST /webhook/github', () => {
       .set('x-hub-signature-256', sign(payload))
       .send(payload);
     await wait(200);
-    expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(claimProcessing).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
     expect(unmarkProcessed).not.toHaveBeenCalled();
   });
 
@@ -248,7 +248,7 @@ describe('POST /webhook/github', () => {
       .set('x-hub-signature-256', sign(payload))
       .send(payload);
     await wait(200);
-    expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(claimProcessing).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
     expect(unmarkProcessed).not.toHaveBeenCalled();
   });
 
@@ -259,7 +259,7 @@ describe('POST /webhook/github', () => {
       .set('x-hub-signature-256', sign(payload))
       .send(payload);
     await wait(200);
-    expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(claimProcessing).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
     expect(unmarkProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
   });
 
@@ -272,7 +272,7 @@ describe('POST /webhook/github', () => {
       .set('x-hub-signature-256', sign(payload))
       .send(payload);
     await wait(200);
-    expect(markAsProcessed).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
+    expect(claimProcessing).toHaveBeenCalledWith('tapcash', payload.head_commit.id);
     expect(unmarkProcessed).not.toHaveBeenCalled();
   });
 
@@ -284,7 +284,7 @@ describe('POST /webhook/github', () => {
     // flaky in this test environment) — deterministic regardless of how
     // long the Notion call actually takes.
     const callOrder = [];
-    markAsProcessed.mockImplementation(async () => { callOrder.push('markAsProcessed'); });
+    claimProcessing.mockImplementation(async () => { callOrder.push('claimProcessing'); return true; });
     findNotionProject.mockImplementation(async () => {
       callOrder.push('findNotionProject');
       return { pageId: 'page-abc-123', projectName: 'TapCash', url: 'https://notion.so/tapcash' };
@@ -296,7 +296,7 @@ describe('POST /webhook/github', () => {
       .send(payload);
     await wait(200);
 
-    expect(callOrder).toEqual(['markAsProcessed', 'findNotionProject']);
+    expect(callOrder).toEqual(['claimProcessing', 'findNotionProject']);
   });
 });
 

@@ -162,6 +162,8 @@ async function handleManualAudit(repoArg: string, topicId: number | null): Promi
   const resolvedRepoFullName = match?.repoFullName || repoFullName(repoArg);
 
   const project = await findNotionProject(resolvedRepoName).catch(() => null);
+  const { getDefaultBranch } = require('../repoDiscovery');
+  const branchName = await getDefaultBranch(resolvedRepoFullName).catch(() => 'main');
   await sendTelegramMessage(`Manual audit triggered for ${resolvedRepoName}...`, resolvedRepoName, topicId);
   triggerAudit({
     repoFullName:  resolvedRepoFullName,
@@ -169,7 +171,7 @@ async function handleManualAudit(repoArg: string, topicId: number | null): Promi
     projectName:   project?.projectName || resolvedRepoName,
     commitSha:     `manual-${Date.now()}`,
     commitMessage: '[manual-audit]',
-    branchName:    'main',
+    branchName,
     authorName:    'Human',
     authorEmail:   '',
     topicId,

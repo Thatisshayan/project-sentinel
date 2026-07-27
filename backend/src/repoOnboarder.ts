@@ -5,6 +5,7 @@ import { createChannelForRepo } from './slackClient';
 import { triggerAudit } from './auditOrchestrator';
 import { findNotionProject } from './notionClient';
 import { repoFullName, getGithubOrg } from './repoResolver';
+import { getDefaultBranch } from './repoDiscovery';
 
 function getWatchedRepos(): string[] {
   return (process.env['WATCHED_REPOS'] || '').split(',').map((r: string) => r.trim()).filter(Boolean);
@@ -46,7 +47,7 @@ async function onboardRepo(repoName: string): Promise<void> {
     projectName:   repoName,
     commitSha:     `onboard-${Date.now()}`,
     commitMessage: '[sentinel-onboard] Initial audit',
-    branchName:    'main',
+    branchName:    await getDefaultBranch(repoFullName(repoName)).catch(() => 'main'),
     authorName:    'Sentinel',
     authorEmail:   '',
     topicId:       null,

@@ -224,7 +224,17 @@ router.post('/command', async (req: any, res: any) => {
 
   // Fire command through the real handler (non-blocking — response arrives via agent_messages poll)
   const { handleCommand } = require('./telegramCommands');
-  handleCommand(text, null, null, fromName, null).catch((err: any) =>
+  // chatId 0 is an impossible Telegram chat_id (real ones are non-zero signed
+  // integers). The dashboard route has no Telegram chat context — the UI
+  // surface is agent_messages polling, not Telegram push — so slash-command
+  // branches in handleCommand that route to showMainMenu / handleSprintCmd
+  // etc. silently no-op on the Telegram send side (Telegram rejects chat_id=0).
+  // The AI free-text branch (telegramAI's handleMessage) is what surfaces
+  // dashboard replies and does not depend on chatId.
+  // M-5 fix: previously passed `null`, which `String(null)` turned into the
+  // string `"null"` — rejected by Telegram but masquerading as a stringified
+  // value made the missing chat target hard to spot.
+  handleCommand(text, 0, null, fromName, null).catch((err: any) =>
     logger.warn({ err: err.message }, 'Dashboard command failed')
   );
 

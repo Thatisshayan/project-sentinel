@@ -18,6 +18,7 @@ import { approveSprint, getSprintStatus } from './sprintOrchestrator';
 import { getVelocityReport } from './velocityTracker';
 import { getAgentRoomSummary } from './agentRoom';
 import { setAgentIdle, getAllAgents } from './agentDb';
+import { getDefaultBranch } from './repoDiscovery';
 import { findNotionProject, updateBuilderAgent } from './notionClient';
 import { saveMessage, getHistory, formatHistoryForPrompt } from './conversationMemory';
 
@@ -414,10 +415,11 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
       await safeFire(sendTelegramMessage(
         `Triggering audit for ${repoName}...`, null, topicId
       ), { label: 'telegramAI' })
+      const branchName = await getDefaultBranch(repoFullNameVal).catch(() => 'main');
       triggerAudit({
         repoFullName: repoFullNameVal, repoName,
         projectName: repoName, commitSha: `manual-${Date.now()}`,
-        commitMessage: '[manual-audit]', branchName: 'main',
+        commitMessage: '[manual-audit]', branchName,
         authorName: 'Human', authorEmail: '', topicId,
       }).catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'AI audit failed'));
       break;

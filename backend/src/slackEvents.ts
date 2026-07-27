@@ -154,6 +154,27 @@ async function handleSlackEvent(req: any, res: any): Promise<void> {
     return;
   }
 
+  // Phase 1-7 echo guard — Slack re-delivers Sentinel's own chat.postMessage
+  // outputs back to this subscription as `message` events with
+  // `subtype: 'bot_message'` (set by Slack for any bot-authored message).
+  // We MUST NOT blanket-drop all `bot_message` events because legitimate
+  // external-agent replies (Kilo, Manus, etc.) are also delivered as
+  // `bot_message` and must reach `recordAgentReply`/`recordRoundtableReply`.
+  // Instead, we only filter Sentinel's own messages by matching `bot_id`
+  // against our known Sentinel bot ID. If `SLACK_BOT_ID` is not configured,
+  // we cannot safely filter and must accept the echo-loop risk (documented
+  // as dormant since SLACK_BOT_TOKEN is unset today) — but we log a loud
+  // warning so operators know echo protection is degraded.
+  if (event.type === 'message') {
+    const isSelf = event.bot_id && event.bot_id === process.env['SLACK_BOT_ID'];
+    if (isSelf) {
+      return;
+    }
+    if (!process.env['SLACK_BOT_ID'] && process.env['SLACK_BOT_TOKEN']) {
+      logger.warn({ subtype: event.subtype }, 'SLACK_BOT_ID not set — echo protection degraded; Sentinel may process its own messages');
+    }
+  }
+
   // Phase 6 — Viktor authority: checked on every plain message (not just
   // threaded replies, unlike reply correlation below — a bare "approve
   // sprint" from Viktor isn't a reply to anything). Safe no-op unless

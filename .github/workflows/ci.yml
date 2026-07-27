@@ -57,8 +57,9 @@ jobs:
       - run: npm run typecheck
 
       # OWASP Dependency Check (weekly)
+      # Pinned to immutable SHA 1e54355a8b4c8abaa8cc7d0b70aa655a3bb15a6c (was @main — see 2026-07-26 audit H-3)
       - name: OWASP Dependency Check
-        uses: dependency-check/Dependency-Check_Action@main
+        uses: dependency-check/Dependency-Check_Action@1e54355a8b4c8abaa8cc7d0b70aa655a3bb15a6c
         id: depcheck
         with:
           project: 'Sentinel Backend'

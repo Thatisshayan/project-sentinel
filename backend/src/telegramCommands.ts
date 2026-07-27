@@ -51,7 +51,7 @@ import { dispatchCommand as dispatchVerbCommand } from './commandRegistry';
 
 const KNOWN_AGENT_IDS = ['nvidia','qwen_coder','qwen_coder_dash','llama_fast','gemini','qwen_max','qwen_turbo','deepseek','qwen_plus','opencode'];
 
-async function handleCommand(text: string, chatId: number, topicId: number | null, fromName: string, message: any = null): Promise<boolean> {
+async function handleCommand(text: string, chatId: number | null, topicId: number | null, fromName: string, message: any = null): Promise<boolean> {
   // Phase 8.5 — if this is a reply to a specific agent bot, route directly to that agent
   if (message) {
     const targetAgent = detectAgentReply(message);
@@ -105,7 +105,11 @@ async function handleCommand(text: string, chatId: number, topicId: number | nul
 
   // Top-level commands Telegram's native "/" menu can send directly
   if (command === '/start' || command === '/menu') {
-    await showMainMenu(chatId, topicId ?? null);
+    // chatId is null when invoked from non-Telegram callers (e.g. dashboard
+    // /api/command); coalesce to 0 so telegramMenus' number-typed param stays
+    // satisfied and Telegram silently rejects the impossible chat_id=0
+    // instead of receiving the string "null" via String(null).
+    await showMainMenu(chatId ?? 0, topicId ?? null);
     return true;
   }
   if (command === '/help') {

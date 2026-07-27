@@ -55,6 +55,8 @@
   - `velocityTracker.ts` L29-32: `buildsFixed` is computed via `SELECT COUNT(*) FROM debug_attempts WHERE status = 'resolved' ...` — this can only ever return 0. The weekly velocity report's "builds fixed" line, and `velocity_metrics.builds_fixed`, are permanently zero regardless of how many builds the debug loop actually fixed.
   - `portfolioAnalytics.ts` L76 (`getRepoStats`, used by the health-score fallback path when there's no `build_poll_jobs` row yet): `else if (latestStatus === 'resolved') buildStatus = 'passing';` — dead branch, never taken. The next branch, `else if (latestStatus && latestStatus !== 'stopped') buildStatus = 'failed';`, catches `'fix_pending'` too — meaning **a repo whose build was successfully auto-fixed (debug attempt status `fix_pending`, PR opened) gets reported as `buildStatus: 'failed'`** by this fallback path, which then depresses its computed `health_score` even though the fix already landed. This is a real, user-visible correctness bug in the health scoring the whole dashboard/reports are built on.
 
+> **⚠️ R15 Annotation (2026-07-26)**: The `portfolioAnalytics.ts` behavior for `fix_pending` → `failed` is **intentional** per lines 80-82: "Covers 'fix_pending' too: a fix PR being open isn't the same as merged — the repo's main branch is still red until the merge webhook confirms it." The `velocityTracker.ts` "buildsFixed = 0" bug (dead `resolved` status) remains real. This entry should be read as: "velocityTracker: `resolved` status never written — buildsFixed always 0" + "portfolioAnalytics: `fix_pending` treated as `failed` by design (commented), not a bug."
+
 ---
 
 ## Progress checklist (106 files total)
