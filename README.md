@@ -106,7 +106,12 @@ GEMINI_API_KEY / DASHSCOPE_API_KEY / DEEPSEEK_API_KEY
 SLACK_BOT_TOKEN           Bot token from the Slack app (docs/slack-app-manifest.json)
 SLACK_SIGNING_SECRET      Verifies inbound Slack requests
 VIKTOR_SLACK_USER_ID      Real Slack user ID for the Viktor external agent — required
-                          before Phase 6's authority features do anything at all
+                           before Phase 6's authority features do anything at all
+SLACK_BOT_ID              Slack bot's own user ID (starts with B...). Used to filter
+                           echo-loop messages so Sentinel doesn't treat its own
+                           synthesis posts as external agent replies. Get via:
+                           curl -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+                                https://slack.com/api/auth.test
 ROUNDTABLE_TIMEOUT_MIN    Minutes before an unanswered roundtable forces synthesis (5)
 CODERABBIT_FALLBACK_DELAY_MIN  Minutes before Sentinel's own fallback audit runs (45)
 ```

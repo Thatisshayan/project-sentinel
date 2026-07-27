@@ -60,7 +60,8 @@ async function initRoundtableSchema(): Promise<void> {
       channel_id         TEXT NOT NULL,
       thread_ts          TEXT NOT NULL,
       created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      completed_at       TIMESTAMPTZ
+      completed_at       TIMESTAMPTZ,
+      synthesizing_at    TIMESTAMPTZ
     );
   `);
   await query(`
@@ -244,31 +245,34 @@ async function callSynthesisLLM(question: string, repliesText: string): Promise<
  * configured delay elapses regardless of reply count). Idempotent — a
  * session already 'complete' is a no-op, same "already handled, skip"
  * shape as CODERABBIT_FALLBACK_JOB's hasCodeRabbitAuditedCommit check.
+ * 
+ * Also handles crashed sessions: if a session is 'synthesizing' but its
+ * lease (synthesizing_at) is older than 5 minutes, it's considered stale
+ * and can be reclaimed by another caller (e.g., the timeout job).
  */
 async function runRoundtableSynthesis(sessionId: number): Promise<void> {
   // Atomic claim of the synthesis work — a single conditional UPDATE
-  // transitions `status` from 'pending' to 'synthesizing' for exactly
-  // one caller, even if the timeout job and the final reply race here
-  // concurrently. The RETURNING clause gives the winner everything
-  // needed to run synthesis (SELECT is now redundant on the loser path,
-  // which sees zero rows and returns). Without this, two concurrent
-  // callers both read status='pending', both call the LLM, both send
-  // Slack synthesis twice (M-2 in 2026-07-25 audit).
+  // transitions `status` from 'pending' OR 'synthesizing' (if lease stale)
+  // to 'synthesizing' for exactly one caller. The lease timestamp
+  // (synthesizing_at) prevents stalling: if a worker crashes after
+  // claiming, the lease expires and the timeout job can reclaim.
   const claim = await query(
     `UPDATE roundtable_sessions
-       SET status = 'synthesizing'
-     WHERE id = $1 AND status = 'pending'
+       SET status = 'synthesizing', synthesizing_at = NOW()
+     WHERE id = $1
+       AND (status = 'pending'
+            OR (status = 'synthesizing' AND synthesizing_at < NOW() - INTERVAL '5 minutes'))
      RETURNING id, question, agents_asked, agents_responded, repo_name, thread_ts`,
     [sessionId],
   );
   const session = claim.rows[0];
   if (!session) {
     // Either the session id is unknown, OR it existed but wasn't in
-    // 'pending' state — both are legitimate "nothing to do here"
-    // outcomes (the previous explicit 'already complete' check now falls
-    // under this branch). Logging at info level since the timeout-job
-    // path commonly hits this after the early-completion path won.
-    logger.info({ sessionId }, 'runRoundtableSynthesis — session not pending (already handled or unknown); skipping');
+    // 'pending' or stale 'synthesizing' state — both are legitimate
+    // "nothing to do here" outcomes. Logging at info level since the
+    // timeout-job path commonly hits this after the early-completion
+    // path won.
+    logger.info({ sessionId }, 'runRoundtableSynthesis — session not claimable (already handled, unknown, or lease fresh); skipping');
     return;
   }
 
