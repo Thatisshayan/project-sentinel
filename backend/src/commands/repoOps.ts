@@ -476,7 +476,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
         ...(missingLines.length ? ['', 'Missing webhooks:', ...missingLines] : []),
         ``,
         `For missing repos: GitHub repo → Settings → Webhooks → Add`,
-        `URL: ${process.env['RAILWAY_PUBLIC_DOMAIN'] ? `https://${process.env['RAILWAY_PUBLIC_DOMAIN']}/webhook/github` : '<RAILWAY_URL>/webhook/github'}`,
+        `URL: ${process.env['PUBLIC_DOMAIN'] ? `https://${process.env['PUBLIC_DOMAIN']}/webhook/github` : '<PUBLIC_DOMAIN>/webhook/github'}`,
         `Events: push, pull_request`,
       ].join('\n'), null, topicId);
       return true;

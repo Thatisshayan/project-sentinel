@@ -102,9 +102,9 @@ jobs:
   # here while the real Docker build silently breaks. This job closes that gap
   # by actually invoking `docker build` against each service's own Dockerfile,
   # on the ubuntu-latest runner's built-in Docker daemon (no extra setup
-  # needed). backend/Dockerfile is what Railway itself builds in production
-  # (backend/railway.toml: builder = "dockerfile") — this repo has already had
-  # one severe incident (see git history: "production container has been
+  # needed). backend/Dockerfile is what docker-compose.prod.yml builds in
+  # production (see docs/ORACLE_DEPLOY.md) — this repo has already had one
+  # severe incident (see git history: "production container has been
   # crash-looping since the TS migration") from exactly this class of change
   # reaching main unverified.
   docker-build:
