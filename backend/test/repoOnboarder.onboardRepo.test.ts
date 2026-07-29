@@ -37,7 +37,7 @@ import { onboardRepo } from '../src/repoOnboarder';
 describe('onboardRepo', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env['RAILWAY_PUBLIC_DOMAIN'] = 'sentinel.example.com';
+    process.env['PUBLIC_DOMAIN'] = 'sentinel.example.com';
     process.env['GITHUB_TOKEN'] = 'tok';
     (axios.post as jest.Mock).mockResolvedValue({ data: {} });
   });

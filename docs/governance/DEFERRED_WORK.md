@@ -202,6 +202,23 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 
 ---
 
+## 2026-07-29 Oracle Migration — Newly Deferred
+
+### D-025: Replace Notion with an in-app dashboard view to decouple task tracking
+**Scope**: Sentinel stored audit findings / sprint tasks in Notion via `NOTION_API_KEY`/`NOTION_DATABASE_ID` (see `notionClient.ts`). Now that the backend is self-hosted on Oracle with its own Postgres (see `docs/ORACLE_DEPLOY.md`), tasks are stored directly in Postgres instead.
+**Backend done (2026-07-29)**: Added `projectDb.ts` (new `projects`/`project_changelog` tables) as a self-hosted replacement for the Notion "project database". `notionClient.ts` is now a thin shim delegating to it — same exported function names/signatures, so its 8 existing call sites (`repoOnboarder.ts`, `telegramAI.ts`, `telegramCommands.ts`, `sprintOrchestrator.ts`, `priorityEngine.ts`, `debugOrchestrator.ts`, `auditOrchestrator.ts`, `parallelExecutor.ts`) needed zero changes. Separately, the Notion mirror *inside* `writeTasksToNotion`/`updateNotionTaskStatus` (`auditTaskWriter.ts`) was removed — the two functions remain, under their original names, as Postgres-backed wrappers, since `audit_tasks` in Postgres was already the real source of truth. The 7 call sites that passed `task.notion_page_id` now pass `task.id` (the Postgres row id) instead. `NOTION_API_KEY`/`NOTION_DATABASE_ID`/`NOTION_TASKS_DATABASE_ID` are no longer read anywhere.
+**Known gap**: existing repos' `projects` rows aren't backfilled (only newly-onboarded repos get one via `createNotionProject`/`createProject`), so `findNotionProject` returns null for already-onboarded repos until they're re-onboarded or manually inserted. All callers already fall back to the raw repo name when this happens, so this is a cosmetic gap (generic project name, no URL shown), not a functional break.
+**Remaining**: lightweight dashboard view in the Sentinel UI to browse/edit tasks (`ui/`) — intentionally deferred per Shayan's call, to be picked up after the Oracle migration settles. `@notionhq/client` can also be dropped from `package.json` once nothing else references it.
+**Status**: Backend decoupling complete (2026-07-29). UI view deferred — planned follow-up.
+
+### D-026: Consider OmniRoute as a replacement for the hand-rolled builder pool
+**Scope**: Shayan flagged [github.com/diegosouzapw/OmniRoute](https://github.com/diegosouzapw/OmniRoute) (33.6k stars) — a self-hosted AI gateway aggregating 290+ providers (90+ free) behind one OpenAI-compatible endpoint, with built-in quota-aware auto-fallback across providers. This overlaps significantly with what `builderRouter.ts` now hand-maintains (currently 22 models across NVIDIA NIM, Mistral, OpenRouter, Gemini, Kilo Gateway, each individually verified and wired in by hand).
+**Why not done now**: Replacing the hand-rolled pool with OmniRoute is a real architecture change, not an incremental add — it means running OmniRoute as its own service (another container on the 1GB Oracle VM), vetting a third-party codebase that would intermediate every AI provider call, and re-verifying the whole builder/fallback pipeline against it instead of our own verified model list. Explicitly deferred per Shayan ("just consider it and maybe add it to the deferred") rather than integrated blind.
+**Proposed resolution**: If picked up later — evaluate OmniRoute's resource footprint on the VM, whether it actually improves on our per-model verification (it aggregates *documented* free tiers, not necessarily verified working on every account), and whether its quota-tracking makes taskBuilder.ts's/aiderRunner.ts's own fallback-chain logic partially redundant or complementary.
+**Status**: Deferred — noted for future consideration, not started.
+
+---
+
 ## Notes for Future Agents
 
 - Phase 2 error architecture is complete. The `AppError` class hierarchy in `src/errors/errors.ts` is the canonical error type. All new errors should subclass `AppError`.

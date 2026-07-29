@@ -64,6 +64,14 @@ async function initRoundtableSchema(): Promise<void> {
       synthesizing_at    TIMESTAMPTZ
     );
   `);
+  // CREATE TABLE IF NOT EXISTS above won't add synthesizing_at to a table
+  // created before this column existed — installs that already had
+  // roundtable_sessions would hit "column synthesizing_at does not exist"
+  // the first time runRoundtableSynthesis ran. Confirmed as a real bug by
+  // CodeRabbit (2026-07-29); safe to run unconditionally on every startup.
+  await query(`
+    ALTER TABLE roundtable_sessions ADD COLUMN IF NOT EXISTS synthesizing_at TIMESTAMPTZ;
+  `);
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_roundtable_channel_ts
       ON roundtable_sessions (channel_id, thread_ts);

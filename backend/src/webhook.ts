@@ -91,6 +91,17 @@ router.post('/github', limiter, verifySignature, (req: any, res: any) => {
 
   const event = req.headers['x-github-event'] || 'push';
 
+  // GitHub fires a one-off 'ping' event the instant a webhook is created
+  // (e.g. every repo onboarding / hook re-registration) to verify the
+  // endpoint. Its payload has no head_commit/commits[], so letting it fall
+  // through to processWebhook's push-shaped extractPayload threw and got
+  // logged as an error on every single onboarding — confirmed live
+  // 2026-07-29 (9 in a row right after re-registering all repo webhooks).
+  if (event === 'ping') {
+    logger.info({ repo: req.body?.repository?.full_name }, 'GitHub webhook ping received');
+    return;
+  }
+
   if (event === 'pull_request') {
     processPREvent(req.body).catch((err: any) => {
       logger.error({ err: err.stack ?? err.message }, 'Unhandled error in processPREvent');

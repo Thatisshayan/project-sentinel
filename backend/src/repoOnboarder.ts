@@ -94,8 +94,8 @@ async function checkAndOnboardNewRepos(): Promise<void> {
 }
 
 async function registerWebhook(repoName: string): Promise<void> {
-  const domain     = process.env['RAILWAY_PUBLIC_DOMAIN'];
-  if (!domain) { logger.warn({ repoName }, 'RAILWAY_PUBLIC_DOMAIN not set — skipping webhook registration'); return; }
+  const domain     = process.env['PUBLIC_DOMAIN'];
+  if (!domain) { logger.warn({ repoName }, 'PUBLIC_DOMAIN not set — skipping webhook registration'); return; }
   const webhookUrl = `https://${domain}/webhook/github`;
 
   await axios.post(

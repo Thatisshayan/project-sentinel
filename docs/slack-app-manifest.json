@@ -25,7 +25,7 @@
   },
   "settings": {
     "event_subscriptions": {
-      "request_url": "https://sentinel-backend-production-d225.up.railway.app/webhook/slack/events",
+      "request_url": "https://sentinel.obsidianmedia.online/webhook/slack/events",
       "bot_events": [
         "app_mention",
         "message.channels"
@@ -33,7 +33,7 @@
     },
     "interactivity": {
       "is_enabled": true,
-      "request_url": "https://sentinel-backend-production-d225.up.railway.app/webhook/slack/interactions"
+      "request_url": "https://sentinel.obsidianmedia.online/webhook/slack/interactions"
     },
     "org_deploy_enabled": false,
     "socket_mode_enabled": false,

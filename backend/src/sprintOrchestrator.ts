@@ -143,8 +143,8 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
         logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task');
         return null;
       });
-      if (updatedAuditTask?.notion_page_id) {
-        await safeFire(updateNotionTaskStatus(updatedAuditTask.notion_page_id, 'build_check', { prUrl, commitUrl: batchResult.commitUrl }), { label: 'sprintOrchestrator', retryable: true })
+      if (updatedAuditTask?.id) {
+        await safeFire(updateNotionTaskStatus(updatedAuditTask.id, 'build_check', { prUrl, commitUrl: batchResult.commitUrl }), { label: 'sprintOrchestrator', retryable: true })
       }
     }
 

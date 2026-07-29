@@ -26,6 +26,23 @@ function pruneExpired(): void {
   }
 }
 
+// Shared by every in-memory-store write path (claimProcessing, markAsProcessed)
+// so none of them can grow the Map unbounded. Previously only markAsProcessed
+// pruned/capped — claimProcessing (used by processWebhook.ts's claim-then-release
+// pattern) never called markAsProcessed on its success path, so with Redis
+// down, every new (repo, sha) claim added an entry that was never pruned or
+// capped. Confirmed as a real bug by CodeRabbit (2026-07-29).
+function rememberInMemory(key: string): void {
+  store.set(key, { ts: Date.now() });
+  if (store.size > MAX_ENTRIES) {
+    pruneExpired();
+    if (store.size > MAX_ENTRIES) {
+      const toDelete = [...store.keys()].slice(0, Math.floor(MAX_ENTRIES / 4));
+      toDelete.forEach((k: string) => store.delete(k));
+    }
+  }
+}
+
 /**
  * Checks if a (repo, commit) pair has already been processed.
  * Pure read — does NOT claim the slot.
@@ -92,13 +109,13 @@ async function claimProcessing(repoName: string, commitSha: string): Promise<boo
   const entry = store.get(key);
 
   if (!entry) {
-    store.set(key, { ts: Date.now() });
+    rememberInMemory(key);
     return true;
   }
 
   if (Date.now() - entry.ts > TTL_MS) {
     store.delete(key);
-    store.set(key, { ts: Date.now() });
+    rememberInMemory(key);
     return true;
   }
 
@@ -124,16 +141,7 @@ async function markAsProcessed(repoName: string, commitSha: string): Promise<voi
     }
   }
 
-  const key = makeKey(repoName, commitSha);
-  store.set(key, { ts: Date.now() });
-
-  if (store.size > MAX_ENTRIES) {
-    pruneExpired();
-    if (store.size > MAX_ENTRIES) {
-      const toDelete = [...store.keys()].slice(0, Math.floor(MAX_ENTRIES / 4));
-      toDelete.forEach((k: string) => store.delete(k));
-    }
-  }
+  rememberInMemory(makeKey(repoName, commitSha));
 }
 
 /**
@@ -149,12 +157,17 @@ async function unmarkProcessed(repoName: string, commitSha: string): Promise<voi
     try {
       const rKey = makeRedisKey(repoName, commitSha);
       await redis.del(rKey);
-      return;
     } catch (err: any) {
       logger.warn({ err: err.message, repoName }, 'Redis dedup DEL failed — falling back to in-memory');
     }
   }
 
+  // Always clear the in-memory entry too, not only on Redis failure — a
+  // claim taken while Redis was briefly down lives in `store`; if this
+  // release runs after Redis has recovered, the old early `return` here
+  // left that stale in-memory entry behind, so a later Redis outage would
+  // make claimProcessing() treat the redelivery as a duplicate and drop it.
+  // Confirmed as a real bug by CodeRabbit (2026-07-29).
   store.delete(makeKey(repoName, commitSha));
 }
 

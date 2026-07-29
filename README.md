@@ -32,7 +32,7 @@ No Anthropic API required for the core loop. Everything runs on free/cheap AI pr
 GitHub webhooks                              Slack (Events API + Interactivity)
       │                                              │
       ▼                                              ▼
-Railway (Node.js + Express, full TypeScript)  ◄──────┘
+Self-hosted (Node.js + Express, full TypeScript)  ◄──────┘
       │
       ├── Webhook handler       → extracts commit, finds Notion project, updates dashboard
       ├── CodeRabbit ingestion  → PR review comments → audit_tasks (primary audit path)
@@ -120,7 +120,7 @@ CODERABBIT_FALLBACK_DELAY_MIN  Minutes before Sentinel's own fallback audit runs
 ```
 AGENT_ROOM_TOPIC_ID       Topic ID for #agent-room thread
 WATCHED_REPOS             Comma-separated list of repos to auto-onboard
-RAILWAY_PUBLIC_DOMAIN     Auto-set by Railway; used for webhook URLs
+PUBLIC_DOMAIN             This host's public domain; used for webhook URLs
 AUDIT_AGENT_ENABLED       Set to false to disable automatic audits (default: true)
 BUILDER_AGENT_ENABLED     Set to false to disable task execution (default: true)
 TASK_BATCH_SIZE           Tasks per execution batch (default: 5)
@@ -134,20 +134,24 @@ SENTRY_DSN                Sentry error monitoring (optional)
 
 ---
 
-## Deployment (Railway)
+## Deployment (self-hosted)
 
-1. Fork this repo and connect it to Railway as two services: `sentinel-backend` (root `backend/`) and `sentinel-ui` (root `ui/`)
-2. Set environment variables in Railway's dashboard for each service
-3. Railway auto-deploys on every push to `main`
-4. Set up GitHub webhooks for each repo (done automatically for repos onboarded after Slack existed; see `repoOnboarder.ts`):
-   - URL: `https://<your-railway-domain>/webhook/github`
+Runs as a Docker Compose stack (Postgres, Redis, backend, UI, Caddy for
+TLS) on a single host — currently an Oracle Cloud Always Free VM. Full
+setup steps, including DNS, firewall, and env config, are in
+[`docs/ORACLE_DEPLOY.md`](docs/ORACLE_DEPLOY.md); short version:
+
+1. Clone the repo onto the host, fill in `backend/.env` and `ui/.env` from their `.env.example` files
+2. `docker compose -f docker-compose.prod.yml up -d --build`
+3. Set up GitHub webhooks for each repo (done automatically for repos onboarded after Slack existed; see `repoOnboarder.ts`):
+   - URL: `https://<PUBLIC_DOMAIN>/webhook/github`
    - Events: **Push**, **Pull request**, **Pull request review comment** (the last one is how CodeRabbit's findings arrive)
    - Secret: same as `GITHUB_WEBHOOK_SECRET`
-5. Create the Slack app from `docs/slack-app-manifest.json` (App Manifest tab at api.slack.com/apps), install it to your workspace, and set `SLACK_BOT_TOKEN`/`SLACK_SIGNING_SECRET`
+4. Create the Slack app from `docs/slack-app-manifest.json` (App Manifest tab at api.slack.com/apps), install it to your workspace, and set `SLACK_BOT_TOKEN`/`SLACK_SIGNING_SECRET`
 
-The Dockerfile installs Node.js 20, Python 3, Git, and aider. The app starts on port 3000 (Railway maps its own `PORT`).
+The Dockerfile installs Node.js 20, Python 3, Git, and aider. The app starts on port 3000 (Caddy reverse-proxies webhook/health routes to it — see `Caddyfile`).
 
-Always verify a deploy actually succeeded via `railway status` (look for `Online`, not just "no error printed") — Railway's auto-deploy-on-push has been unreliable historically for this project; `railway up --service <name> --detach` from the repo root works as a direct manual deploy when needed.
+Always verify a deploy actually succeeded (`docker compose -f docker-compose.prod.yml ps` should show all services `Up`, and `curl -I https://<PUBLIC_DOMAIN>/health` should return 200) rather than assuming a clean `docker compose up` output means the app is actually serving traffic.
 
 ---
 
@@ -181,11 +185,13 @@ SENTINEL_API_URL   Base URL of the backend, no trailing slash (e.g. http://local
 SENTINEL_UI_KEY    Must match the backend's SENTINEL_UI_KEY exactly
 ```
 
-### Deployment (Railway)
+### Deployment (self-hosted)
 
-Deploys the same way as the backend — connect `ui/` as a separate Railway service
-(root directory `ui/`), set `SENTINEL_API_URL` to the backend service's public URL
-and `SENTINEL_UI_KEY` to match the backend's value.
+Deploys as part of the same Docker Compose stack as the backend — see
+[`docs/ORACLE_DEPLOY.md`](docs/ORACLE_DEPLOY.md). `docker-compose.prod.yml`
+sets `SENTINEL_API_URL` to the backend container's internal address
+automatically; you only need to set `SENTINEL_UI_KEY` in `ui/.env` to match
+the backend's value.
 
 ---
 
@@ -442,12 +448,15 @@ backend/
 │   └── ...                         # ~90 files total, all TypeScript — no .js remains
 ├── scripts/                        # One-off standalone diagnostic/backfill scripts (not TS-built)
 ├── test/                           # 53 test files (.ts and .js), 431+ tests
-├── Dockerfile
-└── railway.toml
+└── Dockerfile
 
 ui/                                 # Next.js 14 dashboard, see "Dashboard (UI)" above
 
+docker-compose.prod.yml             # Production stack (postgres/redis/backend/ui/caddy) — see docs/ORACLE_DEPLOY.md
+Caddyfile                           # Reverse proxy + TLS config for docker-compose.prod.yml
+
 docs/
+├── ORACLE_DEPLOY.md                         # Self-hosted deploy guide (Oracle Cloud Always Free VM)
 ├── 2026-07-22-slack-agent-roster-plan.md   # Living plan + implementation log — read first
 └── slack-app-manifest.json                 # Used to create the Slack app
 ```

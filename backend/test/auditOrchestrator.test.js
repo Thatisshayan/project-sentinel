@@ -368,35 +368,26 @@ describe('processNextBatch', () => {
         taskBranch: 'sentinel/batch-1',
         commitSha: 'def5678',
         commitUrl: 'https://github.com/your-org/tapcash/commit/def5678',
-        builderUsed: 'qwen_coder',
+        builderUsed: 'llama_8b',
         remainingTasks: 0,
       });
     createPullRequest.mockResolvedValue({ prUrl: 'https://github.com/pr/2', prNumber: 2 });
 
-    // Isolate the fallback chain: only NVIDIA_API_KEY should be available so that
-    // claude_code (ANTHROPIC_API_KEY), qwen_coder_dash (DASHSCOPE_API_KEY), and
-    // gemini (GEMINI_API_KEY) are all skipped, leaving qwen_coder as the winner.
-    const savedAnthropicKey  = process.env.ANTHROPIC_API_KEY;
-    const savedDashscapeKey  = process.env.DASHSCOPE_API_KEY;
-    const savedGeminiKey     = process.env.GEMINI_API_KEY;
-    const savedDeepseekKey   = process.env.DEEPSEEK_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.DASHSCOPE_API_KEY;
+    // Isolate the fallback chain: only NVIDIA_API_KEY should be available so
+    // Gemini (GEMINI_API_KEY) is skipped, leaving the next NVIDIA-hosted
+    // model in the pool (llama_8b) as the winner.
+    const savedGeminiKey = process.env.GEMINI_API_KEY;
     delete process.env.GEMINI_API_KEY;
-    delete process.env.DEEPSEEK_API_KEY;
     process.env.NVIDIA_API_KEY = 'test-key';
 
     await processNextBatch('your-org/tapcash', 'tapcash', null);
 
     expect(executeBatch).toHaveBeenCalledTimes(2);
-    expect(executeBatch.mock.calls[1][2]).toBe('qwen_coder');
+    expect(executeBatch.mock.calls[1][2]).toBe('llama_8b');
     expect(createPullRequest).toHaveBeenCalled();
 
     delete process.env.NVIDIA_API_KEY;
-    if (savedAnthropicKey !== undefined) process.env.ANTHROPIC_API_KEY = savedAnthropicKey;
-    if (savedDashscapeKey !== undefined) process.env.DASHSCOPE_API_KEY = savedDashscapeKey;
-    if (savedGeminiKey    !== undefined) process.env.GEMINI_API_KEY    = savedGeminiKey;
-    if (savedDeepseekKey  !== undefined) process.env.DEEPSEEK_API_KEY  = savedDeepseekKey;
+    if (savedGeminiKey !== undefined) process.env.GEMINI_API_KEY = savedGeminiKey;
   });
 
   test('on total failure (no fallback succeeds): marks tasks failed and notifies', async () => {

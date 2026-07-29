@@ -1,0 +1,14 @@
+{$PUBLIC_DOMAIN} {
+	# True webhook/health endpoints go straight to the backend.
+	@backend path /webhook* /github /health
+
+	handle @backend {
+		reverse_proxy backend:3000
+	}
+
+	# Everything else — including the UI's own /api/*-proxy routes, which call
+	# the backend internally over the docker network — goes to the Next.js app.
+	handle {
+		reverse_proxy ui:3000
+	}
+}

@@ -142,26 +142,39 @@ function getScheduledJobsQueue(): Queue | null {
   return scheduledJobsQueue;
 }
 
+/**
+ * BullMQ rejects a custom jobId containing ':' ("Custom Id cannot contain :"
+ * — it uses colons internally in Redis key naming). Every call site in this
+ * file built jobIds like `audit-approval-timeout:${cycleId}` or
+ * `debug:${repoFullName}:${commitSha}:${attemptNumber}` — confirmed live
+ * 2026-07-29 that this throws and silently drops the scheduled job (no
+ * automatic expiry ever gets armed). Sanitize centrally here so every
+ * caller is fixed without touching each jobId string literal individually.
+ */
+function sanitizeJobId(jobId: string): string {
+  return jobId.replace(/:/g, '-');
+}
+
 async function enqueueScheduledJob(jobType: string, data: any, delayMs: number, jobId?: string): Promise<any> {
   const queue = getScheduledJobsQueue();
   if (!queue) {
     logger.warn({ jobType }, 'REDIS_URL not configured — scheduled job dropped, not queued');
     return null;
   }
-  return queue.add(jobType, data, { delay: delayMs, ...(jobId ? { jobId } : {}) });
+  return queue.add(jobType, data, { delay: delayMs, ...(jobId ? { jobId: sanitizeJobId(jobId) } : {}) });
 }
 
 async function cancelScheduledJob(jobId: string): Promise<boolean> {
   const queue = getScheduledJobsQueue();
   if (!queue) return false;
-  const job = await queue.getJob(jobId);
+  const job = await queue.getJob(sanitizeJobId(jobId));
   if (!job) return false;
   await job.remove();
   return true;
 }
 
 async function enqueueBuildCheck(data: any): Promise<any> {
-  const jobId = `build-check:${data.repoFullName}:${data.commitSha}`;
+  const jobId = sanitizeJobId(`build-check:${data.repoFullName}:${data.commitSha}`);
 
   try {
     const { query: dbQuery } = dbClient;
@@ -199,7 +212,7 @@ async function enqueueDebug(data: any): Promise<any> {
     return null;
   }
 
-  const jobId = `debug:${data.repoFullName}:${data.commitSha}:${data.attemptNumber}`;
+  const jobId = sanitizeJobId(`debug:${data.repoFullName}:${data.commitSha}:${data.attemptNumber}`);
   return queue.add('fix', data, { jobId });
 }
 

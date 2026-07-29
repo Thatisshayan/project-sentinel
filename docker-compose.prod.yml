@@ -1,0 +1,90 @@
+version: '3.9'
+
+# Production stack for a single self-managed host (e.g. an Oracle Cloud
+# Always Free VM). Postgres and Redis are NOT published to the host — only
+# Caddy is, and it terminates TLS (via Let's Encrypt) and reverse-proxies to
+# the backend/ui containers over the internal docker network.
+#
+# Usage:
+#   PUBLIC_DOMAIN=sentinel.yourdomain.com docker compose -f docker-compose.prod.yml up -d --build
+#
+# See docs/ORACLE_DEPLOY.md for full setup instructions.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sentinel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: sentinel
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinel"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://sentinel:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sentinel
+      REDIS_URL: redis://redis:6379
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: ./ui
+    env_file:
+      - ./ui/.env
+    environment:
+      NODE_ENV: production
+      SENTINEL_API_URL: http://backend:3000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - ui
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
