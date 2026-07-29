@@ -196,15 +196,20 @@ async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
     const fixBranch = `sentinel/fix-${attemptNumber}-${Date.now()}`;
     await repoGit.checkoutLocalBranch(fixBranch);
 
-    // Run Aider, retrying with a fallback builder (up to 3 total attempts) if
-    // the model call itself fails or exits cleanly without committing —
-    // mirrors taskBuilder.ts's retry-with-fallback logic for the audit-fix path.
-    const MAX_ATTEMPTS = 3;
+    // Run Aider, retrying with a fallback builder if the model call itself
+    // fails or exits cleanly without committing — mirrors taskBuilder.ts's
+    // retry-with-fallback logic for the audit-fix path. No numeric attempt
+    // cap: walks the full fallback chain (see builderRouter.ts) until either
+    // a commit lands or every builder with a configured key has been tried.
     let builderId: string | undefined;
     let aiderResult: AiderResult = { success: false };
     let latestCommit: any = null;
+    let attempt = 0;
+    const triedBuilders: string[] = [];
 
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    for (;;) {
+      attempt++;
+      triedBuilders.push(builderId || 'nvidia');
       aiderResult = await runAider(tmpDir.name, context, builderId);
 
       if (aiderResult.success) {
@@ -214,8 +219,8 @@ async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
       }
 
       const currentId = builderId || 'nvidia';
-      const next = attempt < MAX_ATTEMPTS ? getFallbackBuilder(currentId) : null;
-      if (!next) break;
+      const next = getFallbackBuilder(currentId);
+      if (!next || triedBuilders.includes(next)) break;
       logger.warn({ repoFullName, attempt, failedBuilder: currentId, fallingBackTo: next },
         'Debug-fix builder failed or produced no commit — retrying with fallback');
       builderId = next;

@@ -11,87 +11,80 @@ interface BuilderConfig {
   editFormat?: string;
   apiBase?: string;
   envKey?: string;
+  reasoning?: boolean;
   description: string;
+}
+
+function nvidiaBuilder(id: string, label: string, model: string, opts: { reasoning?: boolean; description: string }): BuilderConfig {
+  return {
+    id, label,
+    type:        'openai_compatible',
+    aiderModel:  `openai/${model}`,
+    apiBase:     NVIDIA_BASE,
+    envKey:      'NVIDIA_API_KEY',
+    reasoning:   opts.reasoning,
+    description: opts.description,
+  };
 }
 
 /**
  * Every entry below (except gemini/opencode) was verified live against
- * https://integrate.api.nvidia.com/v1/chat/completions on 2026-07-29 —
- * this account's key returns 200 for these specific model IDs (many
- * catalog entries return 404 "Function not found for account" despite
- * being listed in /v1/models, so listing alone doesn't mean entitled).
+ * https://integrate.api.nvidia.com/v1/chat/completions on 2026-07-29 — this
+ * account's key returns 200 for these specific model IDs. Most of the wider
+ * ~100-model catalog returns 404 "Function not found for account" despite
+ * being listed in /v1/models, so listing alone doesn't mean entitled; these
+ * are the ones actually confirmed callable.
+ *
  * DashScope/Qwen, DeepSeek-direct and Claude Code were dropped per Shayan's
- * request (2026-07-29) in favor of a wider NVIDIA-hosted pool. Reasoning
- * models (the nemotron family, mistral-nemotron) are deliberately excluded
- * here too — that family's <think>-block output is exactly what was
- * breaking aider's diff/whole-file parsing and causing repeated build
- * failures before this pass; every model below is a plain instruction
- * model with no reasoning preamble.
+ * request (2026-07-29) in favor of a wider NVIDIA-hosted pool.
+ *
+ * `reasoning: true` marks the nemotron family (and mistral-nemotron) — these
+ * emit a <think>...</think> preamble that has previously broken aider's
+ * output parsing ("Nemotron failing a lot as builder"). They're kept in the
+ * pool rather than excluded outright (per Shayan's ask for as deep a
+ * fallback chain as possible), but ordered last, after every plain
+ * instruction model — combined with taskBuilder.ts's "no commit = try next
+ * builder" retry logic, a reasoning model producing unparseable output just
+ * costs one wasted attempt, not a stuck pipeline.
  */
 const BUILDERS: Record<string, BuilderConfig> = {
-  nvidia: {
-    id:          'nvidia',
-    label:       'Llama 3.1 70B (NVIDIA NIM)',
-    type:        'openai_compatible',
-    aiderModel:  'openai/meta/llama-3.1-70b-instruct',
-    apiBase:     NVIDIA_BASE,
-    envKey:      'NVIDIA_API_KEY',
-    description: 'Primary code builder — largest verified-working instruct model on this key',
-  },
-  llama_8b: {
-    id:          'llama_8b',
-    label:       'Llama 3.1 8B (NVIDIA NIM)',
-    type:        'openai_compatible',
-    aiderModel:  'openai/meta/llama-3.1-8b-instruct',
-    apiBase:     NVIDIA_BASE,
-    envKey:      'NVIDIA_API_KEY',
-    description: 'Fast fallback for low-complexity tasks',
-  },
-  llama_3b: {
-    id:          'llama_3b',
-    label:       'Llama 3.2 3B (NVIDIA NIM)',
-    type:        'openai_compatible',
-    aiderModel:  'openai/meta/llama-3.2-3b-instruct',
-    apiBase:     NVIDIA_BASE,
-    envKey:      'NVIDIA_API_KEY',
-    description: 'Small/fast — bulk low-complexity tasks',
-  },
-  llama_1b: {
-    id:          'llama_1b',
-    label:       'Llama 3.2 1B (NVIDIA NIM)',
-    type:        'openai_compatible',
-    aiderModel:  'openai/meta/llama-3.2-1b-instruct',
-    apiBase:     NVIDIA_BASE,
-    envKey:      'NVIDIA_API_KEY',
-    description: 'Smallest/fastest fallback — last resort before non-NVIDIA providers',
-  },
-  gpt_oss_120b: {
-    id:          'gpt_oss_120b',
-    label:       'GPT-OSS 120B (NVIDIA NIM)',
-    type:        'openai_compatible',
-    aiderModel:  'openai/openai/gpt-oss-120b',
-    apiBase:     NVIDIA_BASE,
-    envKey:      'NVIDIA_API_KEY',
-    description: 'OpenAI open-weight model hosted on NVIDIA NIM — strong general coding ability',
-  },
-  gpt_oss_20b: {
-    id:          'gpt_oss_20b',
-    label:       'GPT-OSS 20B (NVIDIA NIM)',
-    type:        'openai_compatible',
-    aiderModel:  'openai/openai/gpt-oss-20b',
-    apiBase:     NVIDIA_BASE,
-    envKey:      'NVIDIA_API_KEY',
-    description: 'Smaller/faster GPT-OSS variant',
-  },
-  minimax: {
-    id:          'minimax',
-    label:       'MiniMax M3 (NVIDIA NIM)',
-    type:        'openai_compatible',
-    aiderModel:  'openai/minimaxai/minimax-m3',
-    apiBase:     NVIDIA_BASE,
-    envKey:      'NVIDIA_API_KEY',
-    description: 'Additional NVIDIA-hosted model for pool diversity',
-  },
+  nvidia: nvidiaBuilder('nvidia', 'Llama 3.1 70B (NVIDIA NIM)', 'meta/llama-3.1-70b-instruct',
+    { description: 'Primary code builder — largest verified-working plain-instruct model on this key' }),
+  llama_8b: nvidiaBuilder('llama_8b', 'Llama 3.1 8B (NVIDIA NIM)', 'meta/llama-3.1-8b-instruct',
+    { description: 'Fast fallback for low-complexity tasks' }),
+  llama_3b: nvidiaBuilder('llama_3b', 'Llama 3.2 3B (NVIDIA NIM)', 'meta/llama-3.2-3b-instruct',
+    { description: 'Small/fast — bulk low-complexity tasks' }),
+  llama_1b: nvidiaBuilder('llama_1b', 'Llama 3.2 1B (NVIDIA NIM)', 'meta/llama-3.2-1b-instruct',
+    { description: 'Smallest/fastest plain-instruct fallback' }),
+  gpt_oss_120b: nvidiaBuilder('gpt_oss_120b', 'GPT-OSS 120B (NVIDIA NIM)', 'openai/gpt-oss-120b',
+    { description: 'OpenAI open-weight model hosted on NVIDIA NIM — strong general coding ability' }),
+  gpt_oss_20b: nvidiaBuilder('gpt_oss_20b', 'GPT-OSS 20B (NVIDIA NIM)', 'openai/gpt-oss-20b',
+    { description: 'Smaller/faster GPT-OSS variant' }),
+  minimax: nvidiaBuilder('minimax', 'MiniMax M3 (NVIDIA NIM)', 'minimaxai/minimax-m3',
+    { description: 'Additional NVIDIA-hosted general model' }),
+  gemma_31b: nvidiaBuilder('gemma_31b', 'Gemma 4 31B (NVIDIA NIM)', 'google/gemma-4-31b-it',
+    { description: 'Google open-weight model hosted on NVIDIA NIM' }),
+  poolside: nvidiaBuilder('poolside', 'Poolside Laguna XS (NVIDIA NIM)', 'poolside/laguna-xs-2.1',
+    { description: 'Poolside specializes in code models — worth trying even though editFormat is unverified' }),
+  stepfun: nvidiaBuilder('stepfun', 'StepFun Step 3.7 Flash (NVIDIA NIM)', 'stepfun-ai/step-3.7-flash',
+    { description: 'Additional NVIDIA-hosted general model' }),
+  // ── reasoning-family (<think> preamble) — last resort, see header note ──
+  nemotron_super_49b: nvidiaBuilder('nemotron_super_49b', 'Llama 3.3 Nemotron Super 49B (NVIDIA NIM)', 'nvidia/llama-3.3-nemotron-super-49b-v1',
+    { reasoning: true, description: 'Reasoning model — last resort, may emit unparseable <think> preamble' }),
+  nemotron_super_49b_v15: nvidiaBuilder('nemotron_super_49b_v15', 'Llama 3.3 Nemotron Super 49B v1.5 (NVIDIA NIM)', 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+    { reasoning: true, description: 'Reasoning model — last resort, may emit unparseable <think> preamble' }),
+  nemotron_3_super_120b: nvidiaBuilder('nemotron_3_super_120b', 'Nemotron 3 Super 120B (NVIDIA NIM)', 'nvidia/nemotron-3-super-120b-a12b',
+    { reasoning: true, description: 'Reasoning model — last resort, may emit unparseable <think> preamble' }),
+  nemotron_3_ultra_550b: nvidiaBuilder('nemotron_3_ultra_550b', 'Nemotron 3 Ultra 550B (NVIDIA NIM)', 'nvidia/nemotron-3-ultra-550b-a55b',
+    { reasoning: true, description: 'Reasoning model — last resort, may emit unparseable <think> preamble' }),
+  nemotron_mini: nvidiaBuilder('nemotron_mini', 'Nemotron Mini 4B (NVIDIA NIM)', 'nvidia/nemotron-mini-4b-instruct',
+    { reasoning: true, description: 'Reasoning model — last resort, may emit unparseable <think> preamble' }),
+  nemotron_3_nano_30b: nvidiaBuilder('nemotron_3_nano_30b', 'Nemotron 3 Nano 30B (NVIDIA NIM)', 'nvidia/nemotron-3-nano-30b-a3b',
+    { reasoning: true, description: 'Reasoning model — last resort, may emit unparseable <think> preamble' }),
+  nemotron_nano_9b: nvidiaBuilder('nemotron_nano_9b', 'NVIDIA Nemotron Nano 9B v2 (NVIDIA NIM)', 'nvidia/nvidia-nemotron-nano-9b-v2',
+    { reasoning: true, description: 'Reasoning model — last resort, may emit unparseable <think> preamble' }),
+  mistral_nemotron: nvidiaBuilder('mistral_nemotron', 'Mistral Nemotron (NVIDIA NIM)', 'mistralai/mistral-nemotron',
+    { reasoning: true, description: 'Reasoning model — last resort, may emit unparseable <think> preamble' }),
   gemini: {
     id:          'gemini',
     label:       'Aider + Gemini 2.5 Flash',
@@ -111,31 +104,35 @@ const BUILDERS: Record<string, BuilderConfig> = {
 
 const DEFAULT_BUILDER = 'nvidia';
 
-// Every NVIDIA-hosted builder falls back through the rest of the NVIDIA
-// pool first (cheap, same provider, fast to retry), then to Gemini as the
-// only cross-provider option — covering the case where NVIDIA NIM itself
-// is down rather than just one model being unavailable.
-const NVIDIA_POOL = ['nvidia', 'llama_8b', 'llama_3b', 'llama_1b', 'gpt_oss_120b', 'gpt_oss_20b', 'minimax'];
+// Plain instruction models first (safest, most reliable), reasoning-family
+// models last (may need one wasted attempt before taskBuilder.ts's retry
+// logic moves past them), Gemini as the only cross-provider fallback for an
+// NVIDIA NIM-wide outage. This is the full pool — "unlimited" in the sense
+// that nothing is capped by count, only by which builders have a live key.
+const SAFE_POOL = [
+  'nvidia', 'llama_8b', 'llama_3b', 'llama_1b',
+  'gpt_oss_120b', 'gpt_oss_20b', 'minimax', 'gemma_31b', 'poolside', 'stepfun',
+];
+const REASONING_POOL = [
+  'nemotron_super_49b', 'nemotron_super_49b_v15', 'nemotron_3_super_120b',
+  'nemotron_3_ultra_550b', 'nemotron_mini', 'nemotron_3_nano_30b',
+  'nemotron_nano_9b', 'mistral_nemotron',
+];
+const FULL_NVIDIA_POOL = [...SAFE_POOL, ...REASONING_POOL];
 
 function chainFor(builderId: string): string[] {
-  const rest = NVIDIA_POOL.filter(id => id !== builderId);
+  const rest = FULL_NVIDIA_POOL.filter(id => id !== builderId);
   return [...rest, 'gemini'];
 }
 
-const FALLBACK_CHAIN: Record<string, string[]> = {
-  nvidia:       chainFor('nvidia'),
-  llama_8b:     chainFor('llama_8b'),
-  llama_3b:     chainFor('llama_3b'),
-  llama_1b:     chainFor('llama_1b'),
-  gpt_oss_120b: chainFor('gpt_oss_120b'),
-  gpt_oss_20b:  chainFor('gpt_oss_20b'),
-  minimax:      chainFor('minimax'),
-  gemini:       NVIDIA_POOL,
-  opencode:     NVIDIA_POOL,
-};
+const FALLBACK_CHAIN: Record<string, string[]> = Object.fromEntries(
+  FULL_NVIDIA_POOL.map(id => [id, chainFor(id)])
+);
+FALLBACK_CHAIN['gemini']   = FULL_NVIDIA_POOL;
+FALLBACK_CHAIN['opencode'] = FULL_NVIDIA_POOL;
 
 function getFallbackBuilder(failedBuilder: string): string | null {
-  const chain = FALLBACK_CHAIN[failedBuilder] || NVIDIA_POOL;
+  const chain = FALLBACK_CHAIN[failedBuilder] || FULL_NVIDIA_POOL;
   for (const candidate of chain) {
     const config = BUILDERS[candidate];
     if (config && (!config.envKey || process.env[config.envKey])) {
@@ -179,21 +176,12 @@ function getBuilderConfig(assignment?: string): BuilderConfig {
 function getAiderEnv(config: BuilderConfig): Record<string, string | undefined> {
   // Start from a scoped env (no full process.env leak) — see utils/childEnv.ts
   const env = buildChildEnv();
-  switch (config.id) {
-    case 'gemini':
-      env['GEMINI_API_KEY'] = process.env['GEMINI_API_KEY'] || '';
-      break;
-    case 'nvidia':
-    case 'llama_8b':
-    case 'llama_3b':
-    case 'llama_1b':
-    case 'gpt_oss_120b':
-    case 'gpt_oss_20b':
-    case 'minimax':
-      env['OPENAI_API_KEY']  = process.env['NVIDIA_API_KEY'] || '';
-      env['OPENAI_API_BASE'] = NVIDIA_BASE;
-      env['OPENAI_BASE_URL'] = NVIDIA_BASE;
-      break;
+  if (config.id === 'gemini') {
+    env['GEMINI_API_KEY'] = process.env['GEMINI_API_KEY'] || '';
+  } else if (config.envKey === 'NVIDIA_API_KEY') {
+    env['OPENAI_API_KEY']  = process.env['NVIDIA_API_KEY'] || '';
+    env['OPENAI_API_BASE'] = NVIDIA_BASE;
+    env['OPENAI_BASE_URL'] = NVIDIA_BASE;
   }
   return env;
 }

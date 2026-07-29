@@ -51,10 +51,6 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
     let   lastTaskStdout = '';
     let   lastTaskStderr = '';
 
-    // Cap total model attempts per task so a bad task can't burn through the
-    // entire builder pool (11 configured builders) before giving up.
-    const MAX_BUILDER_ATTEMPTS = 4;
-
     for (const task of tasks) {
       let attemptBuilder = builderConfig;
       let taskResult: any;
@@ -116,7 +112,12 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
           ? (taskResult.reason || `${attemptBuilder.label} exit code ${taskResult.exitCode}`)
           : `${attemptBuilder.label} exited cleanly but produced no commit`;
 
-        const nextBuilderId = attempt < MAX_BUILDER_ATTEMPTS ? getFallbackBuilder(attemptBuilder.id) : null;
+        // No numeric attempt cap — walk the full fallback chain (currently
+        // ~19 models: see builderRouter.ts). The only real stop conditions
+        // are "no builder left with a configured key" (getFallbackBuilder
+        // returns null) or "we've already tried this one" (triedBuilders
+        // below) — both handled by the check right after this.
+        const nextBuilderId = getFallbackBuilder(attemptBuilder.id);
         const nextBuilder = nextBuilderId ? getBuilderConfig(nextBuilderId) : null;
 
         if (!nextBuilder || triedBuilders.includes(nextBuilder.id)) {
