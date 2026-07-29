@@ -23,7 +23,7 @@ import { isRepoLocked } from './repoLock';
 import { loadSettings } from './settingsLoader';
 import dbClient from './dbClient';
 import { enqueueScheduledJob } from './queueClient';
-import { AUDIT_APPROVAL_TIMEOUT_JOB } from './workers/scheduledJobsWorker';
+import { AUDIT_APPROVAL_TIMEOUT_JOB, SELF_REVIEW_FALLBACK_JOB } from './workers/scheduledJobsWorker';
 
 const AUDIT_ENABLED      = (): boolean => process.env['AUDIT_AGENT_ENABLED']   !== 'false';
 const BUILDER_ENABLED    = (): boolean => process.env['BUILDER_AGENT_ENABLED'] !== 'false';
@@ -526,6 +526,24 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
       logger.warn({ err: err.message, repoName, taskBranch: batchResult.taskBranch },
         'Could not record active task branch — next batch may open a new branch/PR instead of continuing this one');
     });
+
+    // D-027 item 4 (self-review fallback) — if CodeRabbit hasn't found this
+    // PR (not configured, or just hasn't gotten to it yet) within the same
+    // delay window used for the human-commit audit fallback, Sentinel
+    // reviews its own diff so the fix-loop has real findings to react to
+    // instead of silently waiting on a reviewer that may never speak up.
+    if (prNumber) {
+      const fallbackDelayMin = parseInt(process.env['CODERABBIT_FALLBACK_DELAY_MIN'] || '45');
+      await enqueueScheduledJob(
+        SELF_REVIEW_FALLBACK_JOB,
+        { repoFullName, repoName, prNumber, prUrl, topicId, pushedAt: new Date().toISOString() },
+        fallbackDelayMin * 60 * 1000,
+        `self-review-fallback:${repoFullName}:${prNumber}`
+      ).catch((err: any) => {
+        logger.warn({ err: err.message, repoFullName, prNumber },
+          'Failed to schedule self-review fallback — this PR will rely solely on CodeRabbit (if configured)');
+      });
+    }
 
     for (const task of batchResult.completedTasks) {
       await updateAuditTask(task.id, {

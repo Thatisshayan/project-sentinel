@@ -33,8 +33,15 @@ jest.mock('../src/auditOrchestrator', () => ({
 }));
 
 const hasCodeRabbitAuditedCommitMock = jest.fn();
+const hasCodeRabbitFindingSinceMock  = jest.fn();
 jest.mock('../src/auditDb', () => ({
-  hasCodeRabbitAuditedCommit: (...a: any[]) => hasCodeRabbitAuditedCommitMock(...a),
+  hasCodeRabbitAuditedCommit:  (...a: any[]) => hasCodeRabbitAuditedCommitMock(...a),
+  hasCodeRabbitFindingSince:   (...a: any[]) => hasCodeRabbitFindingSinceMock(...a),
+}));
+
+const reviewPrDiffMock = jest.fn().mockResolvedValue({ ran: true, findingsCreated: 0 });
+jest.mock('../src/selfReviewer', () => ({
+  reviewPrDiff: (...a: any[]) => reviewPrDiffMock(...a),
 }));
 
 const runRoundtableSynthesisMock = jest.fn().mockResolvedValue(undefined);
@@ -42,7 +49,7 @@ jest.mock('../src/agents/roundtable', () => ({
   runRoundtableSynthesis: (...a: any[]) => runRoundtableSynthesisMock(...a),
 }));
 
-import { processScheduledJob, AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB, CODERABBIT_FALLBACK_JOB, ROUNDTABLE_TIMEOUT_JOB } from '../src/workers/scheduledJobsWorker';
+import { processScheduledJob, AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB, CODERABBIT_FALLBACK_JOB, ROUNDTABLE_TIMEOUT_JOB, SELF_REVIEW_FALLBACK_JOB } from '../src/workers/scheduledJobsWorker';
 
 /**
  * NOTE on scope: these tests exercise processScheduledJob() directly with
@@ -150,6 +157,36 @@ describe('processScheduledJob', () => {
       hasCodeRabbitAuditedCommitMock.mockRejectedValue(new Error('db down'));
       await processScheduledJob({ name: CODERABBIT_FALLBACK_JOB, data: jobData });
       expect(triggerAuditMock).toHaveBeenCalledWith(jobData.auditPayload);
+    });
+  });
+
+  describe(SELF_REVIEW_FALLBACK_JOB, () => {
+    const jobData = {
+      repoFullName: 'org/costpilot', repoName: 'costpilot',
+      prNumber: 12, prUrl: 'https://github.com/org/costpilot/pull/12',
+      topicId: 'topic-1', pushedAt: '2026-07-29T00:00:00.000Z',
+    };
+
+    it('skips self-review when CodeRabbit already responded on this PR since the push', async () => {
+      hasCodeRabbitFindingSinceMock.mockResolvedValue(true);
+      await processScheduledJob({ name: SELF_REVIEW_FALLBACK_JOB, data: jobData });
+      expect(hasCodeRabbitFindingSinceMock).toHaveBeenCalledWith('org/costpilot', '2026-07-29T00:00:00.000Z');
+      expect(reviewPrDiffMock).not.toHaveBeenCalled();
+    });
+
+    it('runs the self-review fallback when CodeRabbit has not responded', async () => {
+      hasCodeRabbitFindingSinceMock.mockResolvedValue(false);
+      await processScheduledJob({ name: SELF_REVIEW_FALLBACK_JOB, data: jobData });
+      expect(reviewPrDiffMock).toHaveBeenCalledWith({
+        repoFullName: 'org/costpilot', repoName: 'costpilot',
+        prNumber: 12, prUrl: 'https://github.com/org/costpilot/pull/12', topicId: 'topic-1',
+      });
+    });
+
+    it('errs toward running self-review (not silently skipping) if the DB check itself fails', async () => {
+      hasCodeRabbitFindingSinceMock.mockRejectedValue(new Error('db down'));
+      await processScheduledJob({ name: SELF_REVIEW_FALLBACK_JOB, data: jobData });
+      expect(reviewPrDiffMock).toHaveBeenCalled();
     });
   });
 

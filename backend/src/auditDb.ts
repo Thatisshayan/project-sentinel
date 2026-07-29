@@ -105,11 +105,38 @@ async function getAuditCycle(repoFullName: string, commitSha: string): Promise<a
  * genuinely never arrived, not as a redundant second reviewer.
  */
 async function hasCodeRabbitAuditedCommit(repoFullName: string, commitSha: string): Promise<boolean> {
+  // Was checking audit_cycles.audit_agent = 'coderabbit' — but
+  // createAuditCycle() always writes 'claude-code' regardless of caller
+  // (auditDb.ts), so CodeRabbit-sourced cycles (created via
+  // processCodeRabbitPRComment.ts) never actually matched this, silently
+  // making this check always return false and the CODERABBIT_FALLBACK_JOB
+  // run Sentinel's redundant audit every time even when CodeRabbit had
+  // already responded. Fixed 2026-07-29 (found while building D-027 item 4)
+  // to check what actually distinguishes a CodeRabbit finding: the task's
+  // own `source` column.
   const r = await query(`
-    SELECT 1 FROM audit_cycles
-    WHERE repo_full_name = $1 AND commit_sha = $2 AND audit_agent = 'coderabbit'
+    SELECT 1 FROM audit_tasks t
+    JOIN audit_cycles c ON c.id = t.audit_cycle_id
+    WHERE c.repo_full_name = $1 AND c.commit_sha = $2 AND t.source = 'coderabbit'
     LIMIT 1
   `, [repoFullName, commitSha]);
+  return r.rows.length > 0;
+}
+
+/**
+ * D-027 item 4 (self-review fallback) — has CodeRabbit produced ANY finding
+ * for this repo since a given timestamp? Used to gate Sentinel's own
+ * diff-review fallback for an open, accumulating Sentinel PR (which can span
+ * many pushed commits, unlike hasCodeRabbitAuditedCommit's single-commit
+ * scoping), so Sentinel only self-reviews when CodeRabbit genuinely hasn't
+ * responded since the last push, not as a redundant second reviewer.
+ */
+async function hasCodeRabbitFindingSince(repoFullName: string, sinceIso: string): Promise<boolean> {
+  const r = await query(`
+    SELECT 1 FROM audit_tasks
+    WHERE repo_full_name = $1 AND source = 'coderabbit' AND created_at > $2
+    LIMIT 1
+  `, [repoFullName, sinceIso]);
   return r.rows.length > 0;
 }
 
@@ -323,6 +350,7 @@ export = {
   getAuditCycle,
   getActiveCycleForRepo,
   hasCodeRabbitAuditedCommit,
+  hasCodeRabbitFindingSince,
   getNextTaskNumberForCycle,
   getLastCompletedAudit,
   getPreviousHealthScore,

@@ -10,6 +10,7 @@ const SPRINT_CONTINUE_JOB    = 'sprint-continue';
 const AUDIT_APPROVAL_TIMEOUT_JOB = 'audit-approval-timeout';
 const CODERABBIT_FALLBACK_JOB    = 'coderabbit-fallback-audit';
 const ROUNDTABLE_TIMEOUT_JOB     = 'roundtable-timeout';
+const SELF_REVIEW_FALLBACK_JOB   = 'self-review-fallback';
 
 /**
  * The actual job-processing logic, factored out of the BullMQ Worker
@@ -83,6 +84,24 @@ async function processScheduledJob(job: any): Promise<void> {
     return;
   }
 
+  if (job.name === SELF_REVIEW_FALLBACK_JOB) {
+    const { repoFullName, repoName, prNumber, prUrl, topicId, pushedAt } = job.data;
+    const { hasCodeRabbitFindingSince } = require('../auditDb');
+    const alreadyReviewed = await hasCodeRabbitFindingSince(repoFullName, pushedAt).catch((err: any) => {
+      logger.error({ err: err.message, repoFullName, prNumber },
+        'hasCodeRabbitFindingSince check failed — erring toward running self-review rather than silently skipping');
+      return false;
+    });
+    if (alreadyReviewed) {
+      logger.info({ repoFullName, prNumber }, 'CodeRabbit already responded on this PR — skipping self-review fallback');
+      return;
+    }
+    logger.info({ repoFullName, prNumber }, 'CodeRabbit has not responded — running Sentinel self-review fallback');
+    const { reviewPrDiff } = require('../selfReviewer');
+    await reviewPrDiff({ repoFullName, repoName, prNumber, prUrl, topicId });
+    return;
+  }
+
   if (job.name === ROUNDTABLE_TIMEOUT_JOB) {
     const { sessionId } = job.data;
     const { runRoundtableSynthesis } = require('../agents/roundtable');
@@ -113,4 +132,4 @@ export function startScheduledJobsWorker(): Worker | null {
   return worker;
 }
 
-export { AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB, CODERABBIT_FALLBACK_JOB, ROUNDTABLE_TIMEOUT_JOB, processScheduledJob };
+export { AUTO_APPROVE_JOB, PR_IMPACT_CHECK_JOB, SPRINT_CONTINUE_JOB, AUDIT_APPROVAL_TIMEOUT_JOB, CODERABBIT_FALLBACK_JOB, ROUNDTABLE_TIMEOUT_JOB, SELF_REVIEW_FALLBACK_JOB, processScheduledJob };
