@@ -91,7 +91,27 @@ const BUILDERS: Record<string, BuilderConfig> = {
     type:        'aider',
     aiderModel:  'gemini/gemini-2.5-flash',
     envKey:      'GEMINI_API_KEY',
-    description: 'Only non-NVIDIA fallback — covers an NVIDIA NIM-wide outage. gemini-2.5-pro has 0 free-tier quota on this key; flash does not.',
+    description: 'Non-NVIDIA fallback — covers an NVIDIA NIM-wide outage. gemini-2.5-pro has 0 free-tier quota on this key; flash does not.',
+  },
+  // Kilo Gateway (https://kilo.ai/docs/gateway) needs no API key/account at
+  // all for its ':free' models — confirmed live 2026-07-29, unauthenticated
+  // requests are IP-rate-limited to 200/hour. 'kilo-auto/free' is Kilo's own
+  // auto-router rather than one fixed model name — one of Kilo's other free
+  // models (kwaipilot/kat-coder-pro-v2.5:free) got discontinued mid-testing
+  // this same session, so pointing at their router self-heals around that
+  // instead of us hardcoding a model that can vanish under us. True last
+  // resort: a genuinely different provider/infra than NVIDIA NIM (real
+  // redundancy, not just another NVIDIA model), but the weakest guarantees
+  // here (shared IP-wide rate limit, unpredictable which underlying model
+  // actually serves the request, reasoning-style output observed live).
+  kilo: {
+    id:          'kilo',
+    label:       'Kilo Gateway Auto (free, no key)',
+    type:        'openai_compatible',
+    aiderModel:  'openai/kilo-auto/free',
+    apiBase:     'https://api.kilo.ai/api/gateway',
+    reasoning:   true,
+    description: 'No-signup fallback via Kilo Gateway\'s free auto-router — different infra than NVIDIA NIM',
   },
   opencode: {
     id:          'opencode',
@@ -119,20 +139,23 @@ const REASONING_POOL = [
   'nemotron_nano_9b', 'mistral_nemotron',
 ];
 const FULL_NVIDIA_POOL = [...SAFE_POOL, ...REASONING_POOL];
+// Everything after the NVIDIA pool, tried in order once NVIDIA is fully
+// exhausted: Gemini (real cross-provider fallback), then Kilo Gateway's
+// free auto-router (no key needed, weakest guarantees, true last resort).
+const OUTER_FALLBACKS = ['gemini', 'kilo'];
+const FULL_POOL = [...FULL_NVIDIA_POOL, ...OUTER_FALLBACKS];
 
 function chainFor(builderId: string): string[] {
-  const rest = FULL_NVIDIA_POOL.filter(id => id !== builderId);
-  return [...rest, 'gemini'];
+  return FULL_POOL.filter(id => id !== builderId);
 }
 
 const FALLBACK_CHAIN: Record<string, string[]> = Object.fromEntries(
-  FULL_NVIDIA_POOL.map(id => [id, chainFor(id)])
+  FULL_POOL.map(id => [id, chainFor(id)])
 );
-FALLBACK_CHAIN['gemini']   = FULL_NVIDIA_POOL;
-FALLBACK_CHAIN['opencode'] = FULL_NVIDIA_POOL;
+FALLBACK_CHAIN['opencode'] = FULL_POOL;
 
 function getFallbackBuilder(failedBuilder: string): string | null {
-  const chain = FALLBACK_CHAIN[failedBuilder] || FULL_NVIDIA_POOL;
+  const chain = FALLBACK_CHAIN[failedBuilder] || FULL_POOL;
   for (const candidate of chain) {
     const config = BUILDERS[candidate];
     if (config && (!config.envKey || process.env[config.envKey])) {
@@ -178,6 +201,13 @@ function getAiderEnv(config: BuilderConfig): Record<string, string | undefined> 
   const env = buildChildEnv();
   if (config.id === 'gemini') {
     env['GEMINI_API_KEY'] = process.env['GEMINI_API_KEY'] || '';
+  } else if (config.id === 'kilo') {
+    // Kilo's free tier is genuinely unauthenticated, but aider's OpenAI
+    // client still wants a non-empty key string to initialize — Kilo
+    // ignores its value entirely for ':free' models.
+    env['OPENAI_API_KEY']  = 'kilo-free-tier-no-key-required';
+    env['OPENAI_API_BASE'] = config.apiBase;
+    env['OPENAI_BASE_URL'] = config.apiBase;
   } else if (config.envKey === 'NVIDIA_API_KEY') {
     env['OPENAI_API_KEY']  = process.env['NVIDIA_API_KEY'] || '';
     env['OPENAI_API_BASE'] = NVIDIA_BASE;
