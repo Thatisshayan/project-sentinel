@@ -114,8 +114,26 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ## Backups
 
-Postgres data lives in the `postgres_data` named volume. Back it up
-periodically, e.g.:
+Postgres data lives in the `postgres_data` named volume. There's no
+managed backup here (unlike Railway) — set up `scripts/backup_postgres.sh`
+as a daily cron job:
+
+```bash
+cp scripts/backup_postgres.sh ~/backup_postgres.sh
+chmod +x ~/backup_postgres.sh
+(crontab -l 2>/dev/null; echo "17 3 * * * /home/ubuntu/backup_postgres.sh") | crontab -
+```
+
+Dumps land in `~/backups/sentinel_<timestamp>.sql.gz`, with a `backup.log`
+tracking success/failure and 14 days of backups kept (older ones
+auto-deleted). To restore:
+
+```bash
+gunzip -c ~/backups/sentinel_<timestamp>.sql.gz | \
+  docker exec -i project-sentinel-postgres-1 psql -U sentinel sentinel
+```
+
+For a one-off manual dump instead of the cron job:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec postgres \
