@@ -217,6 +217,24 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 **Proposed resolution**: If picked up later — evaluate OmniRoute's resource footprint on the VM, whether it actually improves on our per-model verification (it aggregates *documented* free tiers, not necessarily verified working on every account), and whether its quota-tracking makes taskBuilder.ts's/aiderRunner.ts's own fallback-chain logic partially redundant or complementary.
 **Status**: Deferred — noted for future consideration, not started.
 
+### D-027: Autonomous PR review/fix/merge loop — roadmap
+**Scope**: Shayan's vision for closing the loop between audits, builds, and PR review so Sentinel runs continuously per-repo without a human relaying review comments back into the fix cycle. Full design (2026-07-29):
+1. Sentinel works continuously on **one branch per repo** (not one branch per batch) — accumulates commits across many task rounds. **Sentinel never auto-merges.** A human merges when ready, deletes the branch, and Sentinel starts a fresh one (possibly gated on human go-ahead to start).
+2. Within that branch's lifetime: fix → push → CI/review comments → triage (valid vs. false-positive, judgment call) → fix → push → repeat until CI + review(s) are green, then stop and wait for human merge.
+3. If no external reviewer (CodeRabbit) comments within some window, Sentinel's own agent self-reviews the diff and produces equivalent findings, so the loop never stalls waiting for a bot that isn't configured/responding.
+4. Every audit report must be **multi-aspect**: security, functionality/correctness, backend, frontend, UX/accessibility, execution/performance, health/observability, documentation, testing/coverage, infra/deployment, dependencies/supply-chain, data/database. Each report states which aspect it covered, an honest 0-10 score for that aspect, the trend vs. the last audit of that same aspect, and the real-world *effect* of what changed (not code mechanics).
+5. **Rotation policy**: no more than 3 sprints (10 tasks/sprint, so 30 tasks) focused on one aspect before the next audit is forced to pick a different one, round-robining through the list — prevents a repo only ever getting security attention while its docs/tests rot.
+6. Post-merge, auto-trigger a fresh audit that also does roadmap-aware planning for the next ~10 tasks — for now, inferred from codebase/audit findings; a proper per-project roadmap doc/source-of-truth (a couple of projects already have one) is a separate follow-up Shayan and the agent will design together.
+7. **Project memory**, scoped to the *repo* (must survive branch deletion) — persisted decisions, conventions, and dismissed findings (e.g. "the gpt_oss double-`openai/`-prefix is correct, don't re-flag it") fed into every audit/build/review prompt, the same way `conversationMemory.ts` already does for Telegram chat but currently nothing does for the audit/build agents.
+
+**Completed (2026-07-29)**:
+- **Branch-drift auto-rebase**: `utils/gitSync.ts`'s `rebaseOntoBase()`, wired into `taskBuilder.ts` — when the base branch moves during a batch, attempts an automatic rebase (force-with-lease push) instead of just warning; falls back to the original warning only on a real conflict. Directly motivated by PR #57 needing manual conflict resolution mid-session. Covered by real-git integration tests (`test/gitSync.test.ts` — actual temp repos, not mocked).
+- **Loop-iteration guard**: `utils/loopGuard.ts`'s `LoopGuard` class — generic iteration cap + one-time human-escalation callback (Telegram alert distinct from routine per-task failure logs), retrofitted onto `taskBuilder.ts`'s and `aiderRunner.ts`'s builder-fallback loops (`LOOP_GUARD_MAX_ITERATIONS`, default 25). Today's fallback loops are already implicitly bounded by the builder pool size, so this is currently a defensive ceiling more than an active save — but it's the same mechanism the not-yet-built CI/review fix-loop (item 2 above) will need, where there's no pool-size bound to fall back on at all.
+
+**Not started**: items 2, 3, 4, 5, 6, 7 above (same-PR patch loop, self-review fallback, multi-aspect audit + scoring + rotation, project memory, re-audit-after-merge trigger — which needs relaxing the Sentinel-authored-commit loop-prevention skip rule in `auditOrchestrator.ts`'s `triggerAudit` specifically for this case, while keeping it for the general case to avoid infinite self-audit loops).
+
+**Status**: In progress — 2 of 7 pieces done.
+
 ---
 
 ## Notes for Future Agents

@@ -6,6 +6,7 @@ import fs from 'fs';
 import logger from './logger';
 import { sanitizeLogs } from './riskAssessor';
 import { getBuilderConfig, getAiderEnv, getFallbackBuilder } from './builderRouter';
+import loopGuard from './utils/loopGuard';
 
 const TIMEOUT_MS = (): number =>
   parseInt(process.env['DEBUG_TIMEOUT_MINUTES'] || '30') * 60 * 1000;
@@ -19,6 +20,7 @@ interface AiderContext {
   buildProvider?: string;
   attemptNumber?: number;
   repoFullName?: string;
+  repoName?: string;
   branchName?: string;
 }
 
@@ -206,8 +208,20 @@ async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
     let latestCommit: any = null;
     let attempt = 0;
     const triedBuilders: string[] = [];
+    const guard = new loopGuard.LoopGuard({
+      label: 'aiderRunner-fallback',
+      maxIterations: loopGuard.DEFAULT_MAX_ITERATIONS(),
+      onEscalate: async ({ iterations }) => {
+        const { sendTelegramMessage } = require('./telegramClient');
+        sendTelegramMessage(
+          `🚨 Project Sentinel — Loop Escalation\n\nRepo: ${repoFullName}\nBuild-fix attempt ${attemptNumber} exceeded ${iterations} builder-fallback attempts without a commit. Stopping and needs human attention.`,
+          context.repoName || repoFullName || null, null
+        ).catch((err: any) => logger.warn({ err: err.message }, 'aiderRunner: loop-escalation Telegram alert failed'));
+      },
+    });
 
     for (;;) {
+      if (!(await guard.tick({ repoFullName, attemptNumber }))) break;
       attempt++;
       triedBuilders.push(builderId || 'nvidia');
       aiderResult = await runAider(tmpDir.name, context, builderId);

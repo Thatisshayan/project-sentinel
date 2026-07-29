@@ -7,6 +7,7 @@ import path from 'path';
 import logger from './logger';
 import { runClaudeCodeForTask } from './claudeCodeRunner';
 import { getBuilderConfig, getAiderEnv, getFallbackBuilder } from './builderRouter';
+import loopGuard from './utils/loopGuard';
 import { updateAuditTask } from './auditDb';
 import { updateNotionTaskStatus } from './auditTaskWriter';
 import { execAsync } from './utils/execAsync';
@@ -67,8 +68,24 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
       let attempt = 0;
       let taskCommitted = false;
       const triedBuilders: string[] = [];
+      // Defensive explicit ceiling on top of the builder pool's natural size —
+      // today this is effectively redundant (the pool is finite), but it's
+      // the same guard the planned CI/review fix-loop will reuse, where
+      // there's no pool-size bound to fall back on at all.
+      const guard = new loopGuard.LoopGuard({
+        label: 'taskBuilder-fallback',
+        maxIterations: loopGuard.DEFAULT_MAX_ITERATIONS(),
+        onEscalate: async ({ iterations }) => {
+          const { sendTelegramMessage } = require('./telegramClient');
+          fireAndForget(sendTelegramMessage(
+            `🚨 Project Sentinel — Loop Escalation\n\nRepo: ${repoName}\nTask ${task.task_number} "${task.title}" exceeded ${iterations} builder-fallback attempts without a commit. Stopping and needs human attention.`,
+            repoName, topicId
+          ), { label: 'taskBuilder' })
+        },
+      });
 
       for (;;) {
+        if (!(await guard.tick({ taskNumber: task.task_number }))) break;
         attempt++;
         triedBuilders.push(attemptBuilder.id);
         logger.info({ taskNumber: task.task_number, builder: attemptBuilder.id, attempt },
@@ -199,24 +216,37 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
       };
     }
 
-    // Check if base branch moved during execution — warn if so (PR may have conflicts)
+    // Check if base branch moved during execution — auto-rebase onto it when
+    // possible so a long-running batch doesn't hand back a PR that's already
+    // stale, instead of just warning and leaving the drift for a human to
+    // resolve by hand (confirmed as a real, recurring risk 2026-07-29 — this
+    // exact scenario stalled PR #57's merge and needed manual resolution).
+    let rebasedOntoLatestBase = false;
     try {
       await repoGit.fetch('origin', branchName || 'main');
       const latestLog = await repoGit.log([`origin/${branchName || 'main'}`, '--max-count=1']);
       const currentBaseSha = latestLog.latest?.hash || null;
       if (initialBaseSha && currentBaseSha && initialBaseSha !== currentBaseSha) {
-        logger.warn({ repoFullName, initialBaseSha, currentBaseSha }, 'Base branch moved during batch — PR may have merge conflicts');
-        const { sendTelegramMessage } = require('./telegramClient');
-        fireAndForget(sendTelegramMessage(
-          `Project Sentinel — Merge Conflict Risk ⚠️\n\nRepo: ${repoName}\nBase branch moved while the batch was running.\nThe PR may have conflicts — review before merging.`,
-          repoName, topicId
-        ), { label: 'taskBuilder' })
+        logger.warn({ repoFullName, initialBaseSha, currentBaseSha }, 'Base branch moved during batch — attempting auto-rebase');
+        const { rebaseOntoBase } = require('./utils/gitSync');
+        const result = await rebaseOntoBase(repoGit, branchName || 'main');
+        if (result.rebased) {
+          rebasedOntoLatestBase = true;
+          logger.info({ repoFullName, taskBranch }, 'Auto-rebase onto moved base branch succeeded');
+        } else {
+          logger.warn({ repoFullName, reason: result.reason }, 'Auto-rebase failed — falling back to manual-resolution warning');
+          const { sendTelegramMessage } = require('./telegramClient');
+          fireAndForget(sendTelegramMessage(
+            `Project Sentinel — Merge Conflict Risk ⚠️\n\nRepo: ${repoName}\nBase branch moved while the batch was running, and automatic rebase hit a conflict it couldn't resolve.\nThe PR may have conflicts — review before merging.`,
+            repoName, topicId
+          ), { label: 'taskBuilder' })
+        }
       }
     } catch (e: any) {
       logger.warn({ err: e.message }, 'Could not check for base branch changes');
     }
 
-    await repoGit.push('origin', taskBranch);
+    await repoGit.push(['origin', taskBranch, ...(rebasedOntoLatestBase ? ['--force-with-lease'] : [])]);
 
     logger.info({ repoFullName, taskBranch, count: completedTasks.length },
       'Batch branch pushed');
