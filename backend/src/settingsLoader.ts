@@ -29,7 +29,7 @@ function getEnvFallbacks(): any {
     max_active_agents: parseInt(process.env['MAX_ACTIVE_AGENTS'] || '4'),
     daily_report_time: process.env['DAILY_REPORT_TIME'] || '07:00:00',
     primary_agent: process.env['PRIMARY_AGENT'] || 'nvidia',
-    build_agent: process.env['BUILD_AGENT'] || 'qwen_coder',
+    build_agent: process.env['BUILD_AGENT'] || 'nvidia',
     fallback_agent: process.env['FALLBACK_AGENT'] || 'gemini',
     telegram_alerts: process.env['TELEGRAM_ALERTS'] !== 'false',
     email_digest: process.env['EMAIL_DIGEST'] === 'true',

@@ -45,7 +45,7 @@ async function writeTasksToNotion(auditResult: any, auditCycleId: any, payload: 
         safetyReason:        task.safetyReason,
         acceptanceCriteria:  task.acceptanceCriteria,
         batchNumber,
-        builderAgent:        builderAgent || 'qwen_coder',
+        builderAgent:        builderAgent || 'nvidia',
       });
       written.push({ taskNumber: task.taskNumber, title: task.title, taskId: row?.id ?? null });
     } catch (err: any) {

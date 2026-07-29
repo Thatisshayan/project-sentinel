@@ -1,20 +1,7 @@
 import logger from './logger';
 import { buildChildEnv } from './utils/childEnv';
 
-const DASHSCOPE_BASE = process.env['DASHSCOPE_BASE_URL'] || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-
-// NVIDIA NIM requires the full provider/model name in the model field
-// (e.g. "qwen/qwen2.5-coder-32b-instruct", not just "qwen2.5-coder-32b-instruct").
-// Aider uses the 'openai/' prefix to force the OpenAI client, and passes
-// everything after that prefix as the model name to the custom API base.
-// So 'openai/qwen/qwen2.5-coder-32b-instruct' sends model="qwen/qwen2.5-coder-32b-instruct"
-// to NVIDIA NIM, which is exactly what the API expects.
-function toNvidiaModel(rawName: string): string {
-  // Already in openai/provider/model format — leave as-is
-  if (rawName.startsWith('openai/')) return rawName;
-  // Already has provider prefix (e.g. 'nvidia/llama-...') — just add openai/
-  return `openai/${rawName}`;
-}
+const NVIDIA_BASE = 'https://integrate.api.nvidia.com/v1';
 
 interface BuilderConfig {
   id: string;
@@ -27,99 +14,91 @@ interface BuilderConfig {
   description: string;
 }
 
+/**
+ * Every entry below (except gemini/opencode) was verified live against
+ * https://integrate.api.nvidia.com/v1/chat/completions on 2026-07-29 —
+ * this account's key returns 200 for these specific model IDs (many
+ * catalog entries return 404 "Function not found for account" despite
+ * being listed in /v1/models, so listing alone doesn't mean entitled).
+ * DashScope/Qwen, DeepSeek-direct and Claude Code were dropped per Shayan's
+ * request (2026-07-29) in favor of a wider NVIDIA-hosted pool. Reasoning
+ * models (the nemotron family, mistral-nemotron) are deliberately excluded
+ * here too — that family's <think>-block output is exactly what was
+ * breaking aider's diff/whole-file parsing and causing repeated build
+ * failures before this pass; every model below is a plain instruction
+ * model with no reasoning preamble.
+ */
 const BUILDERS: Record<string, BuilderConfig> = {
   nvidia: {
     id:          'nvidia',
-    label:       'NVIDIA NIM — Llama 3.1 70B',
-    type:        'openai_compatible',
-    // nemotron-70b is a reasoning model that emits <think> blocks — aider cannot
-    // parse those as SEARCH/REPLACE diffs.  Default to llama-3.1-70b-instruct
-    // which is a plain instruction model that produces clean diffs.
-    // NVIDIA_MODEL can still override but must NOT be set to nemotron for aider tasks.
-    aiderModel:  toNvidiaModel(process.env['NVIDIA_MODEL'] || 'meta/llama-3.1-70b-instruct'),
-    apiBase:     'https://integrate.api.nvidia.com/v1',
-    envKey:      'NVIDIA_API_KEY',
-    description: 'NVIDIA NIM — Llama 3.1 70B instruction model',
-  },
-  qwen_coder: {
-    id:          'qwen_coder',
     label:       'Llama 3.1 70B (NVIDIA NIM)',
     type:        'openai_compatible',
-    // qwen/qwen2.5-coder-32b-instruct reached EOL 2026-05-12 on NVIDIA NIM (HTTP 410).
-    // Codestral (mistralai/codestral-22b-instruct-v0.1) and every other NIM
-    // code-specialist model (deepseek-coder, granite-code, starcoder2) return
-    // HTTP 404 "Function not found for account" on this key's entitlement tier
-    // — verified directly against the NIM API, not just a naming issue.
-    // Falling back to llama-3.1-70b-instruct, which this account can call.
     aiderModel:  'openai/meta/llama-3.1-70b-instruct',
-    editFormat:  'diff',
-    apiBase:     'https://integrate.api.nvidia.com/v1',
+    apiBase:     NVIDIA_BASE,
     envKey:      'NVIDIA_API_KEY',
-    description: 'Llama 3.1 70B on NVIDIA NIM — primary code builder (Codestral not entitled on this key)',
+    description: 'Primary code builder — largest verified-working instruct model on this key',
   },
-  llama_fast: {
-    id:          'llama_fast',
-    label:       'Llama 3.1 8B (NVIDIA)',
+  llama_8b: {
+    id:          'llama_8b',
+    label:       'Llama 3.1 8B (NVIDIA NIM)',
     type:        'openai_compatible',
     aiderModel:  'openai/meta/llama-3.1-8b-instruct',
-    apiBase:     'https://integrate.api.nvidia.com/v1',
+    apiBase:     NVIDIA_BASE,
     envKey:      'NVIDIA_API_KEY',
-    description: 'Ultra fast fallback for low complexity tasks',
+    description: 'Fast fallback for low-complexity tasks',
+  },
+  llama_3b: {
+    id:          'llama_3b',
+    label:       'Llama 3.2 3B (NVIDIA NIM)',
+    type:        'openai_compatible',
+    aiderModel:  'openai/meta/llama-3.2-3b-instruct',
+    apiBase:     NVIDIA_BASE,
+    envKey:      'NVIDIA_API_KEY',
+    description: 'Small/fast — bulk low-complexity tasks',
+  },
+  llama_1b: {
+    id:          'llama_1b',
+    label:       'Llama 3.2 1B (NVIDIA NIM)',
+    type:        'openai_compatible',
+    aiderModel:  'openai/meta/llama-3.2-1b-instruct',
+    apiBase:     NVIDIA_BASE,
+    envKey:      'NVIDIA_API_KEY',
+    description: 'Smallest/fastest fallback — last resort before non-NVIDIA providers',
+  },
+  gpt_oss_120b: {
+    id:          'gpt_oss_120b',
+    label:       'GPT-OSS 120B (NVIDIA NIM)',
+    type:        'openai_compatible',
+    aiderModel:  'openai/openai/gpt-oss-120b',
+    apiBase:     NVIDIA_BASE,
+    envKey:      'NVIDIA_API_KEY',
+    description: 'OpenAI open-weight model hosted on NVIDIA NIM — strong general coding ability',
+  },
+  gpt_oss_20b: {
+    id:          'gpt_oss_20b',
+    label:       'GPT-OSS 20B (NVIDIA NIM)',
+    type:        'openai_compatible',
+    aiderModel:  'openai/openai/gpt-oss-20b',
+    apiBase:     NVIDIA_BASE,
+    envKey:      'NVIDIA_API_KEY',
+    description: 'Smaller/faster GPT-OSS variant',
+  },
+  minimax: {
+    id:          'minimax',
+    label:       'MiniMax M3 (NVIDIA NIM)',
+    type:        'openai_compatible',
+    aiderModel:  'openai/minimaxai/minimax-m3',
+    apiBase:     NVIDIA_BASE,
+    envKey:      'NVIDIA_API_KEY',
+    description: 'Additional NVIDIA-hosted model for pool diversity',
   },
   gemini: {
     id:          'gemini',
-    label:       'Aider + Gemini 2.5 Pro',
+    label:       'Aider + Gemini 2.5 Flash',
     type:        'aider',
-    aiderModel:  'gemini/gemini-2.5-pro',
-    editFormat:  'diff',
+    aiderModel:  'gemini/gemini-2.5-flash',
     envKey:      'GEMINI_API_KEY',
-    description: 'Google free tier — solid quality fallback',
-  },
-  qwen_max: {
-    id:          'qwen_max',
-    label:       'Qwen Max (DashScope)',
-    type:        'openai_compatible',
-    aiderModel:  'openai/qwen-max',
-    apiBase:     DASHSCOPE_BASE,
-    envKey:      'DASHSCOPE_API_KEY',
-    description: 'Alibaba best — strongest reasoning',
-  },
-  qwen_plus: {
-    id:          'qwen_plus',
-    label:       'Qwen Plus (DashScope)',
-    type:        'openai_compatible',
-    aiderModel:  'openai/qwen-plus',
-    apiBase:     DASHSCOPE_BASE,
-    envKey:      'DASHSCOPE_API_KEY',
-    description: 'Alibaba balanced — good quality, fast',
-  },
-  qwen_coder_dash: {
-    id:          'qwen_coder_dash',
-    label:       'Qwen 2.5 Coder (DashScope)',
-    type:        'openai_compatible',
-    aiderModel:  'openai/qwen2.5-coder-32b-instruct',
-    editFormat:  'diff',
-    apiBase:     DASHSCOPE_BASE,
-    envKey:      'DASHSCOPE_API_KEY',
-    description: 'Alibaba code specialist for building tasks',
-  },
-  qwen_turbo: {
-    id:          'qwen_turbo',
-    label:       'Qwen Turbo (DashScope)',
-    type:        'openai_compatible',
-    aiderModel:  'openai/qwen-turbo',
-    apiBase:     DASHSCOPE_BASE,
-    envKey:      'DASHSCOPE_API_KEY',
-    description: 'Alibaba fastest — bulk low complexity tasks',
-  },
-  deepseek: {
-    id:          'deepseek',
-    label:       'Aider + DeepSeek Coder',
-    type:        'aider',
-    aiderModel:  'deepseek/deepseek-coder',
-    editFormat:  'diff',
-    envKey:      'DEEPSEEK_API_KEY',
-    description: 'Very cheap — routine low-complexity tasks',
+    description: 'Only non-NVIDIA fallback — covers an NVIDIA NIM-wide outage. gemini-2.5-pro has 0 free-tier quota on this key; flash does not.',
   },
   opencode: {
     id:          'opencode',
@@ -128,39 +107,35 @@ const BUILDERS: Record<string, BuilderConfig> = {
     envKey:      'OPENCODE_API_KEY',
     description: 'OpenCode CLI — use for repos where preferred',
   },
-  claude_code: {
-    id:          'claude_code',
-    label:       'Claude Code (Sonnet 4.6)',
-    type:        'claude_code',
-    envKey:      'ANTHROPIC_API_KEY',
-    description: 'Claude Code CLI — uses Read/Edit/Bash tools, most reliable builder',
-  },
 };
 
-const DEFAULT_BUILDER = 'qwen_coder';
+const DEFAULT_BUILDER = 'nvidia';
 
-// Ordered fallback chain when a builder fails.
-  // Both qwen_coder and nvidia now use NVIDIA NIM; if NIM is down both will fail
-  // together, so fallbacks prefer DashScope then Gemini then DeepSeek.
-  // claude_code is the most reliable builder (uses real tools, not SEARCH/REPLACE diffs)
-  // so it leads every chain when ANTHROPIC_API_KEY is configured.
-  // nvidia is added as fallback for claude_code since it's free and uses different API.
-  const FALLBACK_CHAIN: Record<string, string[]> = {
-    nvidia:          ['claude_code', 'qwen_coder_dash', 'gemini', 'deepseek', 'qwen_coder'],
-    qwen_coder:      ['claude_code', 'qwen_coder_dash', 'gemini', 'deepseek', 'nvidia'],
-    qwen_coder_dash: ['claude_code', 'qwen_coder',      'gemini', 'deepseek'],
-    gemini:          ['claude_code', 'qwen_coder_dash', 'qwen_coder', 'deepseek'],
-    qwen_max:        ['claude_code', 'qwen_coder_dash', 'qwen_coder', 'deepseek'],
-    qwen_plus:       ['claude_code', 'qwen_max',        'qwen_coder_dash', 'deepseek'],
-    qwen_turbo:      ['claude_code', 'qwen_coder_dash', 'qwen_coder',      'deepseek'],
-    llama_fast:      ['claude_code', 'qwen_coder',      'qwen_coder_dash',  'deepseek'],
-    deepseek:        ['claude_code', 'qwen_coder_dash', 'qwen_coder', 'gemini'],
-    opencode:        ['claude_code', 'qwen_coder'],
-    claude_code:     ['nvidia', 'qwen_coder_dash', 'gemini', 'deepseek', 'qwen_coder'],
-  };
+// Every NVIDIA-hosted builder falls back through the rest of the NVIDIA
+// pool first (cheap, same provider, fast to retry), then to Gemini as the
+// only cross-provider option — covering the case where NVIDIA NIM itself
+// is down rather than just one model being unavailable.
+const NVIDIA_POOL = ['nvidia', 'llama_8b', 'llama_3b', 'llama_1b', 'gpt_oss_120b', 'gpt_oss_20b', 'minimax'];
+
+function chainFor(builderId: string): string[] {
+  const rest = NVIDIA_POOL.filter(id => id !== builderId);
+  return [...rest, 'gemini'];
+}
+
+const FALLBACK_CHAIN: Record<string, string[]> = {
+  nvidia:       chainFor('nvidia'),
+  llama_8b:     chainFor('llama_8b'),
+  llama_3b:     chainFor('llama_3b'),
+  llama_1b:     chainFor('llama_1b'),
+  gpt_oss_120b: chainFor('gpt_oss_120b'),
+  gpt_oss_20b:  chainFor('gpt_oss_20b'),
+  minimax:      chainFor('minimax'),
+  gemini:       NVIDIA_POOL,
+  opencode:     NVIDIA_POOL,
+};
 
 function getFallbackBuilder(failedBuilder: string): string | null {
-  const chain = FALLBACK_CHAIN[failedBuilder] || ['nvidia'];
+  const chain = FALLBACK_CHAIN[failedBuilder] || NVIDIA_POOL;
   for (const candidate of chain) {
     const config = BUILDERS[candidate];
     if (config && (!config.envKey || process.env[config.envKey])) {
@@ -209,23 +184,15 @@ function getAiderEnv(config: BuilderConfig): Record<string, string | undefined> 
       env['GEMINI_API_KEY'] = process.env['GEMINI_API_KEY'] || '';
       break;
     case 'nvidia':
-    case 'qwen_coder':
-    case 'llama_fast':
+    case 'llama_8b':
+    case 'llama_3b':
+    case 'llama_1b':
+    case 'gpt_oss_120b':
+    case 'gpt_oss_20b':
+    case 'minimax':
       env['OPENAI_API_KEY']  = process.env['NVIDIA_API_KEY'] || '';
-      env['OPENAI_API_BASE'] = 'https://integrate.api.nvidia.com/v1';
-      env['OPENAI_BASE_URL'] = 'https://integrate.api.nvidia.com/v1';
-      break;
-    case 'qwen_max':
-    case 'qwen_plus':
-    case 'qwen_coder_dash':
-    case 'qwen_turbo':
-      env['OPENAI_API_KEY']  = process.env['DASHSCOPE_API_KEY'] || '';
-      env['OPENAI_API_BASE'] = DASHSCOPE_BASE;
-      break;
-    case 'deepseek':
-      env['DEEPSEEK_API_KEY'] = process.env['DEEPSEEK_API_KEY'] || '';
-      env['OPENAI_API_BASE']  = 'https://api.deepseek.com';
-      env['OPENAI_API_KEY']   = process.env['DEEPSEEK_API_KEY'] || '';
+      env['OPENAI_API_BASE'] = NVIDIA_BASE;
+      env['OPENAI_BASE_URL'] = NVIDIA_BASE;
       break;
   }
   return env;

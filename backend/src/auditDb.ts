@@ -230,7 +230,7 @@ async function createAuditTask(data: {
         data.title,             data.description,        data.priority,
         data.category,          data.affectedFiles || [], data.complexity,
         data.safeToAutoExecute, data.safetyReason,       data.acceptanceCriteria,
-        data.batchNumber,       data.builderAgent || 'qwen_coder',
+        data.batchNumber,       data.builderAgent || 'nvidia',
         data.source || 'sentinel',
       ]);
       return r.rows[0] || null;
