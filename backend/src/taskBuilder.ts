@@ -25,14 +25,15 @@ async function resetWorkingTree(repoGit: ReturnType<typeof simpleGit>, taskNumbe
 }
 
 async function executeBatch(tasks: any[], context: any, builderAssignment: string): Promise<any> {
-  const { repoFullName, branchName, projectName, repoName, topicId } = context;
+  const { repoFullName, branchName, projectName, repoName, topicId, existingBranch } = context;
   const builderConfig = getBuilderConfig(builderAssignment);
   const batchNum      = tasks[0].batch_number;
   const batchNums     = `${tasks[0].task_number}-${tasks[tasks.length - 1].task_number}`;
+  const baseBranchName = branchName || 'main';
 
   logger.info({
     repoFullName, tasks: tasks.length,
-    builder: builderConfig.label, batch: batchNums,
+    builder: builderConfig.label, batch: batchNums, existingBranch: existingBranch || null,
   }, 'Starting batch execution');
 
   const tmpDir = tmp.dirSync({
@@ -41,21 +42,37 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
   });
 
   try {
+    // D-027 item 3 (same-PR patch loop): when the caller passes an
+    // already-active accumulating branch for this repo, clone that branch
+    // and keep pushing to it instead of opening a brand-new branch/PR every
+    // batch — the branch only rolls over once a human merges (or rejects)
+    // the PR (see processPREvent.ts clearing it on 'closed').
+    const cloneBranch = existingBranch || baseBranchName;
     const cloneUrl = `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`;
     await simpleGit().clone(cloneUrl, tmpDir.name, [
-      '--depth', '1', '--branch', branchName || 'main',
+      '--depth', '1', '--branch', cloneBranch,
     ]);
 
     const repoGit = simpleGit(tmpDir.name);
     await repoGit.addConfig('user.email', 'sentinel@project-sentinel.app');
     await repoGit.addConfig('user.name',  'Project Sentinel');
 
-    // Record the current tip of the base branch before we start work
-    const initialLog = await repoGit.log({ maxCount: 1 });
-    const initialBaseSha = initialLog.latest?.hash || null;
+    // Record the true base branch tip (not the accumulating branch's tip,
+    // which can already be many commits ahead of base) — this is what the
+    // later "did base move during this batch" drift check compares against.
+    await repoGit.fetch(['origin', baseBranchName, '--depth', '1']);
+    const baseLog = await repoGit.log([`origin/${baseBranchName}`, '--max-count=1']);
+    const initialBaseSha = baseLog.latest?.hash || null;
 
-    const taskBranch = `sentinel/batch-${batchNum}-tasks-${batchNums}`;
-    await repoGit.checkoutLocalBranch(taskBranch);
+    // Starting HEAD of whichever branch we actually cloned — used to detect
+    // whether a given task attempt produced a real new commit.
+    const startingLog = await repoGit.log({ maxCount: 1 });
+    const startingHeadSha = startingLog.latest?.hash || null;
+
+    const taskBranch = existingBranch || `sentinel/work-${Date.now()}`;
+    if (!existingBranch) {
+      await repoGit.checkoutLocalBranch(taskBranch);
+    }
 
     const completedTasks: any[] = [];
     let   lastCommitSha: string | null  = null;
@@ -127,7 +144,7 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
         if (taskResult.success) {
           const log = await repoGit.log({ maxCount: 1 });
           const headSha = log.latest?.hash || null;
-          committed = !!headSha && headSha !== (lastCommitSha || initialBaseSha);
+          committed = !!headSha && headSha !== (lastCommitSha || startingHeadSha);
           if (committed) {
             lastCommitSha = headSha;
           }
@@ -223,13 +240,13 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
     // exact scenario stalled PR #57's merge and needed manual resolution).
     let rebasedOntoLatestBase = false;
     try {
-      await repoGit.fetch('origin', branchName || 'main');
-      const latestLog = await repoGit.log([`origin/${branchName || 'main'}`, '--max-count=1']);
+      await repoGit.fetch('origin', baseBranchName);
+      const latestLog = await repoGit.log([`origin/${baseBranchName}`, '--max-count=1']);
       const currentBaseSha = latestLog.latest?.hash || null;
       if (initialBaseSha && currentBaseSha && initialBaseSha !== currentBaseSha) {
         logger.warn({ repoFullName, initialBaseSha, currentBaseSha }, 'Base branch moved during batch — attempting auto-rebase');
         const { rebaseOntoBase } = require('./utils/gitSync');
-        const result = await rebaseOntoBase(repoGit, branchName || 'main');
+        const result = await rebaseOntoBase(repoGit, baseBranchName);
         if (result.rebased) {
           rebasedOntoLatestBase = true;
           logger.info({ repoFullName, taskBranch }, 'Auto-rebase onto moved base branch succeeded');

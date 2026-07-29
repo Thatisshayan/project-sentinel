@@ -11,6 +11,11 @@ jest.mock('../src/auditTaskWriter', () => ({
   updateNotionTaskStatus: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../src/projectDb', () => ({
+  getActiveTaskBranch: jest.fn().mockResolvedValue(null),
+  clearActiveTaskBranch: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../src/telegramClient', () => ({
   sendTelegramMessage: jest.fn().mockResolvedValue(true),
 }));
@@ -28,6 +33,7 @@ import { query, resolveDebugAttemptByPr } from '../src/dbClient';
 import { resolveIssuesByPr } from '../src/securityDb';
 import { updateNotionTaskStatus } from '../src/auditTaskWriter';
 import { sendTelegramMessage } from '../src/telegramClient';
+import projectDb from '../src/projectDb';
 
 describe('processPREvent', () => {
   beforeEach(() => {
@@ -37,6 +43,8 @@ describe('processPREvent', () => {
     (resolveIssuesByPr as jest.Mock).mockResolvedValue(0);
     (updateNotionTaskStatus as jest.Mock).mockResolvedValue(undefined);
     (sendTelegramMessage as jest.Mock).mockResolvedValue(true);
+    (projectDb.getActiveTaskBranch as jest.Mock).mockResolvedValue(null);
+    (projectDb.clearActiveTaskBranch as jest.Mock).mockResolvedValue(undefined);
   });
 
   const basePR = {
@@ -115,6 +123,39 @@ describe('processPREvent', () => {
     expect(sql).toContain('pr_number = NULL');
     expect(sql).toContain('(pr_url = $2 OR (pr_url IS NULL AND pr_number = $3))');
     expect(params).toEqual(['your-org/tapcash', 'https://github.com/your-org/tapcash/pull/99', 99]);
+  });
+
+  test('D-027: clears the active task branch when it matches this PR branch (merged)', async () => {
+    (projectDb.getActiveTaskBranch as jest.Mock).mockResolvedValue({
+      branch: 'sentinel/batch-1-tasks-1-5', prUrl: null, prNumber: null,
+    });
+    (query as jest.Mock).mockResolvedValue({ rows: [] });
+
+    await processPREvent(build());
+
+    expect(projectDb.clearActiveTaskBranch).toHaveBeenCalledWith('tapcash');
+  });
+
+  test('D-027: clears the active task branch when it matches this PR branch (rejected)', async () => {
+    (projectDb.getActiveTaskBranch as jest.Mock).mockResolvedValue({
+      branch: 'sentinel/batch-1-tasks-1-5', prUrl: null, prNumber: null,
+    });
+    (query as jest.Mock).mockResolvedValue({ rows: [] });
+
+    await processPREvent(build('closed', { merged: false }));
+
+    expect(projectDb.clearActiveTaskBranch).toHaveBeenCalledWith('tapcash');
+  });
+
+  test('D-027: does NOT clear the active task branch when it belongs to a different (newer) branch', async () => {
+    (projectDb.getActiveTaskBranch as jest.Mock).mockResolvedValue({
+      branch: 'sentinel/work-99999', prUrl: null, prNumber: null,
+    });
+    (query as jest.Mock).mockResolvedValue({ rows: [] });
+
+    await processPREvent(build());
+
+    expect(projectDb.clearActiveTaskBranch).not.toHaveBeenCalled();
   });
 
   test('returns early without a DB write for a non-sentinel branch', async () => {

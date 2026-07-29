@@ -5,6 +5,7 @@ import dbClient from '../dbClient';
 import { updateNotionTaskStatus } from '../auditTaskWriter';
 import { resolveIssuesByPr } from '../securityDb';
 import { resolveDebugAttemptByPr } from '../dbClient';
+import projectDb from '../projectDb';
 
 const { query } = dbClient;
 
@@ -23,6 +24,19 @@ export async function processPREvent(payload: any): Promise<void> {
   if (action !== 'closed') return;
 
   logger.info({ repoFullName, prNumber, merged, branch: branchName }, 'Sentinel PR closed');
+
+  // D-027 item 3 (same-PR patch loop) — once a human merges or closes this
+  // PR, the accumulating branch is done; clear it so the next batch starts a
+  // fresh one instead of continuing to push into a dead branch. Guarded on
+  // the currently-recorded branch actually matching this PR's branch, so a
+  // stale/duplicate webhook delivery for an already-superseded branch can't
+  // clobber a newer active-branch record.
+  const activeBranch = await projectDb.getActiveTaskBranch(repoName).catch(() => null);
+  if (activeBranch?.branch === branchName) {
+    await projectDb.clearActiveTaskBranch(repoName).catch((err: any) =>
+      logger.warn({ err: err.message, repoFullName, branchName }, 'Failed to clear active task branch after PR closed')
+    );
+  }
 
   if (merged) {
     if (branchName.startsWith('sentinel/security-patch-')) {

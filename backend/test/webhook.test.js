@@ -15,6 +15,12 @@ jest.mock('../src/dbClient', () => ({
   resolveDebugAttemptByPr: jest.fn().mockResolvedValue(null),
 }));
 
+jest.mock('../src/projectDb', () => ({
+  getActiveTaskBranch:   jest.fn().mockResolvedValue(null),
+  setActiveTaskBranch:   jest.fn().mockResolvedValue(undefined),
+  clearActiveTaskBranch: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../src/securityDb', () => ({
   resolveIssuesByPr: jest.fn().mockResolvedValue(0),
 }));

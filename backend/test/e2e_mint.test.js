@@ -29,6 +29,12 @@ jest.mock('../src/dbClient', () => ({
   query: jest.fn().mockResolvedValue({ rows: [] }),
 }));
 
+jest.mock('../src/projectDb', () => ({
+  getActiveTaskBranch:   jest.fn().mockResolvedValue(null),
+  setActiveTaskBranch:   jest.fn().mockResolvedValue(undefined),
+  clearActiveTaskBranch: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../src/auditTaskWriter', () => ({
   writeTasksToNotion: jest.fn().mockResolvedValue({
     tasks: [

@@ -8,6 +8,7 @@ import { createPullRequest } from './prCreator';
 import { sendTelegramMessage } from './telegramClient';
 import { sendSlackButtons } from './slackClient';
 import { findNotionProject } from './notionClient';
+import projectDb from './projectDb';
 import {
   createAuditCycle, updateAuditCycle,
   getActiveCycleForRepo, getLastCompletedAudit, getPreviousHealthScore,
@@ -469,13 +470,25 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
 
   const notionProject = await findNotionProject(repoName).catch(() => null);
 
-  const primaryBuilder  = tasks[0].builder_agent || 'nvidia';
-  let   batchResult     = await executeBatch(tasks, {
+  // D-027 item 3 (same-PR patch loop) — reuse the repo's accumulating
+  // Sentinel branch if one is already active (set below once a batch lands),
+  // instead of opening a fresh branch/PR every single batch. Cleared in
+  // processPREvent.ts once a human merges or closes the PR.
+  const activeBranch = await projectDb.getActiveTaskBranch(repoName).catch((err: any) => {
+    logger.warn({ err: err.message, repoName }, 'Could not look up active task branch — starting a new one');
+    return null;
+  });
+
+  const batchContext = {
     repoFullName, repoName,
     projectName: notionProject?.projectName || repoName,
     branchName:  'main',
+    existingBranch: activeBranch?.branch,
     topicId,
-  }, primaryBuilder);
+  };
+
+  const primaryBuilder  = tasks[0].builder_agent || 'nvidia';
+  let   batchResult     = await executeBatch(tasks, batchContext, primaryBuilder);
 
   // T10 — retry with fallback builder on failure (once)
   if (batchResult.status !== 'completed') {
@@ -486,12 +499,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
         `Builder ${primaryBuilder} failed for ${repoName}. Retrying with ${fallback}...`,
         repoName, topicId
       ), { label: 'auditOrchestrator' })
-      batchResult = await executeBatch(tasks, {
-        repoFullName, repoName,
-        projectName: notionProject?.projectName || repoName,
-        branchName:  'main',
-        topicId,
-      }, fallback);
+      batchResult = await executeBatch(tasks, batchContext, fallback);
     }
   }
 
@@ -507,9 +515,16 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
         repoName, commitSha: batchResult.commitSha,
         attemptNumber: batchNum,
         buildProvider: 'sentinel-tasks',
-        failureReason: `Sentinel improvement batch ${batchNum} — tasks ${completedNums}`,
+        failureReason: activeBranch
+          ? `Sentinel improvement batch ${batchNum} — tasks ${completedNums}`
+          : `Sentinel improvement batch ${batchNum} — tasks ${completedNums} (new working branch)`,
         kind: 'task',
       },
+    });
+
+    await projectDb.setActiveTaskBranch(repoName, batchResult.taskBranch, prUrl, prNumber).catch((err: any) => {
+      logger.warn({ err: err.message, repoName, taskBranch: batchResult.taskBranch },
+        'Could not record active task branch — next batch may open a new branch/PR instead of continuing this one');
     });
 
     for (const task of batchResult.completedTasks) {

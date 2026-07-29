@@ -35,10 +35,21 @@ async function initProjectSchema(): Promise<void> {
       last_build_error      TEXT,
       high_risk             TEXT,
       high_risk_reason      TEXT,
+      active_task_branch    TEXT,
+      active_pr_url         TEXT,
+      active_pr_number      INTEGER,
       created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+
+  // D-027 item 1/2 predecessor — item 3 (same-PR patch loop): a repo's
+  // accumulating Sentinel branch/PR, so batches reuse one branch instead of
+  // each batch opening a brand-new PR. Added via ALTER for tables that
+  // already existed before this column was introduced (2026-07-29).
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_task_branch TEXT;`);
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_pr_url TEXT;`);
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_pr_number INTEGER;`);
 
   await query(`
     CREATE TABLE IF NOT EXISTS project_changelog (
@@ -185,7 +196,59 @@ async function createProject(data: { repoName: string; priority?: string; builde
   return id;
 }
 
+async function getActiveTaskBranch(repoName: string): Promise<{
+  branch: string; prUrl: string | null; prNumber: number | null;
+} | null> {
+  const id = toId(repoName);
+  const r = await query(
+    'SELECT repo_name, active_task_branch, active_pr_url, active_pr_number FROM projects WHERE id = $1',
+    [id]
+  );
+  const row = r.rows[0];
+  if (!row || !row.active_task_branch) return null;
+  // Same toId() collision guard as findProject — never hand back another
+  // repo's accumulating branch/PR because two repo names collapsed to the
+  // same id.
+  if (row.repo_name.toLowerCase() !== repoName.toLowerCase()) {
+    logger.error({ repoName, id, collidedWith: row.repo_name },
+      'toId collision — refusing to return active task branch for a different repo');
+    return null;
+  }
+  return {
+    branch:   row.active_task_branch,
+    prUrl:    row.active_pr_url,
+    prNumber: row.active_pr_number,
+  };
+}
+
+async function setActiveTaskBranch(repoName: string, branch: string, prUrl: string | null, prNumber: number | null): Promise<void> {
+  const id = toId(repoName);
+  await query(`
+    INSERT INTO projects (id, repo_name, project_name, active_task_branch, active_pr_url, active_pr_number)
+    VALUES ($1, $2, $2, $3, $4, $5)
+    ON CONFLICT (id) DO UPDATE SET
+      active_task_branch = EXCLUDED.active_task_branch,
+      active_pr_url      = EXCLUDED.active_pr_url,
+      active_pr_number   = EXCLUDED.active_pr_number,
+      updated_at         = NOW()
+    WHERE projects.repo_name = $2
+  `, [id, repoName, branch, prUrl, prNumber]);
+  logger.info({ repoName, branch, prNumber }, 'Active task branch recorded');
+}
+
+async function clearActiveTaskBranch(repoName: string): Promise<void> {
+  const id = toId(repoName);
+  await query(`
+    UPDATE projects SET
+      active_task_branch = NULL, active_pr_url = NULL, active_pr_number = NULL,
+      updated_at = NOW()
+    WHERE id = $1 AND repo_name = $2
+  `, [id, repoName]);
+  logger.info({ repoName }, 'Active task branch cleared');
+}
+
 export = {
   initProjectSchema, findProject, updateProject,
   appendProjectChangelog, updateProjectBuilderAgent, createProject,
+  getActiveTaskBranch, setActiveTaskBranch, clearActiveTaskBranch,
 };
