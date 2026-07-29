@@ -27,6 +27,20 @@ function getTopicId(repoName: string | null): number | null {
   return (topicId && topicId > 0) ? topicId : null;
 }
 
+// Truncating a JS string by code-unit count (this file's MAX_LENGTH cut,
+// taskBuilder.ts's stdout/stderr .slice(-N) tails, etc.) can land mid
+// surrogate-pair for a 4-byte character (emoji, etc.), leaving an unpaired
+// surrogate. JSON.stringify happily emits that as \uXXXX, but converting it
+// to UTF-8 bytes for the request body is not representable — Telegram's API
+// then rejects the whole message with "text must be encoded in UTF-8"
+// (confirmed live 2026-07-29). Strip unpaired surrogates before sending.
+function stripUnpairedSurrogates(text: string): string {
+  return text.replace(
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+    ''
+  );
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
@@ -63,9 +77,10 @@ async function sendTelegramMessage(
     }
   }
 
-  const safeText = text.length > MAX_LENGTH
+  const truncated = text.length > MAX_LENGTH
     ? text.substring(0, MAX_LENGTH - 30) + '\n\n[message truncated]'
     : text;
+  const safeText = stripUnpairedSurrogates(truncated);
 
   // Phase 1 of docs/2026-07-22-slack-agent-roster-plan.md — "broadcast
   // everywhere": every Telegram send also fans out to Slack, independent of

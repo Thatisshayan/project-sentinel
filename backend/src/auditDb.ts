@@ -194,6 +194,17 @@ async function getNextTaskNumberForCycle(auditCycleId: number): Promise<number> 
   return parseInt(r.rows[0]?.next || '1');
 }
 
+/**
+ * task_number is usually pre-computed by the caller (getNextTaskNumberForCycle),
+ * but that read-then-write isn't atomic: two webhook deliveries for the same
+ * audit_cycle_id (e.g. two CodeRabbit PR review comments landing seconds
+ * apart — confirmed live 2026-07-29) can both read the same MAX(task_number)
+ * before either insert commits, so both attempts collide on
+ * idx_audit_tasks_cycle_tasknum and the loser's task is silently lost —
+ * fewer queued tasks ever reach taskBuilder. Retry with a freshly recomputed
+ * number on that specific conflict instead of letting it bubble up as a
+ * dropped task.
+ */
 async function createAuditTask(data: {
   auditCycleId: number; repoFullName: string; taskNumber: number;
   title: string; description?: string; priority?: string; category?: string;
@@ -201,23 +212,36 @@ async function createAuditTask(data: {
   safetyReason?: string; acceptanceCriteria?: string; batchNumber?: number;
   builderAgent?: string; source?: string;
 }): Promise<any | null> {
-  const r = await query(`
-    INSERT INTO audit_tasks
-      (audit_cycle_id, repo_full_name, task_number, title, description,
-       priority, category, affected_files, complexity,
-       safe_to_auto_execute, safety_reason, acceptance_criteria,
-       batch_number, builder_agent, source, status)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'queued')
-    RETURNING *
-  `, [
-    data.auditCycleId,      data.repoFullName,       data.taskNumber,
-    data.title,             data.description,        data.priority,
-    data.category,          data.affectedFiles || [], data.complexity,
-    data.safeToAutoExecute, data.safetyReason,       data.acceptanceCriteria,
-    data.batchNumber,       data.builderAgent || 'qwen_coder',
-    data.source || 'sentinel',
-  ]);
-  return r.rows[0] || null;
+  const MAX_ATTEMPTS = 5;
+  let taskNumber = data.taskNumber;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const r = await query(`
+        INSERT INTO audit_tasks
+          (audit_cycle_id, repo_full_name, task_number, title, description,
+           priority, category, affected_files, complexity,
+           safe_to_auto_execute, safety_reason, acceptance_criteria,
+           batch_number, builder_agent, source, status)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'queued')
+        RETURNING *
+      `, [
+        data.auditCycleId,      data.repoFullName,       taskNumber,
+        data.title,             data.description,        data.priority,
+        data.category,          data.affectedFiles || [], data.complexity,
+        data.safeToAutoExecute, data.safetyReason,       data.acceptanceCriteria,
+        data.batchNumber,       data.builderAgent || 'qwen_coder',
+        data.source || 'sentinel',
+      ]);
+      return r.rows[0] || null;
+    } catch (err: any) {
+      const isTaskNumberConflict = err.code === '23505' &&
+        String(err.constraint || '').includes('cycle_tasknum');
+      if (!isTaskNumberConflict || attempt === MAX_ATTEMPTS) throw err;
+      taskNumber = await getNextTaskNumberForCycle(data.auditCycleId);
+    }
+  }
+  return null;
 }
 
 async function getNextBatch(repoFullName: string, batchSize: number): Promise<any[]> {
