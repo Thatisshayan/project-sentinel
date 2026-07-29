@@ -1,25 +1,18 @@
-import { Client } from '@notionhq/client';
 import logger from './logger';
-import { checkDuplicateTask, createAuditTask } from './auditDb';
+import { checkDuplicateTask, createAuditTask, updateAuditTask } from './auditDb';
 
-const notion      = (): any => new Client({ auth: process.env['NOTION_API_KEY'] });
-const TASKS_DB_ID = (): string => {
-  const raw = process.env['NOTION_TASKS_DATABASE_ID'] || process.env['NOTION_DATABASE_ID'] || '';
-  if (raw.startsWith('http')) {
-    return raw.split('/').pop() || '';
-  }
-  return raw;
-};
-
-const PRIORITY_EMOJI: Record<string, string> = {
-  critical: '🔴', high: '🟠', medium: '🟡', low: '🟢',
-};
+/**
+ * D-025 (docs/governance/DEFERRED_WORK.md): decoupled from the real Notion
+ * API. audit_tasks in Postgres was already the source of truth (taskBuilder.ts,
+ * sprintOrchestrator.ts etc. all read/write it directly) — the Notion page
+ * per task was a redundant mirror. Function names kept as-is so callers
+ * (auditOrchestrator.ts, selfAuditor.ts, sprintOrchestrator.ts,
+ * processPREvent.ts) needed minimal changes: pass the Postgres task id
+ * (task.id) where they used to pass task.notion_page_id.
+ */
 
 async function writeTasksToNotion(auditResult: any, auditCycleId: any, payload: any): Promise<any> {
-  const {
-    repoFullName, projectName, repoName,
-    commitSha, notionParentPageId, builderAgent,
-  } = payload;
+  const { repoFullName, builderAgent } = payload;
 
   const written: any[] = [];
   const skipped: any[] = [];
@@ -37,26 +30,8 @@ async function writeTasksToNotion(auditResult: any, auditCycleId: any, payload: 
       continue;
     }
 
-    let notionPageId: string | null = null;
     try {
-      const page = await notion().pages.create({
-        parent:     { database_id: TASKS_DB_ID() },
-        properties: buildNotionProperties(task, {
-          projectName, repoName, commitSha, builderAgent, batchNumber,
-        }),
-        children: [buildNotionBody(task)],
-      });
-      notionPageId = page.id;
-    } catch (err: any) {
-      logger.warn({ taskNumber: task.taskNumber, err: err.message },
-        'Failed to write task to Notion — continuing');
-      failed.push({
-        taskNumber: task.taskNumber, title: task.title, reason: err.message,
-      });
-    }
-
-    try {
-      await createAuditTask({
+      const row = await createAuditTask({
         auditCycleId,
         repoFullName,
         taskNumber:          task.taskNumber,
@@ -71,89 +46,28 @@ async function writeTasksToNotion(auditResult: any, auditCycleId: any, payload: 
         acceptanceCriteria:  task.acceptanceCriteria,
         batchNumber,
         builderAgent:        builderAgent || 'qwen_coder',
-        notionPageId,
-      } as any);
-      written.push({ taskNumber: task.taskNumber, title: task.title, notionPageId });
+      });
+      written.push({ taskNumber: task.taskNumber, title: task.title, taskId: row?.id ?? null });
     } catch (err: any) {
       logger.error({ taskNumber: task.taskNumber, err: err.message },
         'Failed to save task to database');
+      failed.push({ taskNumber: task.taskNumber, title: task.title, reason: err.message });
     }
   }
 
   return { written, skipped, failed };
 }
 
-function buildNotionProperties(task: any, meta: any): any {
-  const { projectName, repoName, commitSha, builderAgent, batchNumber } = meta;
-  const emoji = PRIORITY_EMOJI[task.priority] || '⚪';
-
-  return {
-    'Name': {
-      title: [{ text: { content: `${emoji} [Batch ${batchNumber}] ${task.title}` } }],
-    },
-    'Status':               { select: { name: 'Queued' } },
-    'Priority':             { select: { name: task.priority } },
-    'Category':             { select: { name: task.category || 'code-quality' } },
-    'Complexity':           { select: { name: task.estimatedComplexity || 'medium' } },
-    'Safe to Auto-Execute': { select: { name: task.safeToAutoExecute ? 'Yes' : 'No' } },
-    'Source':               { select: { name: 'Project Sentinel Audit' } },
-    'Assigned Builder':     { select: { name: builderAgent || 'qwen_coder' } },
-    'Batch':                { number: batchNumber },
-    'Task Number':          { number: task.taskNumber },
-    'Audit Commit':         {
-      rich_text: [{ text: { content: (commitSha || '').substring(0, 7) } }],
-    },
-    'Repo Name':            {
-      rich_text: [{ text: { content: repoName || '' } }],
-    },
-  };
-}
-
-function buildNotionBody(task: any): any {
-  return {
-    object: 'block',
-    type:   'callout',
-    callout: {
-      rich_text: [{
-        type: 'text',
-        text: {
-          content: [
-            `Description:\n${task.description}`,
-            `\n\nAffected Files:\n${(task.affectedFiles || []).join(', ') || 'Not specified'}`,
-            `\n\nAcceptance Criteria:\n${task.acceptanceCriteria || 'Not specified'}`,
-            `\n\nSafety Note:\n${task.safetyReason || 'N/A'}`,
-          ].join(''),
-        },
-      }],
-      icon:  { emoji: '📋' },
-      color: 'default',
-    },
-  };
-}
-
-async function updateNotionTaskStatus(notionPageId: string | null, status: string, extra: any = {}): Promise<void> {
-  if (!notionPageId) return;
+async function updateNotionTaskStatus(taskId: number | null, status: string, extra: any = {}): Promise<void> {
+  if (!taskId) return;
   try {
-    const STATUS_MAP: Record<string, string> = {
-      in_progress: 'In Progress',
-      build_check: 'Build Check',
-      done:        'Done',
-      failed:      'Failed',
-      skipped:     'Skipped',
-      queued:      'Queued',
-    };
-    const props: Record<string, any> = {
-      'Status': { select: { name: STATUS_MAP[status] || status } },
-    };
-    if (extra.prUrl)         props['PR URL']         = { url: extra.prUrl };
-    if (extra.commitUrl)     props['Commit URL']     = { url: extra.commitUrl };
-    if (extra.failureReason) props['Failure Reason'] = {
-      rich_text: [{ text: { content: extra.failureReason.substring(0, 500) } }],
-    };
-    await notion().pages.update({ page_id: notionPageId, properties: props });
+    const updates: Record<string, any> = { status };
+    if (extra.prUrl)         updates['pr_url']         = extra.prUrl;
+    if (extra.commitUrl)     updates['commit_url']     = extra.commitUrl;
+    if (extra.failureReason) updates['failure_reason'] = extra.failureReason.substring(0, 500);
+    await updateAuditTask(taskId, updates);
   } catch (err: any) {
-    logger.warn({ err: err.message, notionPageId },
-      'Could not update Notion task status');
+    logger.warn({ err: err.message, taskId }, 'Could not update task status');
   }
 }
 

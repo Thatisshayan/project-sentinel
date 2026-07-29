@@ -202,6 +202,17 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 
 ---
 
+## 2026-07-29 Oracle Migration — Newly Deferred
+
+### D-025: Replace Notion with an in-app dashboard view to decouple task tracking
+**Scope**: Sentinel stored audit findings / sprint tasks in Notion via `NOTION_API_KEY`/`NOTION_DATABASE_ID` (see `notionClient.ts`). Now that the backend is self-hosted on Oracle with its own Postgres (see `docs/ORACLE_DEPLOY.md`), tasks are stored directly in Postgres instead.
+**Backend done (2026-07-29)**: Added `projectDb.ts` (new `projects`/`project_changelog` tables) as a self-hosted replacement for the Notion "project database". `notionClient.ts` is now a thin shim delegating to it — same exported function names/signatures, so its 8 existing call sites (`repoOnboarder.ts`, `telegramAI.ts`, `telegramCommands.ts`, `sprintOrchestrator.ts`, `priorityEngine.ts`, `debugOrchestrator.ts`, `auditOrchestrator.ts`, `parallelExecutor.ts`) needed zero changes. Separately, `auditTaskWriter.ts`'s per-task Notion mirror (`writeTasksToNotion`/`updateNotionTaskStatus`) was removed entirely — `audit_tasks` in Postgres was already the real source of truth, so the 7 call sites that passed `task.notion_page_id` now pass `task.id` (the Postgres row id) instead. `NOTION_API_KEY`/`NOTION_DATABASE_ID`/`NOTION_TASKS_DATABASE_ID` are no longer read anywhere.
+**Known gap**: existing repos' `projects` rows aren't backfilled (only newly-onboarded repos get one via `createNotionProject`/`createProject`), so `findNotionProject` returns null for already-onboarded repos until they're re-onboarded or manually inserted. All callers already fall back to the raw repo name when this happens, so this is a cosmetic gap (generic project name, no URL shown), not a functional break.
+**Remaining**: lightweight dashboard view in the Sentinel UI to browse/edit tasks (`ui/`) — intentionally deferred per Shayan's call, to be picked up after the Oracle migration settles. `@notionhq/client` can also be dropped from `package.json` once nothing else references it.
+**Status**: Backend decoupling complete (2026-07-29). UI view deferred — planned follow-up.
+
+---
+
 ## Notes for Future Agents
 
 - Phase 2 error architecture is complete. The `AppError` class hierarchy in `src/errors/errors.ts` is the canonical error type. All new errors should subclass `AppError`.

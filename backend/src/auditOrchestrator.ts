@@ -294,7 +294,7 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
   }).join('\n');
 
   const failNote = writeResult.failed.length  > 0
-    ? `\n⚠️ ${writeResult.failed.length} task(s) failed to write to Notion` : '';
+    ? `\n⚠️ ${writeResult.failed.length} task(s) failed to save` : '';
   const skipNote = writeResult.skipped.length > 0
     ? `\n⚠️ ${writeResult.skipped.length} duplicate(s) skipped` : '';
 
@@ -450,7 +450,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
 
   for (const task of tasks) {
     await updateAuditTask(task.id, { status: 'in_progress' });
-    await updateNotionTaskStatus(task.notion_page_id, 'in_progress');
+    await updateNotionTaskStatus(task.id, 'in_progress');
   }
 
   const builderConfig = getBuilderConfig(tasks[0].builder_agent || 'qwen_coder');
@@ -518,7 +518,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
         commit_sha: batchResult.commitSha, commit_url: batchResult.commitUrl,
         pr_url: prUrl, pr_number: prNumber,
       });
-      await updateNotionTaskStatus(task.notion_page_id, 'build_check', {
+      await updateNotionTaskStatus(task.id, 'build_check', {
         prUrl, commitUrl: batchResult.commitUrl,
       });
     }
@@ -528,7 +528,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
     );
     for (const task of skipped) {
       await updateAuditTask(task.id, { status: 'queued' });
-      await updateNotionTaskStatus(task.notion_page_id, 'queued');
+      await updateNotionTaskStatus(task.id, 'queued');
     }
 
     await safeFire(sendTelegramMessage([
@@ -550,7 +550,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
     // not the tasks themselves. Marking them failed would silently destroy the queue.
     for (const task of tasks) {
       await updateAuditTask(task.id, { status: 'queued', failure_reason: null });
-      await safeFire(updateNotionTaskStatus(task.notion_page_id, 'queued'), { label: 'auditOrchestrator' })
+      await safeFire(updateNotionTaskStatus(task.id, 'queued'), { label: 'auditOrchestrator' })
     }
 
     // Show stdout (aider conversation) and stderr (errors/warnings) separately

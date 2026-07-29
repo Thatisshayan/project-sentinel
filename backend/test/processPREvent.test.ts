@@ -58,7 +58,7 @@ describe('processPREvent', () => {
 
   test('merged PR: marks done the task whose pr_url matches and calls updateNotionTaskStatus for each returned row', async () => {
     (query as jest.Mock).mockResolvedValue({
-      rows: [{ id: 1, notion_page_id: 'page-abc' }],
+      rows: [{ id: 1 }],
     });
 
     await processPREvent(build());
@@ -70,7 +70,7 @@ describe('processPREvent', () => {
     expect(params).toEqual(['your-org/tapcash', 'https://github.com/your-org/tapcash/pull/99', 99]);
 
     expect(updateNotionTaskStatus).toHaveBeenCalledTimes(1);
-    expect(updateNotionTaskStatus).toHaveBeenCalledWith('page-abc', 'done', {
+    expect(updateNotionTaskStatus).toHaveBeenCalledWith(1, 'done', {
       prUrl: 'https://github.com/your-org/tapcash/pull/99',
     });
   });
@@ -93,14 +93,14 @@ describe('processPREvent', () => {
     // proving the corrected WHERE narrows to the right task. We assert
     // that updateNotionTaskStatus runs exactly once on that single row.
     (query as jest.Mock).mockResolvedValue({
-      rows: [{ id: 7, notion_page_id: 'page-7' }],
+      rows: [{ id: 7 }],
     });
 
     await processPREvent(build());
 
     expect(query).toHaveBeenCalledTimes(1);
     expect(updateNotionTaskStatus).toHaveBeenCalledTimes(1);
-    expect(updateNotionTaskStatus).toHaveBeenCalledWith('page-7', 'done', expect.anything());
+    expect(updateNotionTaskStatus).toHaveBeenCalledWith(7, 'done', expect.anything());
   });
 
   test('rejected PR: requeues only matching tasks with status = queued and clears pr_url/pr_number', async () => {

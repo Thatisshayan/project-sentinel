@@ -47,14 +47,14 @@ export async function processPREvent(payload: any): Promise<void> {
       WHERE repo_full_name = $1
         AND (pr_url = $2 OR (pr_url IS NULL AND pr_number = $3))
         AND status IN ('build_check', 'in_progress')
-      RETURNING id, notion_page_id
+      RETURNING id
     `, [repoFullName, prUrl, prNumber]).catch(() => null);
 
     const taskIds = updated?.rows || [];
     logger.info({ count: taskIds.length, repoFullName }, 'Tasks marked done after PR merge');
 
     for (const row of taskIds) {
-      await safeFire(updateNotionTaskStatus(row.notion_page_id, 'done', { prUrl }), { label: 'webhook', retryable: true })
+      await safeFire(updateNotionTaskStatus(row.id, 'done', { prUrl }), { label: 'webhook', retryable: true })
     }
 
     await safeFire(sendTelegramMessage([
