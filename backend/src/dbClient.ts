@@ -28,10 +28,30 @@ function isRailwayInternalHost(databaseUrl: string): boolean {
   }
 }
 
+/**
+ * The `postgres` service in docker-compose.prod.yml (self-hosted deploy,
+ * see docs/ORACLE_DEPLOY.md) is a plain postgres:16-alpine container on the
+ * compose-internal Docker network only — never reachable outside the host —
+ * and doesn't have SSL enabled at all. Unlike the Railway-internal case
+ * below, this isn't "relax cert validation": the server has no TLS listener,
+ * so SSL must be skipped entirely or every query fails with "The server
+ * does not support SSL connections".
+ */
+function isSelfHostedComposeHost(databaseUrl: string): boolean {
+  try {
+    return new URL(databaseUrl).hostname === 'postgres';
+  } catch {
+    return false;
+  }
+}
+
 function resolveSslConfig(): false | { ca?: string; rejectUnauthorized: boolean } {
   if (process.env['NODE_ENV'] !== 'production') return false;
 
-  const isRailwayInternal = isRailwayInternalHost(process.env['DATABASE_URL'] || '');
+  const databaseUrl = process.env['DATABASE_URL'] || '';
+  if (isSelfHostedComposeHost(databaseUrl)) return false;
+
+  const isRailwayInternal = isRailwayInternalHost(databaseUrl);
   const caCert = process.env['DATABASE_CA_CERT'];
 
   if (caCert) return { ca: caCert, rejectUnauthorized: true };
