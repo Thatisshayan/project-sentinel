@@ -5,13 +5,10 @@ import path from 'path';
 import fs from 'fs';
 import logger from './logger';
 import { sanitizeLogs } from './riskAssessor';
-import { buildChildEnv } from './utils/childEnv';
+import { getBuilderConfig, getAiderEnv, getFallbackBuilder } from './builderRouter';
 
 const TIMEOUT_MS = (): number =>
   parseInt(process.env['DEBUG_TIMEOUT_MINUTES'] || '30') * 60 * 1000;
-
-const AIDER_MODEL = (): string =>
-  process.env['AIDER_MODEL'] || 'openai/meta/llama-3.1-70b-instruct';
 
 // ── Build the message Aider receives ────────────────────────────────────────
 
@@ -65,18 +62,23 @@ interface AiderResult {
   reason?: string | null;
 }
 
-async function runAider(repoPath: string, context: AiderContext): Promise<AiderResult> {
+async function runAider(repoPath: string, context: AiderContext, builderId?: string): Promise<AiderResult> {
   return new Promise((resolve) => {
-    const model   = AIDER_MODEL();
+    // Shares builderRouter.ts's verified-working model pool and fallback
+    // chain with taskBuilder.ts's audit-fix path, instead of this file's
+    // previous standalone AIDER_MODEL env var — that var had drifted to
+    // 'deepseek/deepseek-chat' (a leftover Railway override) with zero
+    // fallback, silently routing every build-failure repair to DeepSeek
+    // after Shayan asked for it to be removed from the pool (2026-07-29).
+    const builderConfig = getBuilderConfig(builderId);
+    const model = builderConfig.aiderModel || 'openai/meta/llama-3.1-70b-instruct';
     const message = buildAiderMessage(context);
 
     // Write message to a temp file to avoid shell escaping issues
     const msgFile = path.join(repoPath, '.sentinel-aider-msg.tmp');
     fs.writeFileSync(msgFile, message, 'utf8');
 
-    // gemini/gemini-2.5-pro supports SEARCH/REPLACE natively; whole format works for anything else
-    const isCodeSpecialist = /gemini|codestral|qwen.*coder|deepseek.*coder/i.test(model);
-    const editFormat = isCodeSpecialist ? 'diff' : 'whole';
+    const editFormat = builderConfig.editFormat || 'whole';
 
     const args = [
       '--model',       model,
@@ -99,29 +101,14 @@ async function runAider(repoPath: string, context: AiderContext): Promise<AiderR
       args.push(...existingFiles.slice(0, 10)); // max 10 files
     }
 
-    logger.info({ model, repoPath, attempt: context.attemptNumber }, 'Starting Aider');
+    logger.info({ model, builder: builderConfig.id, repoPath, attempt: context.attemptNumber }, 'Starting Aider');
 
     let stdout = '';
     let stderr = '';
 
-    // NVIDIA NIM is OpenAI-compatible — Aider talks to it via the 'openai/' model
-    // prefix, so we point the OpenAI client at NIM's base URL and hand it the
-    // NVIDIA key. Falls back to a real OPENAI_API_KEY/base if someone points
-    // AIDER_MODEL at an actual OpenAI model instead.
-    const usingNvidia = model.startsWith('openai/') && !!process.env['NVIDIA_API_KEY'];
-
     const proc = spawn('aider', args, {
       cwd: repoPath,
-      env: buildChildEnv({
-        // Pass API keys Aider needs based on model
-        GEMINI_API_KEY:  process.env['GEMINI_API_KEY']  || '',
-        ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'] || '',
-        OPENAI_API_KEY:  usingNvidia ? process.env['NVIDIA_API_KEY'] : (process.env['OPENAI_API_KEY'] || ''),
-        ...(usingNvidia ? {
-          OPENAI_API_BASE: 'https://integrate.api.nvidia.com/v1',
-          OPENAI_BASE_URL: 'https://integrate.api.nvidia.com/v1',
-        } : {}),
-      }),
+      env: getAiderEnv(builderConfig),
     });
 
     proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
@@ -209,8 +196,30 @@ async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
     const fixBranch = `sentinel/fix-${attemptNumber}-${Date.now()}`;
     await repoGit.checkoutLocalBranch(fixBranch);
 
-    // Run Aider
-    const aiderResult = await runAider(tmpDir.name, context);
+    // Run Aider, retrying with a fallback builder (up to 3 total attempts) if
+    // the model call itself fails or exits cleanly without committing —
+    // mirrors taskBuilder.ts's retry-with-fallback logic for the audit-fix path.
+    const MAX_ATTEMPTS = 3;
+    let builderId: string | undefined;
+    let aiderResult: AiderResult = { success: false };
+    let latestCommit: any = null;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      aiderResult = await runAider(tmpDir.name, context, builderId);
+
+      if (aiderResult.success) {
+        const log = await repoGit.log({ maxCount: 1 });
+        latestCommit = log.latest;
+        if (latestCommit && latestCommit.hash !== baseSha) break;
+      }
+
+      const currentId = builderId || 'nvidia';
+      const next = attempt < MAX_ATTEMPTS ? getFallbackBuilder(currentId) : null;
+      if (!next) break;
+      logger.warn({ repoFullName, attempt, failedBuilder: currentId, fallingBackTo: next },
+        'Debug-fix builder failed or produced no commit — retrying with fallback');
+      builderId = next;
+    }
 
     if (!aiderResult.success) {
       return {
@@ -220,13 +229,6 @@ async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
         aiderOutput:    aiderResult.stdout,
       };
     }
-
-    // Detect new commits by comparing HEAD SHA to the pre-branch base SHA.
-    // diffSummary([branch, fixBranch]) is unreliable in shallow clones when
-    // aider makes no commits (refs are identical, diff is empty but fn can
-    // behave unexpectedly), so we compare SHAs directly instead.
-    const log = await repoGit.log({ maxCount: 1 });
-    const latestCommit = log.latest;
 
     if (!latestCommit || latestCommit.hash === baseSha) {
       logger.warn({
