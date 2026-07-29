@@ -22,12 +22,14 @@ interface AiderContext {
   repoFullName?: string;
   repoName?: string;
   branchName?: string;
+  projectMemoryText?: string;
 }
 
 function buildAiderMessage(context: AiderContext): string {
-  const { failureReason, failureLogs, changedFiles, buildProvider, attemptNumber } = context;
+  const { failureReason, failureLogs, changedFiles, buildProvider, attemptNumber, projectMemoryText } = context;
 
   return `You are an autonomous build repair agent. A build has failed. Fix it.
+${projectMemoryText ? `\n${projectMemoryText}\n` : ''}
 
 BUILD FAILURE CONTEXT:
 Provider: ${buildProvider}
@@ -177,6 +179,12 @@ async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
 
   try {
     logger.info({ repoFullName, tmpDir: tmpDir.name }, 'Cloning repo');
+
+    // D-027 item 6 (project memory) — recorded conventions/dismissed
+    // findings for this repo, fed into the debug-fix prompt the same way
+    // taskBuilder.ts's audit-task path already does.
+    const projectMemoryModule = require('./projectMemory');
+    context.projectMemoryText = await projectMemoryModule.getMemoryForPrompt(repoFullName!).catch(() => '');
 
     const cloneUrl = `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`;
     const git = simpleGit();

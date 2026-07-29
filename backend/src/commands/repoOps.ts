@@ -280,6 +280,47 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
     case 'skip-batch':
       return handleSkipBatch(parts[2] || '', parts[3] || '', topicId);
 
+    case 'remember': {
+      // D-027 item 6 (project memory) — /sentinel remember <repo> <text>
+      const repo = parts[2];
+      const content = parts.slice(3).join(' ').trim();
+      if (!repo || !content) {
+        await sendTelegramMessage('Usage: /sentinel remember <repo> <text to remember>', null, topicId);
+        return true;
+      }
+      const { addMemoryEntry } = require('../projectMemory') as { addMemoryEntry: (repo: string, type: string, content: string, addedBy?: string) => Promise<any> };
+      await addMemoryEntry(repoFullName(repo), 'note', content, 'human');
+      await sendTelegramMessage(`🧠 Remembered for ${repo}: ${content}`, repo, topicId);
+      return true;
+    }
+
+    case 'project-memory': {
+      // Named distinctly from the existing 'memory' subcommand
+      // (commands/agents.ts), which shows Telegram conversation history for
+      // a topic — a different feature from this repo-scoped engineering memory.
+      const repo = parts[2];
+      if (!repo) { await sendTelegramMessage('Usage: /sentinel project-memory <repo>', null, topicId); return true; }
+      const { getMemoryEntries } = require('../projectMemory') as { getMemoryEntries: (repo: string) => Promise<any[]> };
+      const entries = await getMemoryEntries(repoFullName(repo));
+      if (entries.length === 0) {
+        await sendTelegramMessage(`No memory recorded for ${repo} yet. Use /sentinel remember ${repo} <text>.`, repo, topicId);
+        return true;
+      }
+      const lines = entries.map((e: any) => `#${e.id} [${e.type}] ${e.content}`);
+      await sendTelegramMessage(`🧠 Memory for ${repo}:\n\n${lines.join('\n')}`, repo, topicId);
+      return true;
+    }
+
+    case 'forget': {
+      const repo = parts[2];
+      const id = parseInt(parts[3] || '', 10);
+      if (!repo || !id) { await sendTelegramMessage('Usage: /sentinel forget <repo> <id>', null, topicId); return true; }
+      const { deleteMemoryEntry } = require('../projectMemory') as { deleteMemoryEntry: (repo: string, id: number) => Promise<boolean> };
+      const deleted = await deleteMemoryEntry(repoFullName(repo), id);
+      await sendTelegramMessage(deleted ? `🧠 Forgot #${id} for ${repo}.` : `No memory entry #${id} found for ${repo}.`, repo, topicId);
+      return true;
+    }
+
     case 'lock': {
       if (!parts[2]) { await sendTelegramMessage('Usage: /sentinel lock <repo>', null, topicId); return true; }
       const { lockRepo } = require('../repoLock') as { lockRepo: (repo: string, reason?: string) => Promise<void> };

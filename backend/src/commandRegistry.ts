@@ -82,6 +82,9 @@ function buildAliases(handlers: {
     { words: ['repos'],               legacy: 'repos',            handler: repoOps },
     { words: ['repo'],                legacy: 'repo',             handler: repoOps },
     { words: ['dashboard'],           legacy: 'dashboard',        handler: repoOps },
+    { words: ['remember'],            legacy: 'remember',         handler: repoOps }, // D-027 item 6: project memory
+    { words: ['forget'],              legacy: 'forget',           handler: repoOps },
+    { words: ['project', 'memory'],   legacy: 'project-memory',   handler: repoOps }, // two-word: avoids colliding with the existing single-word 'memory' (conversation history, commands/agents.ts)
     { words: ['reset', 'failed'],     legacy: 'reset-failed',     handler: repoOps },
     { words: ['webhook', 'status'],   legacy: 'webhook-status',   handler: repoOps },
 

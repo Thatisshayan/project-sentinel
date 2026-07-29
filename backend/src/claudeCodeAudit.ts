@@ -7,6 +7,7 @@ import path from 'path';
 import logger from './logger';
 import { validateAuditOutput } from './aiOutputValidator';
 import { buildChildEnv } from './utils/childEnv';
+import projectMemory from './projectMemory';
 
 const AUDIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const AUDIT_MODEL = process.env['AUDIT_MODEL'] || 'mistralai/mistral-nemotron';
@@ -121,7 +122,7 @@ const ASPECT_DESCRIPTIONS: Record<string, string> = {
   database:         'schema design, migrations, indexing, query efficiency, data integrity',
 };
 
-function buildAuditPrompt(payload: AuditPayload, repoContext?: string): string {
+function buildAuditPrompt(payload: AuditPayload, repoContext?: string, memoryText?: string): string {
   const { repoFullName, repoName, projectName, commitSha, aspect } = payload;
 
   const taskInstructions = repoContext
@@ -146,7 +147,7 @@ function buildAuditPrompt(payload: AuditPayload, repoContext?: string): string {
 REPO: ${repoFullName}
 PROJECT: ${projectName || repoName}
 COMMIT: ${commitSha}
-${aspectFocus}${repoContext ? `\nREPOSITORY SNAPSHOT:\n${repoContext}\n` : ''}
+${aspectFocus}${memoryText ? `\n${memoryText}\n` : ''}${repoContext ? `\nREPOSITORY SNAPSHOT:\n${repoContext}\n` : ''}
 ${taskInstructions}
 
 CRITICAL OUTPUT RULE:
@@ -200,8 +201,8 @@ interface ClaudeResult {
   reason?: string | null;
 }
 
-async function runClaudeCodeAudit(repoPath: string, payload: AuditPayload): Promise<ClaudeResult> {
-  const prompt = buildAuditPrompt(payload);
+async function runClaudeCodeAudit(repoPath: string, payload: AuditPayload, memoryText?: string): Promise<ClaudeResult> {
+  const prompt = buildAuditPrompt(payload, undefined, memoryText);
 
   return new Promise((resolve) => {
     const args = [
@@ -252,8 +253,8 @@ async function runClaudeCodeAudit(repoPath: string, payload: AuditPayload): Prom
 // Sends the same audit prompt directly to the NVIDIA NIM chat completions endpoint.
 // Unlike the Claude Code CLI path, this model has no Read tool, so repoContext
 // (built from a real clone of the repo) is embedded directly in the prompt.
-async function runNvidiaAudit(payload: AuditPayload, repoContext: string): Promise<any> {
-  const prompt = buildAuditPrompt(payload, repoContext);
+async function runNvidiaAudit(payload: AuditPayload, repoContext: string, memoryText?: string): Promise<any> {
+  const prompt = buildAuditPrompt(payload, repoContext, memoryText);
 
   logger.info({ repo: payload.repoFullName, model: AUDIT_MODEL }, 'NVIDIA NIM audit starting');
 
@@ -342,10 +343,16 @@ async function runAudit(payload: AuditPayload): Promise<any> {
       '--branch', payload.branchName || 'main',
     ]);
 
+    // D-027 item 6 (project memory) — dismissed findings/conventions/prior
+    // decisions recorded for this repo, fed into the audit prompt so the
+    // same false positive or violated convention doesn't get re-raised
+    // every audit cycle.
+    const memoryText = await projectMemory.getMemoryForPrompt(repoFullName);
+
     // NVIDIA NIM is the primary audit path — no ANTHROPIC_API_KEY required.
     // It has no Read tool, so it gets a text snapshot of the cloned repo instead.
     if (process.env['NVIDIA_API_KEY']) {
-      const auditResult = await runNvidiaAudit(payload, buildRepoContext(tmpDir.name));
+      const auditResult = await runNvidiaAudit(payload, buildRepoContext(tmpDir.name), memoryText);
       logger.info({
         repoFullName,
         tasks: auditResult.tasks.length,
@@ -355,7 +362,7 @@ async function runAudit(payload: AuditPayload): Promise<any> {
       return auditResult;
     }
 
-    const result = await runClaudeCodeAudit(tmpDir.name, payload);
+    const result = await runClaudeCodeAudit(tmpDir.name, payload, memoryText);
 
     if (!result.success) {
       throw new Error(result.reason || 'Claude Code audit failed');
@@ -379,4 +386,4 @@ async function runAudit(payload: AuditPayload): Promise<any> {
   }
 }
 
-export = { runAudit };
+export = { runAudit, buildAuditPrompt, parseAuditOutput };

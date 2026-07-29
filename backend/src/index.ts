@@ -18,6 +18,7 @@ import { initViktorAuthoritySchema } from './viktorAuthority';
 import { initRoundtableSchema } from './agents/roundtable';
 import { initPortfolioSchema } from './portfolioDb';
 import { initProjectSchema } from './projectDb';
+import { initMemorySchema } from './projectMemory';
 import { initSprintSchema } from './sprintDb';
 import { initAgentSchema } from './agentDb';
 import { initAgentPool } from './agentRegistry';
@@ -381,6 +382,8 @@ app.listen(PORT, () => {
     logger.info('Portfolio schema ready');
     await initProjectSchema();
     logger.info('Project schema ready');
+    await initMemorySchema();
+    logger.info('Project memory schema ready');
     await initSprintSchema();
     logger.info('Sprint schema ready');
     await initAgentSchema();

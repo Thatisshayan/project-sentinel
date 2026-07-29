@@ -36,6 +36,14 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
     builder: builderConfig.label, batch: batchNums, existingBranch: existingBranch || null,
   }, 'Starting batch execution');
 
+  // D-027 item 6 (project memory) — fetched once per batch (not per task/
+  // attempt) and threaded through context so every task's build prompt in
+  // this batch sees the same recorded conventions/dismissed findings for
+  // this repo.
+  const projectMemoryModule = require('./projectMemory');
+  const memoryText = await projectMemoryModule.getMemoryForPrompt(repoFullName).catch(() => '');
+  context.projectMemoryText = memoryText;
+
   const tmpDir = tmp.dirSync({
     unsafeCleanup: true,
     prefix:        `sentinel-batch-${batchNum}-`,
@@ -410,7 +418,7 @@ function buildAiderTaskMessage(task: any, context: any, resolvedFiles: string[])
     : (task.affected_files || []).join(', ') || 'explore the repo to find relevant files';
 
   return `You are an autonomous code improvement agent working on ${context.projectName || context.repoName}.
-
+${context.projectMemoryText ? `\n${context.projectMemoryText}\n` : ''}
 TASK: ${task.title}
 ${task.description}
 

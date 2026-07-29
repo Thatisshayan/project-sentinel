@@ -26,6 +26,11 @@ jest.mock('../src/auditDb', () => ({
   getNextTaskNumberForCycle:  (...a: any[]) => getNextTaskNumberForCycleMock(...a),
 }));
 
+const getMemoryForPromptMock = jest.fn().mockResolvedValue('');
+jest.mock('../src/projectMemory', () => ({
+  getMemoryForPrompt: (...a: any[]) => getMemoryForPromptMock(...a),
+}));
+
 import selfReviewer from '../src/selfReviewer';
 const { reviewPrDiff } = selfReviewer;
 
@@ -123,6 +128,20 @@ describe('selfReviewer.reviewPrDiff (D-027 item 4: self-review fallback)', () =>
     axiosPostMock.mockResolvedValue({ data: { choices: [{ message: { content: 'not json at all' } }] } });
     const result = await reviewPrDiff(baseParams);
     expect(result).toEqual({ ran: false, findingsCreated: 0, reason: 'model_call_failed' });
+  });
+
+  test('D-027 item 6: injects project memory into the review prompt sent to the model', async () => {
+    getMemoryForPromptMock.mockResolvedValue('PROJECT MEMORY:\n- [convention] always use safeFire for Telegram sends');
+    axiosGetMock.mockResolvedValue({ data: 'diff --git a/foo.ts b/foo.ts\n+bug' });
+    axiosPostMock.mockResolvedValue({
+      data: { choices: [{ message: { content: JSON.stringify({ findings: [] }) } }] },
+    });
+
+    await reviewPrDiff(baseParams);
+
+    expect(getMemoryForPromptMock).toHaveBeenCalledWith('org/costpilot');
+    const sentPrompt = axiosPostMock.mock.calls[0][1].messages[0].content;
+    expect(sentPrompt).toContain('always use safeFire for Telegram sends');
   });
 
   test('truncates an oversized diff before sending it to the model', async () => {

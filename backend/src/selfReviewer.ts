@@ -3,6 +3,7 @@ import logger from './logger';
 import { safeFire } from './utils/safeFire';
 import { sendTelegramMessage } from './telegramClient';
 import { createAuditCycle, getAuditCycle, createAuditTask, getNextTaskNumberForCycle } from './auditDb';
+import projectMemory from './projectMemory';
 
 // D-027 item 4 (self-review fallback) — "if coderabbit didn't comment, Aider
 // should, or... any of the agents in sentinel should" (Shayan, 2026-07-29).
@@ -30,12 +31,12 @@ function severityToPriority(s: string): 'critical' | 'high' | 'medium' | 'low' {
   return 'medium';
 }
 
-function buildReviewPrompt(diff: string, repoFullName: string, prNumber: number): string {
+function buildReviewPrompt(diff: string, repoFullName: string, prNumber: number, memoryText?: string): string {
   return `You are an expert code reviewer conducting a self-review of Project Sentinel's own pull request (a role normally filled by CodeRabbit, which did not respond in time for this PR).
 
 REPO: ${repoFullName}
 PR: #${prNumber}
-
+${memoryText ? `\n${memoryText}\n` : ''}
 Review the unified diff below the way a careful senior reviewer would: correctness bugs, security issues, missed edge cases, resource leaks, and any change that looks unsafe or incomplete. Do NOT comment on style/formatting nits unless they indicate a real bug. If the diff is genuinely clean, return an empty findings array — do not invent problems.
 
 DIFF:
@@ -149,9 +150,11 @@ async function reviewPrDiff(params: {
     return { ran: true, findingsCreated: 0, reason: 'empty_diff' };
   }
 
+  const memoryText = await projectMemory.getMemoryForPrompt(repoFullName).catch(() => '');
+
   let findings: SelfReviewFinding[];
   try {
-    const raw = await callReviewModel(buildReviewPrompt(diff, repoFullName, prNumber));
+    const raw = await callReviewModel(buildReviewPrompt(diff, repoFullName, prNumber, memoryText));
     findings = parseFindings(raw);
   } catch (err: any) {
     logger.warn({ err: err.message, repoFullName, prNumber }, 'Self-review model call/parse failed');
