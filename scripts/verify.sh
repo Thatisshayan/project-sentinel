@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Repo-adaptive governance verification.
 # Implements REPO_RULES.md checks: secret-scan, doc-freshness, build, test, deploy-dry.
 # Emits GitHub Actions annotations (::error / ::notice) when run in CI.
@@ -47,7 +47,7 @@ else
   #     NOTE: --exclude must come AFTER --include in both passes — grep
   #     applies "last matching rule wins" for a given file, so an --exclude
   #     listed before a matching --include is silently overridden by it.
-  hits_src=$(grep -rIlE "(API_KEY|SECRET|PRIVATE_KEY|TOKEN|PASSWORD)[[:space:]]*[=:][[:space:]]*[\"'][A-Za-z0-9/+_-]{8,}[\"]" \
+  hits_src=$(grep -rIlE "(API_KEY|SECRET|PRIVATE_KEY|TOKEN|PASSWORD)[[:space:]]*[=:][[:space:]]*[\"'][A-Za-z0-9/+_-]{8,}[\"']" \
     --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=audits/private \
     --exclude-dir=.venv --exclude-dir=_repo_clone --exclude-dir=dist --exclude-dir=build \
     --exclude-dir=.cache --exclude-dir=coverage \

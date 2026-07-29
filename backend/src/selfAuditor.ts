@@ -18,8 +18,15 @@ async function runSelfAudit(): Promise<void> {
   const selfCycle = await createSelfAuditCycle();
 
   try {
+    // Resolve the branch first so the SHA we fetch is for the same branch
+    // we tell runAudit to check out — previously this always fetched
+    // /commits/main while branchName came from getDefaultBranch(), so a repo
+    // whose default branch isn't 'main' (e.g. 'develop') paired the wrong
+    // branch name with a main-branch SHA. Confirmed as a real bug by
+    // CodeRabbit (2026-07-29).
+    const branchName = await getDefaultBranch(SENTINEL_REPO).catch(() => 'main');
     const commitRes = await axios.get(
-      `https://api.github.com/repos/${SENTINEL_REPO}/commits/main`,
+      `https://api.github.com/repos/${SENTINEL_REPO}/commits/${branchName}`,
       {
         headers: {
           Authorization: `Bearer ${process.env['GITHUB_TOKEN']}`,
@@ -43,7 +50,7 @@ async function runSelfAudit(): Promise<void> {
       projectName:   'Project Sentinel',
       commitSha,
       commitMessage: 'Self-audit',
-      branchName:    await getDefaultBranch(SENTINEL_REPO).catch(() => 'main'),
+      branchName,
     } as any);
 
     const cycleSha = `${commitSha}-self-${Date.now()}`;

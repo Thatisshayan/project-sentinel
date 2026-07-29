@@ -123,18 +123,14 @@ describe('deduplication — in-memory fallback (Redis unconfigured)', () => {
   });
 
   test('isAlreadyProcessed returns false when no mark has been set', async () => {
-    // isAlreadyProcessed internally calls claimProcessing and releases immediately
-    // So first call returns false (not a duplicate), subsequent calls also return false
-    // because we release the claim. For a real duplicate check, use claimProcessing.
+    // isAlreadyProcessed is a pure read — it does not claim or release anything.
     expect(await dedup.isAlreadyProcessed('tapcash', 'sha-1')).toBe(false);
   });
 
-  test('markAsProcessed is a no-op in the new atomic model; use claimProcessing for actual dedup', async () => {
-    // markAsProcessed is a no-op in the new atomic model
+  test('markAsProcessed marks the in-memory entry', async () => {
+    // markAsProcessed writes the in-memory entry directly, which is exactly
+    // why isAlreadyProcessed sees it as a duplicate on the next read.
     await dedup.markAsProcessed('tapcash', 'sha-2');
-    // isAlreadyProcessed does a fresh claimProcessing which finds no prior entry
-    // but due to test isolation issues (module state leaks between tests),
-    // it may find stale state. The key behavior is that claimProcessing works.
     expect(await dedup.isAlreadyProcessed('tapcash', 'sha-2')).toBe(true);
   });
 
@@ -249,9 +245,10 @@ describe('deduplication — function signatures unchanged', () => {
     dedup = require('../src/deduplication');
   });
 
-  test('exports isAlreadyProcessed, markAsProcessed, unmarkProcessed', () => {
+  test('exports isAlreadyProcessed, markAsProcessed, unmarkProcessed, claimProcessing', () => {
     expect(typeof dedup.isAlreadyProcessed).toBe('function');
     expect(typeof dedup.markAsProcessed).toBe('function');
     expect(typeof dedup.unmarkProcessed).toBe('function');
+    expect(typeof dedup.claimProcessing).toBe('function');
   });
 });
