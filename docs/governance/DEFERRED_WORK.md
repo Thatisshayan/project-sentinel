@@ -211,6 +211,12 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 **Remaining**: lightweight dashboard view in the Sentinel UI to browse/edit tasks (`ui/`) — intentionally deferred per Shayan's call, to be picked up after the Oracle migration settles. `@notionhq/client` can also be dropped from `package.json` once nothing else references it.
 **Status**: Backend decoupling complete (2026-07-29). UI view deferred — planned follow-up.
 
+### D-026: Consider OmniRoute as a replacement for the hand-rolled builder pool
+**Scope**: Shayan flagged [github.com/diegosouzapw/OmniRoute](https://github.com/diegosouzapw/OmniRoute) (33.6k stars) — a self-hosted AI gateway aggregating 290+ providers (90+ free) behind one OpenAI-compatible endpoint, with built-in quota-aware auto-fallback across providers. This overlaps significantly with what `builderRouter.ts` now hand-maintains (currently 22 models across NVIDIA NIM, Mistral, OpenRouter, Gemini, Kilo Gateway, each individually verified and wired in by hand).
+**Why not done now**: Replacing the hand-rolled pool with OmniRoute is a real architecture change, not an incremental add — it means running OmniRoute as its own service (another container on the 1GB Oracle VM), vetting a third-party codebase that would intermediate every AI provider call, and re-verifying the whole builder/fallback pipeline against it instead of our own verified model list. Explicitly deferred per Shayan ("just consider it and maybe add it to the deferred") rather than integrated blind.
+**Proposed resolution**: If picked up later — evaluate OmniRoute's resource footprint on the VM, whether it actually improves on our per-model verification (it aggregates *documented* free tiers, not necessarily verified working on every account), and whether its quota-tracking makes taskBuilder.ts's/aiderRunner.ts's own fallback-chain logic partially redundant or complementary.
+**Status**: Deferred — noted for future consideration, not started.
+
 ---
 
 ## Notes for Future Agents

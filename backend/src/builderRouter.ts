@@ -27,6 +27,32 @@ function nvidiaBuilder(id: string, label: string, model: string, opts: { reasoni
   };
 }
 
+// Mistral and OpenRouter both have well-established native litellm/aider
+// provider prefixes ('mistral/', 'openrouter/') and read their own env var
+// by name (MISTRAL_API_KEY, OPENROUTER_API_KEY) — no NVIDIA-style base-URL
+// override hack needed.
+function mistralBuilder(id: string, label: string, model: string, opts: { reasoning?: boolean; description: string }): BuilderConfig {
+  return {
+    id, label,
+    type:        'aider',
+    aiderModel:  `mistral/${model}`,
+    envKey:      'MISTRAL_API_KEY',
+    reasoning:   opts.reasoning,
+    description: opts.description,
+  };
+}
+
+function openrouterBuilder(id: string, label: string, model: string, opts: { reasoning?: boolean; description: string }): BuilderConfig {
+  return {
+    id, label,
+    type:        'aider',
+    aiderModel:  `openrouter/${model}`,
+    envKey:      'OPENROUTER_API_KEY',
+    reasoning:   opts.reasoning,
+    description: opts.description,
+  };
+}
+
 /**
  * Every entry below (except gemini/opencode) was verified live against
  * https://integrate.api.nvidia.com/v1/chat/completions on 2026-07-29 — this
@@ -85,6 +111,22 @@ const BUILDERS: Record<string, BuilderConfig> = {
     { reasoning: true, description: 'Reasoning model — last resort, may emit unparseable <think> preamble' }),
   mistral_nemotron: nvidiaBuilder('mistral_nemotron', 'Mistral Nemotron (NVIDIA NIM)', 'mistralai/mistral-nemotron',
     { reasoning: true, description: 'Reasoning model — last resort, may emit unparseable <think> preamble' }),
+  // ── Mistral La Plateforme (own free tier, own API key) — verified live 2026-07-29 ──
+  mistral_codestral: mistralBuilder('mistral_codestral', 'Codestral (Mistral)', 'codestral-latest',
+    { description: "Mistral's dedicated code-completion/editing model — real redundancy, different provider than NVIDIA/OpenRouter" }),
+  mistral_small: mistralBuilder('mistral_small', 'Mistral Small (Mistral)', 'mistral-small-latest',
+    { description: 'General-purpose Mistral model' }),
+  mistral_large: mistralBuilder('mistral_large', 'Mistral Large (Mistral)', 'mistral-large-latest',
+    { description: 'Mistral flagship model' }),
+  // ── OpenRouter (own free tier, own API key) — verified live 2026-07-29 ──
+  openrouter_gemma: openrouterBuilder('openrouter_gemma', 'Gemma 4 31B (OpenRouter)', 'google/gemma-4-31b-it:free',
+    { description: 'Same model as gemma_31b but via OpenRouter — different provider/infra for real redundancy' }),
+  openrouter_gpt_oss_20b: openrouterBuilder('openrouter_gpt_oss_20b', 'GPT-OSS 20B (OpenRouter)', 'openai/gpt-oss-20b:free',
+    { reasoning: true, description: 'Reasoning-style output observed live — last resort' }),
+  openrouter_north_mini: openrouterBuilder('openrouter_north_mini', 'Cohere North Mini Code (OpenRouter)', 'cohere/north-mini-code:free',
+    { reasoning: true, description: 'Reasoning-style output observed live despite "code" in the name — last resort' }),
+  openrouter_ling: openrouterBuilder('openrouter_ling', 'Ling 3.0 Flash (OpenRouter)', 'inclusionai/ling-3.0-flash:free',
+    { reasoning: true, description: 'Reasoning-style output observed live — last resort' }),
   gemini: {
     id:          'gemini',
     label:       'Aider + Gemini 2.5 Flash',
@@ -132,11 +174,13 @@ const DEFAULT_BUILDER = 'nvidia';
 const SAFE_POOL = [
   'nvidia', 'llama_8b', 'llama_3b', 'llama_1b',
   'gpt_oss_120b', 'gpt_oss_20b', 'minimax', 'gemma_31b', 'poolside', 'stepfun',
+  'mistral_codestral', 'mistral_small', 'mistral_large', 'openrouter_gemma',
 ];
 const REASONING_POOL = [
   'nemotron_super_49b', 'nemotron_super_49b_v15', 'nemotron_3_super_120b',
   'nemotron_3_ultra_550b', 'nemotron_mini', 'nemotron_3_nano_30b',
   'nemotron_nano_9b', 'mistral_nemotron',
+  'openrouter_gpt_oss_20b', 'openrouter_north_mini', 'openrouter_ling',
 ];
 const FULL_NVIDIA_POOL = [...SAFE_POOL, ...REASONING_POOL];
 // Everything after the NVIDIA pool, tried in order once NVIDIA is fully
@@ -201,6 +245,10 @@ function getAiderEnv(config: BuilderConfig): Record<string, string | undefined> 
   const env = buildChildEnv();
   if (config.id === 'gemini') {
     env['GEMINI_API_KEY'] = process.env['GEMINI_API_KEY'] || '';
+  } else if (config.envKey === 'MISTRAL_API_KEY') {
+    env['MISTRAL_API_KEY'] = process.env['MISTRAL_API_KEY'] || '';
+  } else if (config.envKey === 'OPENROUTER_API_KEY') {
+    env['OPENROUTER_API_KEY'] = process.env['OPENROUTER_API_KEY'] || '';
   } else if (config.id === 'kilo') {
     // Kilo's free tier is genuinely unauthenticated, but aider's OpenAI
     // client still wants a non-empty key string to initialize — Kilo
