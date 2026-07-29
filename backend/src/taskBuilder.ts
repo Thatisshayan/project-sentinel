@@ -13,6 +13,16 @@ import { execAsync } from './utils/execAsync';
 
 const AIDER_TIMEOUT_MS: number = parseInt(process.env['AIDER_TIMEOUT_MINUTES'] || '20', 10) * 60 * 1000;
 
+async function resetWorkingTree(repoGit: ReturnType<typeof simpleGit>, taskNumber: number): Promise<void> {
+  try {
+    await repoGit.reset(['--hard', 'HEAD']);
+    await repoGit.clean('f', ['-d']);
+  } catch (e: any) {
+    logger.warn({ err: e instanceof Error ? (e.stack ?? e.message) : String(e), taskNumber },
+      'taskBuilder: failed to reset working tree after a failed/no-commit attempt');
+  }
+}
+
 async function executeBatch(tasks: any[], context: any, builderAssignment: string): Promise<any> {
   const { repoFullName, branchName, projectName, repoName, topicId } = context;
   const builderConfig = getBuilderConfig(builderAssignment);
@@ -113,11 +123,11 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
           : `${attemptBuilder.label} exited cleanly but produced no commit`;
 
         // No numeric attempt cap — walk the full fallback chain (currently
-        // ~19 models: see builderRouter.ts). The only real stop conditions
-        // are "no builder left with a configured key" (getFallbackBuilder
-        // returns null) or "we've already tried this one" (triedBuilders
-        // below) — both handled by the check right after this.
-        const nextBuilderId = getFallbackBuilder(attemptBuilder.id);
+        // ~22 models: see builderRouter.ts). Pass every builder tried so far
+        // in this task (not just the one that just failed) — getFallbackBuilder
+        // excludes all of them, so the walk actually reaches deeper into the
+        // pool instead of bouncing back to an already-tried builder.
+        const nextBuilderId = getFallbackBuilder(attemptBuilder.id, triedBuilders);
         const nextBuilder = nextBuilderId ? getBuilderConfig(nextBuilderId) : null;
 
         if (!nextBuilder || triedBuilders.includes(nextBuilder.id)) {
@@ -133,6 +143,13 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
 
         logger.warn({ taskNumber: task.task_number, failedBuilder: attemptBuilder.id, reason, fallingBackTo: nextBuilder.id },
           'Builder failed or produced no commit — retrying with fallback builder');
+        // A failed/no-commit attempt can leave tracked or untracked changes
+        // behind (e.g. a partial edit the model made before erroring) — reset
+        // so the next fallback model starts from the same committed baseline
+        // instead of an accumulating dirty worktree. Confirmed as a real risk
+        // by Qodo (2026-07-29), more likely now that this loop tries many
+        // models per task.
+        await resetWorkingTree(repoGit, task.task_number);
         attemptBuilder = nextBuilder;
       }
 
@@ -163,6 +180,9 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
           `Task ${task.task_number} "${task.title}" produced no commit after trying builders: ${triedBuilders.join(', ')} (${gitStatus}).\nStdout:\n${(taskResult.stdout||'').slice(-600)}\nStderr:\n${(taskResult.stderr||'').slice(-200)}`,
           'error', context.repoName
         ), { label: 'taskBuilder' })
+        // Reset before moving to the next task for the same reason as above —
+        // this task's final failed attempt shouldn't leak into the next task.
+        await resetWorkingTree(repoGit, task.task_number);
         // Every remaining task is worth trying independently (different tasks may
         // suit different models), so continue the batch rather than aborting it.
         continue;

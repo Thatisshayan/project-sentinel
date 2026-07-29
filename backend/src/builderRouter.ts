@@ -198,9 +198,22 @@ const FALLBACK_CHAIN: Record<string, string[]> = Object.fromEntries(
 );
 FALLBACK_CHAIN['opencode'] = FULL_POOL;
 
-function getFallbackBuilder(failedBuilder: string): string | null {
+/**
+ * `tried` must include every builder already attempted (not just the one
+ * that just failed) — chainFor() only excludes the single builder passed
+ * to it, so without this, falling back from e.g. llama_8b (chain: nvidia,
+ * llama_3b, ...) proposes 'nvidia' again since it's not "the failed
+ * builder" for llama_8b's own chain, even though it was already tried
+ * earlier in the same task. Confirmed as a real bug by CodeRabbit + Qodo
+ * independently (2026-07-29) — without this, taskBuilder.ts/aiderRunner.ts's
+ * triedBuilders.includes(next) guard stopped the walk after 2 builders
+ * instead of traversing the full ~22-model pool.
+ */
+function getFallbackBuilder(failedBuilder: string, tried: string[] = []): string | null {
   const chain = FALLBACK_CHAIN[failedBuilder] || FULL_POOL;
+  const excluded = new Set([failedBuilder, ...tried]);
   for (const candidate of chain) {
+    if (excluded.has(candidate)) continue;
     const config = BUILDERS[candidate];
     if (config && (!config.envKey || process.env[config.envKey])) {
       return candidate;

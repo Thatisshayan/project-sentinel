@@ -214,6 +214,8 @@ async function createAuditTask(data: {
 }): Promise<any | null> {
   const MAX_ATTEMPTS = 5;
   let taskNumber = data.taskNumber;
+  let batchNumber = data.batchNumber;
+  const batchSize = parseInt(process.env['TASK_BATCH_SIZE'] || '5');
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
@@ -230,7 +232,7 @@ async function createAuditTask(data: {
         data.title,             data.description,        data.priority,
         data.category,          data.affectedFiles || [], data.complexity,
         data.safeToAutoExecute, data.safetyReason,       data.acceptanceCriteria,
-        data.batchNumber,       data.builderAgent || 'nvidia',
+        batchNumber,            data.builderAgent || 'nvidia',
         data.source || 'sentinel',
       ]);
       return r.rows[0] || null;
@@ -239,6 +241,11 @@ async function createAuditTask(data: {
         String(err.constraint || '').includes('cycle_tasknum');
       if (!isTaskNumberConflict || attempt === MAX_ATTEMPTS) throw err;
       taskNumber = await getNextTaskNumberForCycle(data.auditCycleId);
+      // batch_number must stay derived from the (now different) task_number —
+      // otherwise a retried insert on this exact race persists a row whose
+      // batch/task numbers no longer correspond, and downstream batch
+      // execution (taskBuilder.ts groups by batch_number) can misassign it.
+      batchNumber = Math.ceil(taskNumber / batchSize);
     }
   }
   return null;

@@ -66,6 +66,15 @@ async function findProject(repoName: string): Promise<{
     logger.warn({ repoName }, 'Project not found in local registry — was it onboarded?');
     return null;
   }
+  // toId() collapses non-alphanumeric chars to '-', so distinct repo names
+  // (e.g. 'my-app' vs 'my_app') can alias onto the same id — confirmed by
+  // CodeRabbit 2026-07-29. Refuse to hand back another repo's project data
+  // rather than silently misattributing builderAgent/url/topicId.
+  if (row.repo_name.toLowerCase() !== repoName.toLowerCase()) {
+    logger.error({ repoName, id: toId(repoName), collidedWith: row.repo_name },
+      'toId collision — stored repo_name does not match requested repo, refusing to return it');
+    return null;
+  }
   return {
     pageId:       row.id,
     projectName:  row.project_name,
@@ -160,6 +169,15 @@ async function createProject(data: { repoName: string; priority?: string; builde
   `, [id, repoName, repoName, priority || null, builderAgent || null]);
 
   if (!r.rows[0]) {
+    // ON CONFLICT fired — either this repo really was already onboarded, or
+    // toId() aliased it onto a different repo's row (e.g. 'my-app' vs
+    // 'my_app'). Verify before treating it as "already exists".
+    const existing = await query('SELECT repo_name FROM projects WHERE id = $1', [id]);
+    if (existing.rows[0] && existing.rows[0].repo_name.toLowerCase() !== repoName.toLowerCase()) {
+      logger.error({ repoName, id, collidedWith: existing.rows[0].repo_name },
+        'toId collision — refusing to create project, another repo already owns this id');
+      return null;
+    }
     logger.warn({ repoName }, 'Project already exists — not recreating');
     return id;
   }

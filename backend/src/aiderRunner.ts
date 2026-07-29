@@ -219,8 +219,8 @@ async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
       }
 
       const currentId = builderId || 'nvidia';
-      const next = getFallbackBuilder(currentId);
-      if (!next || triedBuilders.includes(next)) break;
+      const next = getFallbackBuilder(currentId, triedBuilders);
+      if (!next) break;
       logger.warn({ repoFullName, attempt, failedBuilder: currentId, fallingBackTo: next },
         'Debug-fix builder failed or produced no commit — retrying with fallback');
       builderId = next;
