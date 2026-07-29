@@ -33,6 +33,8 @@ jest.mock('../src/projectDb', () => ({
   getActiveTaskBranch:   jest.fn().mockResolvedValue(null),
   setActiveTaskBranch:   jest.fn().mockResolvedValue(undefined),
   clearActiveTaskBranch: jest.fn().mockResolvedValue(undefined),
+  getAspectState:        jest.fn().mockResolvedValue(null),
+  setAspectState:        jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../src/auditTaskWriter', () => ({
@@ -95,6 +97,7 @@ jest.mock('../src/auditDb', () => ({
   getActiveCycleForRepo:   jest.fn(),
   getLastCompletedAudit:   jest.fn().mockResolvedValue(null),
   getPreviousHealthScore: jest.fn().mockResolvedValue(null),
+  getPreviousAspectHealthScore: jest.fn().mockResolvedValue(null),
   getQueuedTaskCount:      jest.fn().mockResolvedValue(0),
   getNextBatch:            jest.fn().mockResolvedValue([]),
   updateAuditTask:         jest.fn().mockResolvedValue(undefined),
@@ -562,6 +565,18 @@ describe('Stage 5: PR lifecycle for mint sentinel branches', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     sendTelegramMessage.mockResolvedValue(true);
+    // D-027 item 7: a merged PR now fires a real (fire-and-forget) re-audit
+    // via the actual auditOrchestrator.triggerAudit — this file intentionally
+    // does NOT mock auditOrchestrator so that path runs for real. Reset
+    // runAudit back to a benign resolved value here: an earlier describe
+    // block (Stage 4) leaves it mockRejectedValue'd, which would otherwise
+    // leak into this block's fire-and-forget audit and race with (overwrite)
+    // the "PR Merged" Telegram assertions below with an "Audit Failed" message.
+    runAudit.mockResolvedValue({
+      overallHealthScore: 8,
+      auditSummary: 'Post-merge check.',
+      tasks: [{ taskNumber: 1, title: 'Follow-up', priority: 'low', safeToAutoExecute: true }],
+    });
   });
 
   const mergedPR = {
@@ -606,9 +621,13 @@ describe('Stage 5: PR lifecycle for mint sentinel branches', () => {
     expect(query).toHaveBeenCalled();
     const sql = query.mock.calls[0][0];
     expect(sql).toContain("status = 'done'");
+    // D-027 item 7: a merged PR now fires a real re-audit right after, whose
+    // own Telegram messages ("Audit Starting", etc.) legitimately follow the
+    // "PR Merged" message — so "PR Merged" is no longer guaranteed to be the
+    // LAST message sent; assert it was sent at all instead.
     const tgCalls = sendTelegramMessage.mock.calls;
     expect(tgCalls.length).toBeGreaterThan(0);
-    expect(tgCalls[tgCalls.length - 1][0]).toContain('PR Merged');
+    expect(tgCalls.some(call => call[0].includes('PR Merged'))).toBe(true);
   });
 
   test('requeues tasks when mint sentinel PR is rejected', async () => {
@@ -635,12 +654,16 @@ describe('Stage 5: PR lifecycle for mint sentinel branches', () => {
       .set('x-github-event', 'pull_request')
       .send(mergedPR);
     await waitLong();
-    const lastCall = sendTelegramMessage.mock.calls[sendTelegramMessage.mock.calls.length - 1];
-    const msg = lastCall[0];
+    // D-027 item 7: find the actual "PR Merged" message rather than assuming
+    // it's the last call — a real re-audit's own messages legitimately
+    // follow it now (see the test above).
+    const mergeCall = sendTelegramMessage.mock.calls.find(call => call[0].includes('PR Merged'));
+    expect(mergeCall).toBeDefined();
+    const msg = mergeCall[0];
     // Fixed 2026-07-22: this previously hardcoded null (Telegram-only,
     // never reached Slack) despite repoName being right there in scope —
     // same bug class as the audit/build/debug orchestrators.
-    expect(lastCall[1]).toBe('mint');
+    expect(mergeCall[1]).toBe('mint');
     expect(msg).toContain('mint');
     expect(msg).toContain('#17');
   });

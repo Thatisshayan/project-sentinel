@@ -21,6 +21,10 @@ jest.mock('../src/projectDb', () => ({
   clearActiveTaskBranch: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../src/auditOrchestrator', () => ({
+  triggerAudit: jest.fn().mockResolvedValue({ started: false }),
+}));
+
 jest.mock('../src/securityDb', () => ({
   resolveIssuesByPr: jest.fn().mockResolvedValue(0),
 }));

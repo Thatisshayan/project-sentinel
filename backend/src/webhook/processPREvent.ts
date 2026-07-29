@@ -1,4 +1,4 @@
-import { safeFire } from '../utils/safeFire';
+import { safeFire, fireAndForget } from '../utils/safeFire';
 import { sendTelegramMessage } from '../telegramClient';
 import logger from '../logger';
 import dbClient from '../dbClient';
@@ -79,8 +79,33 @@ export async function processPREvent(payload: any): Promise<void> {
       `Branch: ${branchName}`,
       taskIds.length > 0 ? `${taskIds.length} task(s) marked complete` : '',
       ``,
-      `Next batch will run on next commit or /sentinel run-sprint ${repoName}`,
+      `Re-auditing to plan the next batch...`,
     ].filter(Boolean).join('\n'), repoName, null), { label: 'webhook' })
+
+    // D-027 item 7 (re-audit-after-merge trigger) — "after merge happen
+    // there should be another audit trigger... next 10 task be according to
+    // roadmap" (Shayan, 2026-07-29). triggerAudit()'s Rule 1 skips
+    // Sentinel-authored commits to avoid Sentinel endlessly auditing its own
+    // pushes — but THIS event is a human's deliberate merge action, not a
+    // Sentinel-authored commit, even though the merged commit's message/
+    // branch/author on GitHub may carry Sentinel's fingerprints (e.g. a
+    // squash-merge keeps the PR title, "feat(sentinel): ..."). Representing
+    // this call's payload honestly (human-attributed, not sentinel/-prefixed)
+    // means Rule 1 correctly does not apply here, with no change needed to
+    // the general skip rule itself — it stays intact for the normal
+    // push-webhook path, so a stray Sentinel commit still can't trigger an
+    // infinite self-audit loop. Rules 2/3 (queued-tasks / cooldown) still
+    // apply normally, bounding how often this can actually fire.
+    const { triggerAudit } = require('../auditOrchestrator');
+    fireAndForget(triggerAudit({
+      repoFullName, repoName, projectName: repoName,
+      commitSha:     pr.merge_commit_sha || `merge-pr-${prNumber}-${Date.now()}`,
+      commitMessage: `Merge pull request #${prNumber}`,
+      branchName:    'main',
+      authorName:    'Human (PR merge)',
+      authorEmail:   '',
+      topicId:       null,
+    }), { label: 'webhook' });
 
   } else {
     const updated = await query(`

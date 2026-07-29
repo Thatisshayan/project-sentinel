@@ -16,6 +16,10 @@ jest.mock('../src/projectDb', () => ({
   clearActiveTaskBranch: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../src/auditOrchestrator', () => ({
+  triggerAudit: jest.fn().mockResolvedValue({ started: false }),
+}));
+
 jest.mock('../src/telegramClient', () => ({
   sendTelegramMessage: jest.fn().mockResolvedValue(true),
 }));
@@ -34,6 +38,7 @@ import { resolveIssuesByPr } from '../src/securityDb';
 import { updateNotionTaskStatus } from '../src/auditTaskWriter';
 import { sendTelegramMessage } from '../src/telegramClient';
 import projectDb from '../src/projectDb';
+import { triggerAudit } from '../src/auditOrchestrator';
 
 describe('processPREvent', () => {
   beforeEach(() => {
@@ -45,6 +50,7 @@ describe('processPREvent', () => {
     (sendTelegramMessage as jest.Mock).mockResolvedValue(true);
     (projectDb.getActiveTaskBranch as jest.Mock).mockResolvedValue(null);
     (projectDb.clearActiveTaskBranch as jest.Mock).mockResolvedValue(undefined);
+    (triggerAudit as jest.Mock).mockResolvedValue({ started: false });
   });
 
   const basePR = {
@@ -81,6 +87,33 @@ describe('processPREvent', () => {
     expect(updateNotionTaskStatus).toHaveBeenCalledWith(1, 'done', {
       prUrl: 'https://github.com/your-org/tapcash/pull/99',
     });
+  });
+
+  test('D-027 item 7: merged PR triggers a fresh audit, attributed to a human merge (not Sentinel) so Rule 1 does not skip it', async () => {
+    (query as jest.Mock).mockResolvedValue({ rows: [] });
+
+    await processPREvent(build());
+
+    expect(triggerAudit).toHaveBeenCalledTimes(1);
+    const auditPayload = (triggerAudit as jest.Mock).mock.calls[0][0];
+    expect(auditPayload).toEqual(expect.objectContaining({
+      repoFullName: 'your-org/tapcash',
+      repoName:     'tapcash',
+      branchName:   'main',
+      authorName:   'Human (PR merge)',
+    }));
+    // None of Rule 1's Sentinel-attribution markers should be present.
+    expect(auditPayload.authorName).not.toBe('Project Sentinel');
+    expect(auditPayload.authorEmail).not.toBe('sentinel@project-sentinel.app');
+    expect(auditPayload.commitMessage).not.toMatch(/^(feat|fix)\(sentinel\):/);
+  });
+
+  test('D-027 item 7: rejected (non-merged) PR does NOT trigger a re-audit', async () => {
+    (query as jest.Mock).mockResolvedValue({ rows: [] });
+
+    await processPREvent(build('closed', { merged: false }));
+
+    expect(triggerAudit).not.toHaveBeenCalled();
   });
 
   test('M-1 regression: the SQL WHERE clause prefers pr_url match and falls back to pr_number ONLY when pr_url IS NULL', async () => {
