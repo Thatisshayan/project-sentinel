@@ -61,8 +61,12 @@ describe('getFallbackBuilder', () => {
       expect(steps).toBeLessThan(50); // guard against an actual infinite loop
     }
 
-    // Should have walked through more than just the first couple of builders.
-    expect(steps).toBeGreaterThan(5);
+    // Assert complete traversal of every builder configured with a live key
+    // (kilo has no envKey, so it's always "configured") — not an arbitrary
+    // minimum, so this stays meaningful if the pool's size changes later.
+    const configuredIds = listBuilders().filter(b => b.configured).map(b => b.id);
+    expect(tried.sort()).toEqual(configuredIds.sort());
+    expect(steps).toBe(configuredIds.length - 1);
   });
 
   it('returns null once every configured-key builder has been tried', () => {
