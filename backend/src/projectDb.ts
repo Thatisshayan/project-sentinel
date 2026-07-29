@@ -51,6 +51,13 @@ async function initProjectSchema(): Promise<void> {
   await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_pr_url TEXT;`);
   await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_pr_number INTEGER;`);
 
+  // D-027 item 5 (multi-aspect audit + scoring + rotation) — which aspect
+  // (security, frontend, backend, ...) the repo's audits are currently
+  // focused on, and how many sprints (audit cycles) it's had in that aspect
+  // so far. See auditAspects.ts for the rotation policy.
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS current_audit_aspect TEXT;`);
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS aspect_sprint_count INTEGER NOT NULL DEFAULT 0;`);
+
   await query(`
     CREATE TABLE IF NOT EXISTS project_changelog (
       id          SERIAL PRIMARY KEY,
@@ -247,8 +254,38 @@ async function clearActiveTaskBranch(repoName: string): Promise<void> {
   logger.info({ repoName }, 'Active task branch cleared');
 }
 
+async function getAspectState(repoName: string): Promise<{ aspect: string; sprintCount: number } | null> {
+  const id = toId(repoName);
+  const r = await query(
+    'SELECT repo_name, current_audit_aspect, aspect_sprint_count FROM projects WHERE id = $1',
+    [id]
+  );
+  const row = r.rows[0];
+  if (!row || !row.current_audit_aspect) return null;
+  if (row.repo_name.toLowerCase() !== repoName.toLowerCase()) {
+    logger.error({ repoName, id, collidedWith: row.repo_name },
+      'toId collision — refusing to return aspect state for a different repo');
+    return null;
+  }
+  return { aspect: row.current_audit_aspect, sprintCount: row.aspect_sprint_count };
+}
+
+async function setAspectState(repoName: string, aspect: string, sprintCount: number): Promise<void> {
+  const id = toId(repoName);
+  await query(`
+    INSERT INTO projects (id, repo_name, project_name, current_audit_aspect, aspect_sprint_count)
+    VALUES ($1, $2, $2, $3, $4)
+    ON CONFLICT (id) DO UPDATE SET
+      current_audit_aspect = EXCLUDED.current_audit_aspect,
+      aspect_sprint_count  = EXCLUDED.aspect_sprint_count,
+      updated_at           = NOW()
+    WHERE projects.repo_name = $2
+  `, [id, repoName, aspect, sprintCount]);
+}
+
 export = {
   initProjectSchema, findProject, updateProject,
   appendProjectChangelog, updateProjectBuilderAgent, createProject,
   getActiveTaskBranch, setActiveTaskBranch, clearActiveTaskBranch,
+  getAspectState, setAspectState,
 };

@@ -71,6 +71,14 @@ async function initAuditSchema(): Promise<void> {
   // once CodeRabbit becomes the primary audit engine.
   await query(`ALTER TABLE audit_tasks ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'sentinel';`);
 
+  // D-027 item 5 (multi-aspect audit + scoring + rotation) — which single
+  // aspect (security, frontend, backend, ...) this cycle's 10 tasks focused
+  // on, plus an aspect-scoped score distinct from the whole-repo score. See
+  // auditAspects.ts.
+  await query(`ALTER TABLE audit_cycles ADD COLUMN IF NOT EXISTS aspect TEXT;`);
+  await query(`ALTER TABLE audit_cycles ADD COLUMN IF NOT EXISTS aspect_health_score INTEGER;`);
+  await query(`ALTER TABLE audit_cycles ADD COLUMN IF NOT EXISTS aspect_effect_summary TEXT;`);
+
   // Guards against a race in concurrent-webhook-driven task creation (e.g.
   // processCodeRabbitPRComment.ts, where multiple GitHub webhook deliveries
   // for the same PR can arrive near-simultaneously): without this, two
@@ -175,14 +183,29 @@ async function getPreviousHealthScore(repoFullName: string, excludeCycleId: numb
   return r.rows[0]?.health_score ?? null;
 }
 
-async function createAuditCycle(data: { repoFullName: string; commitSha: string; projectName?: string }): Promise<any | null> {
+/**
+ * D-027 item 5 — the most recent PRIOR aspect-scoped score for this same
+ * aspect, so the audit report can show a real trend ("security: 6/10, up
+ * from 4/10 three sprints ago") instead of just an absolute number that
+ * means nothing without history.
+ */
+async function getPreviousAspectHealthScore(repoFullName: string, aspect: string, excludeCycleId: number): Promise<number | null> {
+  const r = await query(`
+    SELECT aspect_health_score FROM audit_cycles
+    WHERE repo_full_name = $1 AND aspect = $2 AND id != $3 AND aspect_health_score IS NOT NULL
+    ORDER BY created_at DESC LIMIT 1
+  `, [repoFullName, aspect, excludeCycleId]);
+  return r.rows[0]?.aspect_health_score ?? null;
+}
+
+async function createAuditCycle(data: { repoFullName: string; commitSha: string; projectName?: string; aspect?: string }): Promise<any | null> {
   const r = await query(`
     INSERT INTO audit_cycles
-      (repo_full_name, commit_sha, project_name, status, audit_agent)
-    VALUES ($1,$2,$3,'auditing','claude-code')
+      (repo_full_name, commit_sha, project_name, status, audit_agent, aspect)
+    VALUES ($1,$2,$3,'auditing','claude-code',$4)
     ON CONFLICT (repo_full_name, commit_sha) DO NOTHING
     RETURNING *
-  `, [data.repoFullName, data.commitSha, data.projectName]);
+  `, [data.repoFullName, data.commitSha, data.projectName, data.aspect || null]);
   return r.rows[0] || null;
 }
 
@@ -354,6 +377,7 @@ export = {
   getNextTaskNumberForCycle,
   getLastCompletedAudit,
   getPreviousHealthScore,
+  getPreviousAspectHealthScore,
   createAuditCycle,
   updateAuditCycle,
   getQueuedTaskCount,

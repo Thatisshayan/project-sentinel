@@ -101,10 +101,28 @@ interface AuditPayload {
   projectName?: string;
   commitSha?: string;
   branchName?: string;
+  // D-027 item 5 (multi-aspect audit + scoring + rotation) — which single
+  // dimension (security, frontend, backend, ...) this audit cycle should
+  // focus its 10 tasks on. See auditAspects.ts for the rotation policy that
+  // decides this per repo.
+  aspect?: string;
 }
 
+const ASPECT_DESCRIPTIONS: Record<string, string> = {
+  security:         'authentication, authorization, secrets handling, input validation, dependency/supply-chain vulnerabilities',
+  functionality:    'correctness bugs, broken features, edge cases, logic errors',
+  backend:          'server-side architecture, API design, data handling, background jobs',
+  frontend:         'client-side code structure, state management, rendering correctness',
+  ux_accessibility: 'usability, accessibility (a11y), UI consistency, error messaging shown to users',
+  performance:      'execution speed, resource usage, N+1 queries, unnecessary work, bundle size',
+  observability:    'logging, monitoring, error tracking, health checks, alerting coverage',
+  documentation:    'README accuracy, code comments, API/setup documentation, onboarding docs',
+  testing:          'test coverage, missing tests for critical paths, flaky/broken tests',
+  database:         'schema design, migrations, indexing, query efficiency, data integrity',
+};
+
 function buildAuditPrompt(payload: AuditPayload, repoContext?: string): string {
-  const { repoFullName, repoName, projectName, commitSha } = payload;
+  const { repoFullName, repoName, projectName, commitSha, aspect } = payload;
 
   const taskInstructions = repoContext
     ? `YOUR TASK:
@@ -119,12 +137,16 @@ function buildAuditPrompt(payload: AuditPayload, repoContext?: string): string {
 3. Understand what this project does and its current health.
 4. Generate exactly 10 improvement tasks ranked by priority.`;
 
+  const aspectFocus = aspect
+    ? `\nFOCUS: This audit cycle is dedicated to the "${aspect}" aspect of the repo — ${ASPECT_DESCRIPTIONS[aspect] || aspect}. ALL 10 tasks must be about this aspect specifically. Do not generate tasks about other aspects, even if you notice issues elsewhere — those will be covered in a future rotation.\n`
+    : '';
+
   return `You are a senior software engineer conducting a full codebase audit for Project Sentinel.
 
 REPO: ${repoFullName}
 PROJECT: ${projectName || repoName}
 COMMIT: ${commitSha}
-${repoContext ? `\nREPOSITORY SNAPSHOT:\n${repoContext}\n` : ''}
+${aspectFocus}${repoContext ? `\nREPOSITORY SNAPSHOT:\n${repoContext}\n` : ''}
 ${taskInstructions}
 
 CRITICAL OUTPUT RULE:
@@ -148,6 +170,8 @@ Output this exact structure:
   "auditTimestamp": "<current ISO 8601 timestamp>",
   "auditSummary": "<2-3 sentence plain-English summary of repo health>",
   "overallHealthScore": <integer 1 to 10>,
+  "aspectHealthScore": <integer 1 to 10 — an honest score for ONLY the "${aspect || 'general'}" aspect, not the whole repo>,
+  "aspectEffectSummary": "<plain-English: what recent changes to this repo mean in practice for this aspect specifically — not a description of the code, but the real-world effect (e.g. 'a missing rate limit on login means an attacker could brute-force passwords' rather than 'the login route has no middleware'). If nothing recent is aspect-relevant, describe the current real-world exposure/risk instead.>",
   "tasks": [
     {
       "taskNumber": 1,
@@ -277,6 +301,16 @@ function parseAuditOutput(stdout: string): any {
   }
 
   validateAuditOutput(parsed);
+
+  // Aspect fields are additive/optional (older audits or a model that
+  // ignores the instruction won't include them) — default rather than
+  // reject, so a missing aspect score never fails the whole audit.
+  parsed.aspectHealthScore   = typeof parsed.aspectHealthScore === 'number'
+    ? Math.max(1, Math.min(10, Math.round(parsed.aspectHealthScore)))
+    : parsed.overallHealthScore;
+  parsed.aspectEffectSummary = typeof parsed.aspectEffectSummary === 'string' && parsed.aspectEffectSummary.trim()
+    ? parsed.aspectEffectSummary.trim()
+    : '';
 
   parsed.tasks = parsed.tasks.slice(0, 10).map((t: any, i: number) => ({
     taskNumber:          t.taskNumber          || i + 1,

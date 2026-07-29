@@ -12,10 +12,12 @@ import projectDb from './projectDb';
 import {
   createAuditCycle, updateAuditCycle,
   getActiveCycleForRepo, getLastCompletedAudit, getPreviousHealthScore,
+  getPreviousAspectHealthScore,
   getQueuedTaskCount, getNextBatch,
   updateAuditTask, countTasksExecutedToday,
   stopAllTasksForRepo, markTasksDoneForBranch,
 } from './auditDb';
+import auditAspects from './auditAspects';
 import { getBuilderConfig, getFallbackBuilder } from './builderRouter';
 import { reportFailure, reportSuccess } from './selfHealer';
 import { trackModelCall } from './performanceTracker';
@@ -187,13 +189,20 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
     return { started: false, reason: 'audit_already_active' };
   }
 
-  const cycle = await createAuditCycle({ repoFullName, commitSha, projectName });
+  // D-027 item 5 (multi-aspect audit + scoring + rotation) — which single
+  // aspect this cycle's 10 tasks will focus on, per the repo's rotation state.
+  const aspectState = await auditAspects.getCurrentAspect(repoName).catch((err: any) => {
+    logger.warn({ err: err.message, repoName }, 'Could not resolve audit aspect — proceeding without aspect focus');
+    return null;
+  });
+
+  const cycle = await createAuditCycle({ repoFullName, commitSha, projectName, aspect: aspectState?.aspect });
   if (!cycle) {
     logger.warn({ repoFullName }, 'Could not create audit cycle');
     return { started: false, reason: 'cycle_creation_failed' };
   }
 
-  logger.info({ repoFullName, cycleId: cycle.id }, 'Audit cycle started');
+  logger.info({ repoFullName, cycleId: cycle.id, aspect: aspectState?.aspect }, 'Audit cycle started');
 
   // Get builder assignment from the project registry (projectDb.ts)
   let builderAgent = 'nvidia';
@@ -222,6 +231,7 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
       () => runAudit({
         repoFullName, repoName, projectName,
         commitSha, branchName: branchName || 'main',
+        aspect: aspectState?.aspect,
       })
     );
     await reportSuccess('auditOrchestrator');
@@ -254,13 +264,24 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
   const batchCount = Math.ceil(safeCount / BATCH_SIZE());
 
   await updateAuditCycle(cycle.id, {
-    status:           'awaiting_approval',
-    health_score:     auditResult.overallHealthScore,
-    audit_summary:    auditResult.auditSummary,
-    tasks_total:      totalCount,
-    tasks_safe:       safeCount,
-    approval_sent_at: new Date().toISOString(),
+    status:                'awaiting_approval',
+    health_score:          auditResult.overallHealthScore,
+    audit_summary:         auditResult.auditSummary,
+    tasks_total:           totalCount,
+    tasks_safe:            safeCount,
+    approval_sent_at:      new Date().toISOString(),
+    aspect_health_score:   auditResult.aspectHealthScore ?? null,
+    aspect_effect_summary: auditResult.aspectEffectSummary || null,
   });
+
+  // D-027 item 5 — this cycle's aspect-focused sprint is done; advance the
+  // rotation counter (and rotate to the next aspect once 3 sprints are hit).
+  const aspectRotation = aspectState
+    ? await auditAspects.recordSprintCompleted(repoName, aspectState.aspect).catch((err: any) => {
+        logger.warn({ err: err.message, repoName }, 'Could not record aspect sprint completion');
+        return null;
+      })
+    : null;
 
   const EMOJI: Record<string, string> = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' };
 
@@ -282,6 +303,33 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
         const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
         return ` (${arrow} ${delta > 0 ? '+' : ''}${delta} vs last audit)`;
       })();
+
+  // D-027 item 5 — same trend treatment, but scoped to just this aspect
+  // (e.g. "security" score history), plus the aspect's own trend vs. its
+  // last audit (which may be several audit cycles back, since other
+  // aspects rotate in between).
+  let aspectReportLines: string[] = [];
+  if (aspectState) {
+    const previousAspectScore = await getPreviousAspectHealthScore(repoFullName, aspectState.aspect, cycle.id).catch(() => null);
+    const aspectTrend = previousAspectScore == null
+      ? ''
+      : (() => {
+          const delta = (auditResult.aspectHealthScore ?? auditResult.overallHealthScore) - previousAspectScore;
+          const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+          return ` (${arrow} ${delta > 0 ? '+' : ''}${delta} vs last ${aspectState.aspect} audit)`;
+        })();
+    const sprintPosition = aspectRotation
+      ? (aspectRotation.rotated
+          ? `sprint 3/${auditAspects.SPRINTS_PER_ASPECT} — rotating to "${aspectRotation.aspect}" next`
+          : `sprint ${aspectRotation.sprintCount}/${auditAspects.SPRINTS_PER_ASPECT}`)
+      : '';
+    aspectReportLines = [
+      ``,
+      `🎯 Aspect focus: ${aspectState.aspect}${sprintPosition ? ` (${sprintPosition})` : ''}`,
+      `Aspect score: ${auditResult.aspectHealthScore ?? auditResult.overallHealthScore}/10${aspectTrend}`,
+      auditResult.aspectEffectSummary ? `Effect: ${auditResult.aspectEffectSummary}` : '',
+    ].filter(Boolean);
+  }
 
   // Each task gets its category and, for locked (needs-review) tasks, the
   // safety reason the audit gave — that's the exact information a human
@@ -307,6 +355,7 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
     `Commit: ${commitSha.substring(0, 7)}`,
     `Health Score: ${auditResult.overallHealthScore}/10${healthTrend}`,
     `Builder: ${builderConfig.label}`,
+    ...aspectReportLines,
     ``,
     auditResult.auditSummary,
     ``,

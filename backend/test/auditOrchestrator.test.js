@@ -37,6 +37,7 @@ jest.mock('../src/auditDb', () => ({
   getActiveCycleForRepo:   jest.fn(),
   getLastCompletedAudit:   jest.fn().mockResolvedValue(null),
   getPreviousHealthScore: jest.fn().mockResolvedValue(null),
+  getPreviousAspectHealthScore: jest.fn().mockResolvedValue(null),
   getQueuedTaskCount:      jest.fn().mockResolvedValue(0),
   getNextBatch:            jest.fn().mockResolvedValue([]),
   updateAuditTask:         jest.fn().mockResolvedValue(undefined),
@@ -221,6 +222,39 @@ describe('triggerAudit — happy path', () => {
     const auditText = sendMenu.mock.calls[0][2];
     expect(auditText).toContain('Health Score: 7/10');
     expect(auditText).not.toContain('vs last audit');
+  });
+
+  test('D-027 item 5: audit report includes aspect focus, aspect score, sprint position, and effect summary', async () => {
+    runAudit.mockResolvedValue({
+      ...auditResult, aspectHealthScore: 6, aspectEffectSummary: 'Users are exposed to a login brute-force risk.',
+    });
+    query.mockImplementation((sql) => {
+      if (sql.includes('current_audit_aspect')) {
+        return Promise.resolve({ rows: [{ repo_name: 'tapcash', current_audit_aspect: 'security', aspect_sprint_count: 1 }] });
+      }
+      return Promise.resolve({ rows: [{ count: '0' }] });
+    });
+
+    await triggerAudit(basePayload);
+
+    const auditText = sendMenu.mock.calls[0][2];
+    expect(auditText).toContain('🎯 Aspect focus: security (sprint 2/3)');
+    expect(auditText).toContain('Aspect score: 6/10');
+    expect(auditText).toContain('Effect: Users are exposed to a login brute-force risk.');
+  });
+
+  test('D-027 item 5: reports rotation to the next aspect on the 3rd sprint', async () => {
+    query.mockImplementation((sql) => {
+      if (sql.includes('current_audit_aspect')) {
+        return Promise.resolve({ rows: [{ repo_name: 'tapcash', current_audit_aspect: 'security', aspect_sprint_count: 2 }] });
+      }
+      return Promise.resolve({ rows: [{ count: '0' }] });
+    });
+
+    await triggerAudit(basePayload);
+
+    const auditText = sendMenu.mock.calls[0][2];
+    expect(auditText).toContain('sprint 3/3 — rotating to "functionality" next');
   });
 
   test('shows a downward trend arrow when health score dropped since the last audit', async () => {
