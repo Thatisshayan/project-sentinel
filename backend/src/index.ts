@@ -94,17 +94,33 @@ async function probeTools(): Promise<void> {
   const { logAgentMessage } = require('./agentDb');
 
   try {
-    const { stdout } = await execAsync('aider --version 2>&1', { timeout: 8000 });
+    // 8s was too short on the Oracle free-tier VM: a cold first invocation
+    // (Python interpreter start + aider's module imports) took ~5s even on
+    // a warm re-run in practice, racing against the other concurrent boot
+    // work (GitHub metrics sync, 4 AI-provider health checks) — confirmed
+    // 2026-07-29 by the boot log showing this warning fire at exactly 8.0s
+    // after the prior startup step, while `aider --version` (same command,
+    // same user) succeeded in ~5s run manually seconds later. Raised to 25s,
+    // generous enough for a cold start without meaningfully delaying boot
+    // (this only blocks the rest of probeTools(), not the whole server).
+    const { stdout } = await execAsync('aider --version 2>&1', { timeout: 25000 });
     const v = stdout.trim();
     logger.info({ version: v }, 'Aider is available');
     await safeFire(logAgentMessage('sentinel', 'Sentinel', `Builder ready: ${v}`, 'info', null), { label: 'index' })
-  } catch {
-    logger.warn('Aider not found in PATH — builder tasks will fail');
-    await safeFire(logAgentMessage('sentinel', 'Sentinel', 'WARNING: aider not found in PATH — builder tasks will fail. Check Railway deploy logs.', 'error', null), { label: 'index' })
+  } catch (err: any) {
+    // Node's child_process sets killed:true/signal:'SIGTERM' specifically
+    // for a timeout (not "command not found", which instead surfaces as a
+    // non-zero exit code with no signal) — worth distinguishing so a real
+    // missing-binary case still reads as urgent, while a slow-cold-start
+    // timeout reads as what it is.
+    const timedOut = err?.killed === true && err?.signal === 'SIGTERM';
+    const reason = timedOut ? 'timed out after 25s (slow cold start?)' : (err?.message || 'unknown error');
+    logger.warn({ reason }, 'Aider probe failed at boot — builder tasks may still work; this only affects the startup check');
+    await safeFire(logAgentMessage('sentinel', 'Sentinel', `WARNING: aider probe failed at boot (${reason}). Builder tasks may still work — this is a startup diagnostic, not a hard failure. Run /sentinel check-builder to verify.`, 'error', null), { label: 'index' })
     const { sendTelegramMessage } = require('./telegramClient');
     await safeFire(sendTelegramMessage(
-      'Project Sentinel WARNING: `aider` not found in PATH on this instance.\n' +
-      'Builder tasks will fail until fixed. Run /sentinel check-builder for details.',
+      `Project Sentinel WARNING: \`aider\` probe failed at boot (${reason}).\n` +
+      'This is a startup diagnostic — builder tasks may still work. Run /sentinel check-builder to verify.',
       null, null
     ), { label: 'index' })
   }
