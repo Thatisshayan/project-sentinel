@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import logger from './logger';
 import { runClaudeCodeForTask } from './claudeCodeRunner';
-import { getBuilderConfig, getAiderEnv } from './builderRouter';
+import { getBuilderConfig, getAiderEnv, getFallbackBuilder } from './builderRouter';
 import { updateAuditTask } from './auditDb';
 import { updateNotionTaskStatus } from './auditTaskWriter';
 import { execAsync } from './utils/execAsync';
@@ -51,63 +51,96 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
     let   lastTaskStdout = '';
     let   lastTaskStderr = '';
 
+    // Cap total model attempts per task so a bad task can't burn through the
+    // entire builder pool (11 configured builders) before giving up.
+    const MAX_BUILDER_ATTEMPTS = 4;
+
     for (const task of tasks) {
-      logger.info({ taskNumber: task.task_number, builder: builderConfig.id },
-        'Executing task in batch');
-
-      // Send heartbeat every 2 minutes so Telegram isn't silent during long runs
-      const heartbeatStart = Date.now();
-      const heartbeatTimer = topicId
-        ? setInterval(() => {
-            const elapsed = Math.round((Date.now() - heartbeatStart) / 60000);
-            const { sendTelegramMessage } = require('./telegramClient');
-            fireAndForget(sendTelegramMessage(
-              `Agent working on task ${task.task_number}/${tasks.length} — ${task.title}\nElapsed: ${elapsed}m | Builder: ${builderConfig.label}`,
-              repoName, topicId
-            ), { label: 'taskBuilder' })
-          }, 2 * 60 * 1000)
-        : null;
-
+      let attemptBuilder = builderConfig;
       let taskResult: any;
+      let attempt = 0;
+      let taskCommitted = false;
+      const triedBuilders: string[] = [];
 
-      try {
-        if (builderConfig.type === 'claude_code') {
-          taskResult = await runClaudeCodeForTask(tmpDir.name, task, context);
-        } else if (builderConfig.type === 'aider' || builderConfig.type === 'openai_compatible') {
-          // openai_compatible uses aider with OPENAI_API_BASE set in getAiderEnv
-          taskResult = await runAiderForTask(tmpDir.name, task, context, builderConfig);
-        } else {
-          taskResult = { success: false, reason: `Unknown builder type: ${builderConfig.type}` };
+      for (;;) {
+        attempt++;
+        triedBuilders.push(attemptBuilder.id);
+        logger.info({ taskNumber: task.task_number, builder: attemptBuilder.id, attempt },
+          'Executing task in batch');
+
+        // Send heartbeat every 2 minutes so Telegram isn't silent during long runs
+        const heartbeatStart = Date.now();
+        const heartbeatTimer = topicId
+          ? setInterval(() => {
+              const elapsed = Math.round((Date.now() - heartbeatStart) / 60000);
+              const { sendTelegramMessage } = require('./telegramClient');
+              fireAndForget(sendTelegramMessage(
+                `Agent working on task ${task.task_number}/${tasks.length} — ${task.title}\nElapsed: ${elapsed}m | Builder: ${attemptBuilder.label}`,
+                repoName, topicId
+              ), { label: 'taskBuilder' })
+            }, 2 * 60 * 1000)
+          : null;
+
+        try {
+          if (attemptBuilder.type === 'claude_code') {
+            taskResult = await runClaudeCodeForTask(tmpDir.name, task, context);
+          } else if (attemptBuilder.type === 'aider' || attemptBuilder.type === 'openai_compatible') {
+            // openai_compatible uses aider with OPENAI_API_BASE set in getAiderEnv
+            taskResult = await runAiderForTask(tmpDir.name, task, context, attemptBuilder);
+          } else {
+            taskResult = { success: false, reason: `Unknown builder type: ${attemptBuilder.type}` };
+          }
+        } finally {
+          if (heartbeatTimer) clearInterval(heartbeatTimer);
         }
-      } finally {
-        if (heartbeatTimer) clearInterval(heartbeatTimer);
+
+        lastTaskStdout = (taskResult.stdout || '').slice(-1500);
+        lastTaskStderr = (taskResult.stderr || '').slice(-1500);
+
+        // A "success" from the runner isn't good enough on its own — also
+        // require a new commit before treating this attempt as done, so a
+        // model that exits 0 without editing anything still triggers fallback.
+        let committed = false;
+        if (taskResult.success) {
+          const log = await repoGit.log({ maxCount: 1 });
+          const headSha = log.latest?.hash || null;
+          committed = !!headSha && headSha !== (lastCommitSha || initialBaseSha);
+          if (committed) {
+            lastCommitSha = headSha;
+          }
+        }
+
+        if (committed) { taskCommitted = true; break; }
+
+        const reason = !taskResult.success
+          ? (taskResult.reason || `${attemptBuilder.label} exit code ${taskResult.exitCode}`)
+          : `${attemptBuilder.label} exited cleanly but produced no commit`;
+
+        const nextBuilderId = attempt < MAX_BUILDER_ATTEMPTS ? getFallbackBuilder(attemptBuilder.id) : null;
+        const nextBuilder = nextBuilderId ? getBuilderConfig(nextBuilderId) : null;
+
+        if (!nextBuilder || triedBuilders.includes(nextBuilder.id)) {
+          logger.warn({
+            taskNumber:  task.task_number,
+            reason,
+            triedBuilders,
+            stdoutTail:  lastTaskStdout,
+            stderrTail:  lastTaskStderr,
+          }, 'Task failed on every available builder — giving up on this task');
+          break;
+        }
+
+        logger.warn({ taskNumber: task.task_number, failedBuilder: attemptBuilder.id, reason, fallingBackTo: nextBuilder.id },
+          'Builder failed or produced no commit — retrying with fallback builder');
+        attemptBuilder = nextBuilder;
       }
 
-      lastTaskStdout = (taskResult.stdout || '').slice(-1500);
-      lastTaskStderr = (taskResult.stderr || '').slice(-1500);
-
-      if (!taskResult.success) {
-        logger.warn({
-          taskNumber:  task.task_number,
-          reason:      taskResult.reason || `aider exit code ${taskResult.exitCode}`,
-          stdoutTail:  lastTaskStdout,
-          stderrTail:  lastTaskStderr,
-        }, 'Task failed — stopping batch at this point');
-        break;
-      }
-
-      // Detect a new commit by SHA, not by matching commit message text —
-      // the AI builder doesn't reliably follow the exact "feat(sentinel): ..."
-      // template, so message-matching silently discarded real commits.
-      const log = await repoGit.log({ maxCount: 1 });
-      const headSha = log.latest?.hash || null;
-      if (headSha && headSha !== (lastCommitSha || initialBaseSha)) {
-        lastCommitSha = headSha;
+      if (taskCommitted) {
         completedTasks.push(task);
-        logger.info({ taskNumber: task.task_number, sha: lastCommitSha!.slice(0, 7) },
+        logger.info({ taskNumber: task.task_number, sha: (lastCommitSha || '').slice(0, 7), builder: attemptBuilder.id },
           'Task committed');
       } else {
-        // No commit — check if files were changed but not committed (aider bug or hook failure)
+        // No commit on any attempted builder — check working tree state for diagnostics
         let gitStatus = '';
         try {
           const st = await repoGit.status();
@@ -120,14 +153,18 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
           stdoutTail: lastTaskStdout,
           stderrTail: lastTaskStderr,
           gitStatus,
-        }, 'No new commit found — task may have been skipped by the builder');
+          triedBuilders,
+        }, 'No new commit found — task may have been skipped by every attempted builder');
         // Log to agent_messages for UI visibility
         const { logAgentMessage } = require('./agentDb');
         await safeFire(logAgentMessage(
           'sentinel', 'Sentinel',
-          `Task ${task.task_number} "${task.title}" produced no commit (${gitStatus}).\nStdout:\n${(taskResult.stdout||'').slice(-600)}\nStderr:\n${(taskResult.stderr||'').slice(-200)}`,
+          `Task ${task.task_number} "${task.title}" produced no commit after trying builders: ${triedBuilders.join(', ')} (${gitStatus}).\nStdout:\n${(taskResult.stdout||'').slice(-600)}\nStderr:\n${(taskResult.stderr||'').slice(-200)}`,
           'error', context.repoName
         ), { label: 'taskBuilder' })
+        // Every remaining task is worth trying independently (different tasks may
+        // suit different models), so continue the batch rather than aborting it.
+        continue;
       }
     }
 
