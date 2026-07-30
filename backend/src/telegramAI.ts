@@ -20,8 +20,20 @@ import { setAgentIdle, getAllAgents } from './agentDb';
 import { getDefaultBranch } from './repoDiscovery';
 import { findNotionProject, updateBuilderAgent } from './notionClient';
 import { saveMessage, getHistory, formatHistoryForPrompt } from './conversationMemory';
+import type { canonicalizeRepoName as canonicalizeRepoNameType } from './repoResolver';
+import type { REPO_LIST as REPO_LIST_TYPE } from './portfolioAnalytics';
 
 const CHAT_MODEL = process.env['CHAT_MODEL'] || 'mistralai/mistral-nemotron';
+
+interface AiAction {
+  action: string;
+  repo?: string;
+  agent?: string;
+  title?: string;
+  description?: string;
+  priority?: string;
+  message?: string;
+}
 
 async function storeRedisContext(topicId: number | null, sender: string, message: string): Promise<void> {
   try {
@@ -52,8 +64,8 @@ async function getRedisContext(topicId: number | null): Promise<string[]> {
 }
 
 // Normalize AI-generated repo names (e.g. "projectSentinel") to canonical kebab names
-function resolveRepoName(input: string): any {
-  const { canonicalizeRepoName } = require('./repoResolver');
+function resolveRepoName(input: string): ReturnType<typeof canonicalizeRepoNameType> {
+  const { canonicalizeRepoName } = require('./repoResolver') as { canonicalizeRepoName: typeof canonicalizeRepoNameType };
   return canonicalizeRepoName(input);
 }
 
@@ -156,20 +168,20 @@ async function buildContext(): Promise<string> {
       getMonthlyCost(),
     ]);
 
-    const repoStates = summary.metrics.map((m: any) =>
+    const repoStates = summary.metrics.map((m) =>
       `${m.repo_name}: health=${m.health_score}/10 status=${m.build_status} priority=${m.priority} tasks_queued=${m.tasks_queued}`
     ).join('\n');
 
     return `CURRENT PORTFOLIO STATE:
 Health average: ${summary.avgHealth}/10
 Healthy repos: ${summary.healthy.length}
-Broken repos: ${summary.broken.length} — ${summary.broken.map((m: any) => m.repo_name).join(', ')}
+Broken repos: ${summary.broken.length} — ${summary.broken.map((m) => m.repo_name).join(', ')}
 
 REPO DETAILS:
 ${repoStates}
 
 PATTERNS DETECTED: ${patterns.length}
-${patterns.slice(0, 3).map((p: any) => `- ${p.description} (${(p.affected_repos || []).length} repos)`).join('\n')}
+${patterns.slice(0, 3).map((p) => `- ${p.description} (${(p.affected_repos || []).length} repos)`).join('\n')}
 
 API COSTS: $${dailyCost.toFixed(2)} today, $${monthlyCost.toFixed(2)} this month`;
   } catch {
@@ -239,7 +251,7 @@ async function handleMessage(messageText: string, fromName: string, topicId: num
     if (mentionedIds.length > 0) {
       const agents = await getAllAgents().catch(() => []);
       const lines  = mentionedIds.map(id => {
-        const a = agents.find((x: any) => x.agent_id === id);
+        const a = agents.find((x) => x.agent_id === id);
         if (!a) return `@${id}: not registered`;
         return a.status === 'working'
           ? `@${id}: working on ${a.repo_full_name?.split('/')[1]} — ${a.task_title}`
@@ -266,7 +278,7 @@ async function handleMessage(messageText: string, fromName: string, topicId: num
 
     await trackChatCost(prompt.length, raw.length);
 
-    let parsed: any;
+    let parsed: AiAction;
     try {
       const cleaned = raw
         .replace(/<think>[\s\S]*?<\/think>/gi, '')
@@ -280,10 +292,10 @@ async function handleMessage(messageText: string, fromName: string, topicId: num
       parsed = { action: 'answer', message: visibleRaw };
     }
 
-    const responseText: string | null = parsed.action === 'answer' ? parsed.message : null;
+    const responseText: string | null = parsed.action === 'answer' ? (parsed.message ?? null) : null;
 
     // Save to memory (non-blocking)
-    fireAndForget(saveMessage(topicId ?? 0, fromName, messageText, responseText, speakingAgent as any), { label: 'telegramAI' })
+    fireAndForget(saveMessage(topicId ?? 0, fromName, messageText, responseText, speakingAgent ?? null), { label: 'telegramAI' })
 
     // Store Sentinel's response in the Redis context window too
     if (responseText) {
@@ -311,7 +323,7 @@ async function handleMessage(messageText: string, fromName: string, topicId: num
 
 const REPO_REQUIRED_ACTIONS = ['execute_tasks', 'trigger_audit', 'stop_repo', 'assign_repo', 'create_task'];
 
-async function executeAction(action: any, topicId: number | null): Promise<void> {
+async function executeAction(action: AiAction, topicId: number | null): Promise<void> {
   const resolved        = action.repo ? resolveRepoName(action.repo) : null;
   const repoName        = resolved?.repoName || null;
   const repoFullNameVal = resolved?.repoFullName || null;
@@ -319,8 +331,8 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
   // If the AI named a repo that doesn't match anything real, refuse instead of
   // guessing a fake full name
   if (action.repo && !resolved && REPO_REQUIRED_ACTIONS.includes(action.action)) {
-    const { REPO_LIST } = require('./portfolioAnalytics');
-    const known = [...REPO_LIST.map((r: any) => r.repoName), 'project-sentinel'].join(', ');
+    const { REPO_LIST } = require('./portfolioAnalytics') as { REPO_LIST: typeof REPO_LIST_TYPE };
+    const known = [...REPO_LIST.map((r) => r.repoName), 'project-sentinel'].join(', ');
     await safeFire(sendTelegramMessage(
       `I don't recognize repo "${action.repo}". Known repos: ${known}`,
       null, topicId
@@ -334,7 +346,9 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
       await safeFire(sendTelegramMessage(
         `Starting task execution for ${repoName}...`, null, topicId
       ), { label: 'telegramAI' })
-      executeApprovedTasks(repoFullNameVal, repoName, topicId)
+      // repoName and repoFullNameVal both come from the same resolveRepoName()
+      // result — repoFullNameVal being truthy guarantees repoName is too.
+      executeApprovedTasks(repoFullNameVal, repoName!, topicId)
         .catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'AI execute failed'));
       break;
 
@@ -393,7 +407,7 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
 
     case 'agent_status': {
       const agents = await getAllAgents();
-      const target = agents.find((a: any) => a.agent_id === action.agent);
+      const target = agents.find((a) => a.agent_id === action.agent);
       if (!target) {
         await safeFire(sendTelegramMessage(
           `Unknown agent: ${action.agent}`, null, topicId
@@ -411,7 +425,8 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
 
     case 'assign_repo': {
       if (!repoFullNameVal || !action.agent) break;
-      const project = await findNotionProject(repoName).catch(() => null);
+      // Same invariant as executeApprovedTasks above.
+      const project = await findNotionProject(repoName!).catch(() => null);
       if (!project) {
         await safeFire(sendTelegramMessage(
           `No Notion project found for ${repoName}.`, null, topicId
@@ -428,7 +443,7 @@ async function executeAction(action: any, topicId: number | null): Promise<void>
     case 'stop_agent': {
       if (!action.agent) break;
       const agents = await getAllAgents();
-      const target = agents.find((a: any) => a.agent_id === action.agent);
+      const target = agents.find((a) => a.agent_id === action.agent);
       if (target?.repo_full_name) {
         await stopAllTasksForRepo(target.repo_full_name);
       }

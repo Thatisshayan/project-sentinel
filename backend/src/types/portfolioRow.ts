@@ -2,6 +2,19 @@
 // initPortfolioSchema for the DDL). Standalone module for the same reason
 // as types/agentRow.ts: portfolioDb.ts uses `export =`.
 
+export interface RepoPatternRow {
+  id: number;
+  pattern_type: string;
+  pattern_key: string;
+  description: string | null;
+  affected_repos: string[] | null;
+  severity: string;
+  status: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  resolved_at: string | null;
+}
+
 export interface PortfolioMetricRow {
   id: number;
   repo_full_name: string;

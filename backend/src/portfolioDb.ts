@@ -1,6 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
-import type { PortfolioMetricRow } from './types/portfolioRow';
+import type { PortfolioMetricRow, RepoPatternRow } from './types/portfolioRow';
 
 const { query } = dbClient;
 
@@ -230,7 +230,7 @@ async function upsertPattern(data: {
   return r.rows[0].id;
 }
 
-async function getOpenPatterns(): Promise<any[]> {
+async function getOpenPatterns(): Promise<RepoPatternRow[]> {
   const r = await query(`
     SELECT * FROM repo_patterns
     WHERE status = 'open'
