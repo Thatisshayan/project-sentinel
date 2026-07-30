@@ -10,13 +10,23 @@ const SELF_REPOS: string[] = ['project-sentinel', 'sentinel-ui'];
 
 const BASELINE_MARKER = '__sentinel_baseline_seeded__';
 
-async function listAllOwnedRepos(): Promise<any[]> {
+// The handful of fields this file reads off a GitHub API repo object —
+// deliberately not the full GitHub REST API repo schema.
+interface GitHubRepo {
+  name: string;
+  full_name: string;
+  id: number;
+  private: boolean;
+  owner?: { login?: string };
+}
+
+async function listAllOwnedRepos(): Promise<GitHubRepo[]> {
   const token = process.env['GITHUB_TOKEN'];
   if (!token) return [];
 
   const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' };
   const org     = getGithubOrg();
-  const repos: any[]   = [];
+  const repos: GitHubRepo[] = [];
   let page = 1;
 
   while (true) {
@@ -32,7 +42,7 @@ async function listAllOwnedRepos(): Promise<any[]> {
     if (page > 10) break;
   }
 
-  return repos.filter((r: any) => r.owner?.login?.toLowerCase() === org.toLowerCase());
+  return repos.filter((r) => r.owner?.login?.toLowerCase() === org.toLowerCase());
 }
 
 async function discoverAndOnboardRepos(): Promise<{ discovered: number; repos?: string[]; seeded?: number; error?: string }> {
@@ -41,7 +51,7 @@ async function discoverAndOnboardRepos(): Promise<{ discovered: number; repos?: 
     return { discovered: 0 };
   }
 
-  let ghRepos: any[];
+  let ghRepos: GitHubRepo[];
   try {
     ghRepos = await listAllOwnedRepos();
   } catch (err: any) {
@@ -58,11 +68,11 @@ async function discoverAndOnboardRepos(): Promise<{ discovered: number; repos?: 
     ...SELF_REPOS.map((r: string) => r.toLowerCase()),
   ]);
 
-  const newRepos = ghRepos.filter((r: any) => !known.has(r.name.toLowerCase()));
+  const newRepos = ghRepos.filter((r) => !known.has(r.name.toLowerCase()));
 
   if (isFirstRun) {
     logger.info(
-      { count: newRepos.length, repos: newRepos.map((r: any) => r.name) },
+      { count: newRepos.length, repos: newRepos.map((r) => r.name) },
       'Repo discovery: first run — seeding baseline without onboarding (these repos already existed)'
     );
     for (const repo of newRepos) {
@@ -83,7 +93,7 @@ async function discoverAndOnboardRepos(): Promise<{ discovered: number; repos?: 
     return { discovered: 0 };
   }
 
-  logger.info({ count: newRepos.length, repos: newRepos.map((r: any) => r.name) }, 'Repo discovery: new repos found');
+  logger.info({ count: newRepos.length, repos: newRepos.map((r) => r.name) }, 'Repo discovery: new repos found');
 
   for (const repo of newRepos) {
     try {
@@ -101,13 +111,13 @@ async function discoverAndOnboardRepos(): Promise<{ discovered: number; repos?: 
     }
   }
 
-  return { discovered: newRepos.length, repos: newRepos.map((r: any) => r.name) };
+  return { discovered: newRepos.length, repos: newRepos.map((r) => r.name) };
 }
 
 async function getFullRepoList(): Promise<Array<{ repoName: string; repoFullName: string }>> {
   const dynamic = await getOnboardedDiscoveredRepos().catch(() => []);
-  const known   = new Set(REPO_LIST.map((r: any) => r.repoName));
-  return [...REPO_LIST, ...dynamic.filter((r: any) => !known.has(r.repoName))];
+  const known   = new Set(REPO_LIST.map((r) => r.repoName));
+  return [...REPO_LIST, ...dynamic.filter((r) => !known.has(r.repoName))];
 }
 
 async function getDefaultBranch(repoFullName: string): Promise<string> {
