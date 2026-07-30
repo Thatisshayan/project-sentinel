@@ -65,8 +65,11 @@ async function runAgentStandup(): Promise<void> {
       const line = getStandupLine(agent.agent_id, stats);
 
       await sendAsAgent(agent.agent_id, line, null).catch(async () => {
+        // Lazy require to avoid circular dependency with agentRoom
+        const agentRoom = require('./agentRoom') as { AGENT_EMOJI: Record<string, string> };
+        const emoji = agentRoom.AGENT_EMOJI[agent.agent_id] || '🤖';
         await safeFire(sendTelegramMessage(
-          `${agent.emoji || '🤖'} ${agent.agent_label}: ${line}`,
+          `${emoji} ${agent.agent_label}: ${line}`,
           null, AGENT_ROOM_TOPIC()
         ), { label: 'agentStandup' })
       });

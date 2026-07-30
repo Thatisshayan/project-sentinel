@@ -366,12 +366,12 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       return true;
     }
     case 'what': {
-      const working = (await getAllAgents().catch(() => [])).filter((a: any) => a.status === 'working');
+      const working = (await getAllAgents().catch(() => [])).filter((a) => a.status === 'working');
       if (working.length === 0) {
         await sendTelegramMessage('Sentinel is idle. No active agent tasks.', null, topicId);
         return true;
       }
-      const lines = working.map((a: any) =>
+      const lines = working.map((a) =>
         `· ${a.agent_label} → ${a.repo_full_name?.split('/')[1]} — ${a.task_title}`
       );
       await sendTelegramMessage(`🤖 Active right now:\n\n${lines.join('\n')}`, null, topicId);

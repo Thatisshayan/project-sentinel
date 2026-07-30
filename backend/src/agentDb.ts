@@ -1,5 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
+import type { AgentRow, AgentMessageRow } from './types/agentRow';
 
 const { query } = dbClient;
 
@@ -114,7 +115,7 @@ async function markAgentError(agentId: string, reason: string): Promise<void> {
   `, [agentId, reason]);
 }
 
-async function getActiveAgents(): Promise<any[]> {
+async function getActiveAgents(): Promise<AgentRow[]> {
   const r = await query(`
     SELECT * FROM agent_registry
     WHERE status = 'working'
@@ -123,7 +124,7 @@ async function getActiveAgents(): Promise<any[]> {
   return r.rows;
 }
 
-async function getIdleAgents(): Promise<any[]> {
+async function getIdleAgents(): Promise<AgentRow[]> {
   const r = await query(`
     SELECT * FROM agent_registry
     WHERE status = 'idle'
@@ -132,7 +133,7 @@ async function getIdleAgents(): Promise<any[]> {
   return r.rows;
 }
 
-async function getAllAgents(): Promise<any[]> {
+async function getAllAgents(): Promise<AgentRow[]> {
   const r = await query('SELECT * FROM agent_registry ORDER BY agent_id');
   return r.rows;
 }
@@ -176,10 +177,10 @@ async function releaseFileLocks(repoFullName: string, agentId: string): Promise<
     WHERE repo_full_name = $1 AND locked_by = $2
     RETURNING file_path
   `, [repoFullName, agentId]);
-  return r.rows.map((row: any) => row.file_path);
+  return r.rows.map((row: { file_path: string }) => row.file_path);
 }
 
-async function releaseExpiredLocks(): Promise<any[]> {
+async function releaseExpiredLocks(): Promise<{ file_path: string; locked_by: string }[]> {
   const r = await query(`
     DELETE FROM file_locks WHERE expires_at < NOW()
     RETURNING file_path, locked_by
@@ -197,7 +198,7 @@ async function logAgentMessage(agentId: string, agentLabel: string, message: str
   `, [agentId, agentLabel, message.substring(0, 1000), type || 'info', repoName || null]);
 }
 
-async function getRecentMessages(limit = 20): Promise<any[]> {
+async function getRecentMessages(limit = 20): Promise<AgentMessageRow[]> {
   const r = await query(`
     SELECT * FROM agent_messages
     ORDER BY created_at DESC LIMIT $1

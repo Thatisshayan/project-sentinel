@@ -59,12 +59,13 @@ async function checkDependencyConflicts(repoFullName: string): Promise<{ hasConf
   if (dependents.length === 0) return { hasConflict: false };
 
   const active  = await getActiveAgents();
-  const working = active.filter((a: any) => dependents.includes(a.repo_full_name));
+  const working = active.filter((a) => a.repo_full_name && dependents.includes(a.repo_full_name));
 
-  if (working.length > 0) {
+  const first = working[0];
+  if (first) {
     return {
       hasConflict: true,
-      reason: `Dependent repo ${working[0].repo_full_name?.split('/')[1]} being modified by ${working[0].agent_label}`,
+      reason: `Dependent repo ${first.repo_full_name?.split('/')[1]} being modified by ${first.agent_label}`,
     };
   }
 
