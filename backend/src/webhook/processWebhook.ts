@@ -11,6 +11,7 @@ import { refreshRepoMetrics } from '../portfolioAnalytics';
 import { buildSuccessMessage, buildUnknownRepoMessage, buildErrorMessage } from './messages';
 import { runSecurityScan } from '../securityScanner';
 import { notifyDependents } from '../crossRepoCoordinator';
+import type { WebhookPayload } from '../types/webhookPayload';
 
 const { query } = dbClient;
 
@@ -21,12 +22,12 @@ const { query } = dbClient;
 // retryable, since retrying is the whole point of releasing the claim.
 const PERMANENT_NOTION_ERROR_CODES = new Set(['unauthorized', 'restricted_resource', 'object_not_found']);
 
-function isPermanentNotionError(err: any): boolean {
-  return PERMANENT_NOTION_ERROR_CODES.has(err?.code);
+function isPermanentNotionError(err: unknown): boolean {
+  return PERMANENT_NOTION_ERROR_CODES.has((err as { code?: string })?.code || '');
 }
 
 export async function processWebhook(payload: any): Promise<void> {
-  let data: any;
+  let data: WebhookPayload;
   try {
     data = extractPayload(payload);
   } catch (err: any) {
@@ -49,7 +50,7 @@ export async function processWebhook(payload: any): Promise<void> {
     return;
   }
 
-  let notionProject: any;
+  let notionProject: Awaited<ReturnType<typeof findNotionProject>>;
   try {
     notionProject = await findNotionProject(repoNameLower);
   } catch (err: any) {
@@ -125,7 +126,7 @@ export async function processWebhook(payload: any): Promise<void> {
         repoName:      data.repoName,
         commitSha:     data.commitSha,
         branchName:    data.branchName,
-        topicId:       notionProject.topicId || null,
+        topicId:       notionProject.topicId ? parseInt(notionProject.topicId, 10) : null,
       }).catch((err: any) => logger.warn({ err: err.message }, 'High-risk security scan failed — non-blocking'));
       logger.info({ repoName: data.repoName, risk: 'High' }, 'Security scan triggered for high-risk push');
     } catch (err: any) {

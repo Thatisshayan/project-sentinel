@@ -1,6 +1,7 @@
 import { assessRisk, isMarketingOnly } from './riskAssessor';
+import type { WebhookPayload } from './types/webhookPayload';
 
-function extractPayload(payload: any): any {
+function extractPayload(payload: any): WebhookPayload {
   if (!payload || typeof payload !== 'object') {
     throw new Error('Payload is null or not an object');
   }
