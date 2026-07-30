@@ -1,6 +1,6 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
-import axios from 'axios';
 import logger from './logger';
+import { callAnyProvider } from './ai/client';
 import { getGithubOrg } from './repoResolver';
 import { validateSprintOutput } from './aiOutputValidator';
 import { query } from './dbClient';
@@ -14,51 +14,15 @@ const SPRINT_MAX_TASKS = (): number => parseInt(process.env['SPRINT_MAX_TASKS'] 
 const SPRINT_MODEL     = process.env['SPRINT_MODEL'];
 
 async function callFreeAI(prompt: string): Promise<string> {
-  if (process.env['NVIDIA_API_KEY']) {
-    const model = SPRINT_MODEL || 'mistralai/mistral-nemotron';
-    logger.info({ model }, 'Sprint planner using NVIDIA NIM');
-    const res = await axios.post(
-      'https://integrate.api.nvidia.com/v1/chat/completions',
-      { model, messages: [{ role: 'user', content: prompt }], max_tokens: 2000, temperature: 0.1 },
-      { headers: { Authorization: `Bearer ${process.env['NVIDIA_API_KEY']}`, 'Content-Type': 'application/json' }, timeout: 90000 }
-    );
-    return res.data.choices[0]?.message?.content || '';
-  }
-
-  if (process.env['GEMINI_API_KEY']) {
-    const model = SPRINT_MODEL || 'gemini-2.0-flash';
-    logger.info({ model }, 'Sprint planner using Gemini');
-    const res = await axios.post(
-      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-      { model, messages: [{ role: 'user', content: prompt }], max_tokens: 2000 },
-      { headers: { Authorization: `Bearer ${process.env['GEMINI_API_KEY']}`, 'Content-Type': 'application/json' }, timeout: 90000 }
-    );
-    return res.data.choices[0]?.message?.content || '';
-  }
-
-  if (process.env['DASHSCOPE_API_KEY']) {
-    const model = SPRINT_MODEL || 'qwen-max';
-    logger.info({ model }, 'Sprint planner using DashScope Qwen');
-    const res = await axios.post(
-      `${process.env['DASHSCOPE_BASE_URL'] || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}/chat/completions`,
-      { model, messages: [{ role: 'user', content: prompt }], max_tokens: 2000 },
-      { headers: { Authorization: `Bearer ${process.env['DASHSCOPE_API_KEY']}`, 'Content-Type': 'application/json' }, timeout: 90000 }
-    );
-    return res.data.choices[0]?.message?.content || '';
-  }
-
-  if (process.env['DEEPSEEK_API_KEY']) {
-    const model = SPRINT_MODEL || 'deepseek-chat';
-    logger.info({ model }, 'Sprint planner using DeepSeek');
-    const res = await axios.post(
-      'https://api.deepseek.com/chat/completions',
-      { model, messages: [{ role: 'user', content: prompt }], max_tokens: 2000 },
-      { headers: { Authorization: `Bearer ${process.env['DEEPSEEK_API_KEY']}`, 'Content-Type': 'application/json' }, timeout: 90000 }
-    );
-    return res.data.choices[0]?.message?.content || '';
-  }
-
-  throw new Error('No free AI provider configured. Set NVIDIA_API_KEY, GEMINI_API_KEY, DASHSCOPE_API_KEY, or DEEPSEEK_API_KEY.');
+  return callAnyProvider({
+    userPrompt:  prompt,
+    maxTokens:   2000,
+    temperature: 0.1,
+    timeoutMs:   90000,
+    models: SPRINT_MODEL
+      ? { nvidia: SPRINT_MODEL, gemini: SPRINT_MODEL, dashscope: SPRINT_MODEL, deepseek: SPRINT_MODEL }
+      : {},
+  });
 }
 
 function getWeekDates(): { weekStart: string; weekEnd: string } {

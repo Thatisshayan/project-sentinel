@@ -1,7 +1,6 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
-import Anthropic from '@anthropic-ai/sdk';
-import axios from 'axios';
 import logger from './logger';
+import { callAnyProvider } from './ai/client';
 import { repoFullName } from './repoResolver';
 import { getPortfolioSummary } from './portfolioAnalytics';
 import { getOpenPatterns, getDailyCost, getMonthlyCost } from './portfolioDb';
@@ -181,85 +180,14 @@ API COSTS: $${dailyCost.toFixed(2)} today, $${monthlyCost.toFixed(2)} this month
 // Calls the best available AI provider in priority order.
 // Never uses Anthropic unless explicitly set — free providers first.
 async function callChatAPI(prompt: string): Promise<string> {
-  if (process.env['NVIDIA_API_KEY']) {
-    const response = await axios.post(
-      'https://integrate.api.nvidia.com/v1/chat/completions',
-      {
-        model:       CHAT_MODEL,
-        messages:    [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user',   content: prompt },
-        ],
-        max_tokens:  1000,
-        temperature: 0.3,
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env['NVIDIA_API_KEY']}`, 'Content-Type': 'application/json' },
-        timeout: 30000,
-      }
-    );
-    return response.data.choices[0]?.message?.content || '';
-  }
-
-  if (process.env['GEMINI_API_KEY']) {
-    const response = await axios.post(
-      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-      {
-        model:      'gemini-2.0-flash',
-        messages:   [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],
-        max_tokens: 1000,
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env['GEMINI_API_KEY']}`, 'Content-Type': 'application/json' },
-        timeout: 30000,
-      }
-    );
-    return response.data.choices[0]?.message?.content || '';
-  }
-
-  if (process.env['DASHSCOPE_API_KEY']) {
-    const response = await axios.post(
-      `${process.env['DASHSCOPE_BASE_URL'] || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}/chat/completions`,
-      {
-        model:      'qwen-max',
-        messages:   [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],
-        max_tokens: 1000,
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env['DASHSCOPE_API_KEY']}`, 'Content-Type': 'application/json' },
-        timeout: 30000,
-      }
-    );
-    return response.data.choices[0]?.message?.content || '';
-  }
-
-  if (process.env['DEEPSEEK_API_KEY']) {
-    const response = await axios.post(
-      'https://api.deepseek.com/chat/completions',
-      {
-        model:      'deepseek-chat',
-        messages:   [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],
-        max_tokens: 1000,
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env['DEEPSEEK_API_KEY']}`, 'Content-Type': 'application/json' },
-        timeout: 30000,
-      }
-    );
-    return response.data.choices[0]?.message?.content || '';
-  }
-
-  if (process.env['ANTHROPIC_API_KEY']) {
-    const model  = CHAT_MODEL.startsWith('claude') ? CHAT_MODEL : 'claude-sonnet-4-6';
-    const client = new Anthropic({ apiKey: process.env['ANTHROPIC_API_KEY'] });
-    const res    = await client.messages.create({
-      model, max_tokens: 1000, system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    return (res.content[0] as any)?.text || '';
-  }
-
-  throw new Error('No AI provider configured — set NVIDIA_API_KEY, GEMINI_API_KEY, DASHSCOPE_API_KEY, or DEEPSEEK_API_KEY');
+  return callAnyProvider({
+    userPrompt:      prompt,
+    systemPrompt:    SYSTEM_PROMPT,
+    maxTokens:       1000,
+    temperature:     0.3,
+    models:          { nvidia: CHAT_MODEL, anthropic: CHAT_MODEL.startsWith('claude') ? CHAT_MODEL : undefined },
+    includeAnthropic: true,
+  });
 }
 
 async function handleMessage(messageText: string, fromName: string, topicId: number | null, roomContext?: string,

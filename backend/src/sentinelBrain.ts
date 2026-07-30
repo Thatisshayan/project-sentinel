@@ -1,6 +1,6 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
-import axios from 'axios';
 import logger from './logger';
+import { callAnyProvider } from './ai/client';
 import { repoFullName } from './repoResolver';
 import { validateBrainOutput } from './aiOutputValidator';
 import { getPortfolioSummary, REPO_LIST } from './portfolioAnalytics';
@@ -188,37 +188,13 @@ Yesterday focused on: ${intelligence.prevFocus.join(', ') || 'nothing'}
 
 Make your strategic decision.`;
 
-  const tryProvider = async (apiKey: string, url: string, model: string): Promise<string> => {
-    const res = await axios.post(url,
-      { model, messages: [{ role: 'system', content: BRAIN_SYSTEM }, { role: 'user', content: prompt }],
-        max_tokens: 500, temperature: 0.2 },
-      { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 30000 }
-    );
-    return res.data.choices[0]?.message?.content || '';
-  };
-
-  const dashscopeBase = process.env['DASHSCOPE_BASE_URL'] || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-  const providers = [
-    { key: process.env['NVIDIA_API_KEY'],   url: 'https://integrate.api.nvidia.com/v1/chat/completions',                     model: BRAIN_MODEL,  name: 'NVIDIA NIM' },
-    { key: process.env['GEMINI_API_KEY'],   url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', model: 'gemini-2.5-pro', name: 'Gemini' },
-    { key: process.env['DASHSCOPE_API_KEY'], url: `${dashscopeBase}/chat/completions`,                                      model: 'qwen-max',   name: 'DashScope (Qwen)' },
-    { key: process.env['DEEPSEEK_API_KEY'], url: 'https://api.deepseek.com/chat/completions',                               model: 'deepseek-chat', name: 'DeepSeek' },
-  ].filter((p: any) => p.key);
-
-  if (providers.length === 0) {
-    throw new Error('No AI provider available for brain');
-  }
-
-  let lastErr: any;
-  for (const p of providers) {
-    try {
-      return await tryProvider(p.key!, p.url, p.model);
-    } catch (err: any) {
-      lastErr = err;
-      logger.warn({ provider: p.name, err: err.message }, 'Brain provider failed — trying next');
-    }
-  }
-  throw lastErr;
+  return callAnyProvider({
+    userPrompt:   prompt,
+    systemPrompt: BRAIN_SYSTEM,
+    maxTokens:    500,
+    temperature:  0.2,
+    models:       { nvidia: BRAIN_MODEL, gemini: 'gemini-2.5-pro' },
+  });
 }
 
 async function runStrategicBrain(topicId?: number | null): Promise<void> {

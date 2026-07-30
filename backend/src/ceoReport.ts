@@ -1,5 +1,5 @@
 import logger from './logger';
-import axios from 'axios';
+import { callAnyProvider } from './ai/client';
 import { sendTelegramMessage } from './telegramClient';
 import { getPortfolioSummary } from './portfolioAnalytics';
 import { getSprintStatus } from './sprintOrchestrator';
@@ -8,72 +8,11 @@ import { getPortfolioSecuritySummary } from './securityDb';
 import { getLatestMetrics } from './businessDb';
 
 async function callAI(prompt: string): Promise<string | null> {
-  if (process.env['NVIDIA_API_KEY']) {
-    const res = await axios.post(
-      'https://integrate.api.nvidia.com/v1/chat/completions',
-      {
-        model:       'mistralai/mistral-nemotron',
-        messages:    [{ role: 'user', content: prompt }],
-        max_tokens:  600,
-        temperature: 0.4,
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env['NVIDIA_API_KEY']}`, 'Content-Type': 'application/json' },
-        timeout: 60000,
-      }
-    );
-    return res.data.choices[0]?.message?.content || null;
+  try {
+    return await callAnyProvider({ userPrompt: prompt, maxTokens: 600, temperature: 0.4 });
+  } catch {
+    return null;
   }
-
-  if (process.env['GEMINI_API_KEY']) {
-    const res = await axios.post(
-      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-      {
-        model:      'gemini-2.0-flash',
-        messages:   [{ role: 'user', content: prompt }],
-        max_tokens: 600,
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env['GEMINI_API_KEY']}`, 'Content-Type': 'application/json' },
-        timeout: 60000,
-      }
-    );
-    return res.data.choices[0]?.message?.content || null;
-  }
-
-  if (process.env['DASHSCOPE_API_KEY']) {
-    const res = await axios.post(
-      `${process.env['DASHSCOPE_BASE_URL'] || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}/chat/completions`,
-      {
-        model:      'qwen-max',
-        messages:   [{ role: 'user', content: prompt }],
-        max_tokens: 600,
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env['DASHSCOPE_API_KEY']}`, 'Content-Type': 'application/json' },
-        timeout: 60000,
-      }
-    );
-    return res.data.choices[0]?.message?.content || null;
-  }
-
-  if (process.env['DEEPSEEK_API_KEY']) {
-    const res = await axios.post(
-      'https://api.deepseek.com/chat/completions',
-      {
-        model:      'deepseek-chat',
-        messages:   [{ role: 'user', content: prompt }],
-        max_tokens: 600,
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env['DEEPSEEK_API_KEY']}`, 'Content-Type': 'application/json' },
-        timeout: 60000,
-      }
-    );
-    return res.data.choices[0]?.message?.content || null;
-  }
-
-  return null;
 }
 
 async function generateCEOReport(topicId?: number | null): Promise<void> {
