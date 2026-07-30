@@ -1,5 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
+import type { AuditTaskRow } from './types/auditTaskRow';
 
 const { query } = dbClient;
 
@@ -261,7 +262,7 @@ async function createAuditTask(data: {
   affectedFiles?: string[]; complexity?: string; safeToAutoExecute?: boolean;
   safetyReason?: string; acceptanceCriteria?: string; batchNumber?: number;
   builderAgent?: string; source?: string;
-}): Promise<any | null> {
+}): Promise<AuditTaskRow | null> {
   const MAX_ATTEMPTS = 5;
   let taskNumber = data.taskNumber;
   let batchNumber = data.batchNumber;
@@ -301,7 +302,7 @@ async function createAuditTask(data: {
   return null;
 }
 
-async function getNextBatch(repoFullName: string, batchSize: number): Promise<any[]> {
+async function getNextBatch(repoFullName: string, batchSize: number): Promise<AuditTaskRow[]> {
   // Eligibility is decided by the task's own status/safe flag, not by its
   // original parent cycle's status — executeApprovedTasks() always creates
   // or reuses the *current* cycle to drive execution, so gating on the
@@ -318,7 +319,7 @@ async function getNextBatch(repoFullName: string, batchSize: number): Promise<an
   return r.rows;
 }
 
-async function updateAuditTask(id: number, updates: Record<string, any>): Promise<any | null> {
+async function updateAuditTask(id: number, updates: Record<string, unknown>): Promise<AuditTaskRow | null> {
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
   const fields = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');

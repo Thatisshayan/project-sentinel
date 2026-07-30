@@ -8,6 +8,7 @@ import logger from './logger';
 import { validateAuditOutput } from './aiOutputValidator';
 import { buildChildEnv } from './utils/childEnv';
 import projectMemory from './projectMemory';
+import type { AuditResult, AuditTask } from './types/auditResult';
 
 const AUDIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const AUDIT_MODEL = process.env['AUDIT_MODEL'] || 'mistralai/mistral-nemotron';
@@ -253,7 +254,7 @@ async function runClaudeCodeAudit(repoPath: string, payload: AuditPayload, memor
 // Sends the same audit prompt directly to the NVIDIA NIM chat completions endpoint.
 // Unlike the Claude Code CLI path, this model has no Read tool, so repoContext
 // (built from a real clone of the repo) is embedded directly in the prompt.
-async function runNvidiaAudit(payload: AuditPayload, repoContext: string, memoryText?: string): Promise<any> {
+async function runNvidiaAudit(payload: AuditPayload, repoContext: string, memoryText?: string): Promise<AuditResult> {
   const prompt = buildAuditPrompt(payload, repoContext, memoryText);
 
   logger.info({ repo: payload.repoFullName, model: AUDIT_MODEL }, 'NVIDIA NIM audit starting');
@@ -279,7 +280,7 @@ async function runNvidiaAudit(payload: AuditPayload, repoContext: string, memory
   return parseAuditOutput(text);
 }
 
-function parseAuditOutput(stdout: string): any {
+function parseAuditOutput(stdout: string): AuditResult {
   if (!stdout || stdout.trim() === '') {
     throw new Error('Claude Code returned empty audit output');
   }
@@ -313,7 +314,7 @@ function parseAuditOutput(stdout: string): any {
     ? parsed.aspectEffectSummary.trim()
     : '';
 
-  parsed.tasks = parsed.tasks.slice(0, 10).map((t: any, i: number) => ({
+  parsed.tasks = parsed.tasks.slice(0, 10).map((t: any, i: number): AuditTask => ({
     taskNumber:          t.taskNumber          || i + 1,
     priority:            t.priority            || 'medium',
     category:            t.category            || 'code-quality',
@@ -329,7 +330,7 @@ function parseAuditOutput(stdout: string): any {
   return parsed;
 }
 
-async function runAudit(payload: AuditPayload): Promise<any> {
+async function runAudit(payload: AuditPayload): Promise<AuditResult> {
   const { repoFullName } = payload;
 
   const tmpDir = tmp.dirSync({ unsafeCleanup: true, prefix: 'sentinel-audit-' });
@@ -357,7 +358,7 @@ async function runAudit(payload: AuditPayload): Promise<any> {
         repoFullName,
         tasks: auditResult.tasks.length,
         score: auditResult.overallHealthScore,
-        safe:  auditResult.tasks.filter((t: any) => t.safeToAutoExecute).length,
+        safe:  auditResult.tasks.filter((t) => t.safeToAutoExecute).length,
       }, 'Audit complete');
       return auditResult;
     }
@@ -374,7 +375,7 @@ async function runAudit(payload: AuditPayload): Promise<any> {
       repoFullName,
       tasks: auditResult.tasks.length,
       score: auditResult.overallHealthScore,
-      safe:  auditResult.tasks.filter((t: any) => t.safeToAutoExecute).length,
+      safe:  auditResult.tasks.filter((t) => t.safeToAutoExecute).length,
     }, 'Audit complete');
 
     return auditResult;

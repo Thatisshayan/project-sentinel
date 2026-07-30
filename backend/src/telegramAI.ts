@@ -359,8 +359,8 @@ async function executeAction(action: AiAction, topicId: number | null): Promise<
       ), { label: 'telegramAI' })
       const branchName = await getDefaultBranch(repoFullNameVal).catch(() => 'main');
       triggerAudit({
-        repoFullName: repoFullNameVal, repoName,
-        projectName: repoName, commitSha: `manual-${Date.now()}`,
+        repoFullName: repoFullNameVal, repoName: repoName!,
+        projectName: repoName!, commitSha: `manual-${Date.now()}`,
         commitMessage: '[manual-audit]', branchName,
         authorName: 'Human', authorEmail: '', topicId,
       }).catch((err: any) => logger.error({ err: err.stack ?? err.message }, 'AI audit failed'));

@@ -26,6 +26,7 @@ import { loadSettings } from './settingsLoader';
 import dbClient from './dbClient';
 import { enqueueScheduledJob } from './queueClient';
 import { AUDIT_APPROVAL_TIMEOUT_JOB, SELF_REVIEW_FALLBACK_JOB } from './workers/scheduledJobsWorker';
+import type { AuditResult, AuditTask } from './types/auditResult';
 
 const AUDIT_ENABLED      = (): boolean => process.env['AUDIT_AGENT_ENABLED']   !== 'false';
 const BUILDER_ENABLED    = (): boolean => process.env['BUILDER_AGENT_ENABLED'] !== 'false';
@@ -96,7 +97,17 @@ async function postAuditSummaryToGithub(repoFullName: string, branchName: string
 
 // ── THE 4 LOOP-PREVENTION RULES ───────────────────────────────────────────────
 
-async function checkAuditRules(data: any): Promise<{ pass: boolean; reason?: string }> {
+interface AuditRuleCheckData {
+  repoFullName: string;
+  repoName?: string;
+  authorName?: string;
+  authorEmail?: string;
+  branchName?: string;
+  commitMessage?: string;
+  topicId?: number | null;
+}
+
+async function checkAuditRules(data: AuditRuleCheckData): Promise<{ pass: boolean; reason?: string }> {
   const { repoFullName, repoName, authorName, authorEmail,
           branchName, commitMessage, topicId } = data;
 
@@ -120,7 +131,7 @@ async function checkAuditRules(data: any): Promise<{ pass: boolean; reason?: str
     logger.info({ repoName, queuedCount }, 'Rule 2: Tasks queued — audit skipped');
     await safeFire(sendTelegramMessage(
       `Project Sentinel — Audit Skipped ⏭️\n\nRepo: ${repoName}\n${queuedCount} tasks still in queue.\nAudit will run when queue clears.`,
-      repoName,
+      repoName ?? null,
       topicId
     ), { label: 'auditOrchestrator' })
     return { pass: false, reason: 'tasks_queued' };
@@ -148,7 +159,19 @@ interface TriggerAuditResult {
   reason?: string;
 }
 
-async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
+interface TriggerAuditPayload {
+  repoFullName: string;
+  repoName: string;
+  projectName?: string;
+  commitSha: string;
+  commitMessage?: string;
+  branchName?: string;
+  authorName?: string;
+  authorEmail?: string;
+  topicId: number | null;
+}
+
+async function triggerAudit(payload: TriggerAuditPayload): Promise<TriggerAuditResult> {
   if (!AUDIT_ENABLED()) {
     logger.info('Audit disabled via AUDIT_AGENT_ENABLED=false');
     return { started: false, reason: 'audit_disabled' };
@@ -222,7 +245,7 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
   ), { label: 'auditOrchestrator' })
 
   // Run Claude Code audit — wrapped for performance tracking and self-healing
-  let auditResult: any;
+  let auditResult: AuditResult;
   try {
     auditResult = await trackModelCall(
       process.env['AUDIT_MODEL'] || 'nvidia',
@@ -259,7 +282,7 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
     builderAgent,
   });
 
-  const safeCount  = auditResult.tasks.filter((t: any) => t.safeToAutoExecute).length;
+  const safeCount  = auditResult.tasks.filter((t) => t.safeToAutoExecute).length;
   const totalCount = auditResult.tasks.length;
   const batchCount = Math.ceil(safeCount / BATCH_SIZE());
 
@@ -335,7 +358,7 @@ async function triggerAudit(payload: any): Promise<TriggerAuditResult> {
   // safety reason the audit gave — that's the exact information a human
   // needs to actually decide whether to approve, not just "this one's
   // locked" with no context.
-  const taskLines = auditResult.tasks.map((t: any) => {
+  const taskLines = auditResult.tasks.map((t) => {
     const lockNote = t.safeToAutoExecute
       ? ''
       : `\n   🔒 ${t.safetyReason || 'flagged for manual review'}`;
@@ -503,9 +526,10 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
     await updateNotionTaskStatus(task.id, 'in_progress');
   }
 
-  const builderConfig = getBuilderConfig(tasks[0].builder_agent || 'nvidia');
-  const batchNum      = tasks[0].batch_number;
-  const taskTitles    = tasks.map((t: any) => `${t.task_number}. ${t.title}`).join('\n');
+  // tasks.length === 0 already returned above — tasks[0] is guaranteed to exist.
+  const builderConfig = getBuilderConfig(tasks[0]!.builder_agent || 'nvidia');
+  const batchNum      = tasks[0]!.batch_number;
+  const taskTitles    = tasks.map((t) => `${t.task_number}. ${t.title}`).join('\n');
 
   await safeFire(sendTelegramMessage([
     `Project Sentinel — Executing Batch ${batchNum} 🔨`,
@@ -536,7 +560,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
     topicId,
   };
 
-  const primaryBuilder  = tasks[0].builder_agent || 'nvidia';
+  const primaryBuilder  = tasks[0]!.builder_agent || 'nvidia';
   let   batchResult     = await executeBatch(tasks, batchContext, primaryBuilder);
 
   // T10 — retry with fallback builder on failure (once)
