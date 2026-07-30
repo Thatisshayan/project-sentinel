@@ -9,8 +9,44 @@ import { sendTelegramMessage } from './telegramClient';
 import { executeApprovedTasks } from './auditOrchestrator';
 import { isRepoLocked } from './repoLock';
 import { query } from './dbClient';
+import type { BrainDecision } from './types/brainDecision';
 
 const BRAIN_MODEL = (process.env['CHAT_MODEL'] as string) || 'mistralai/mistral-nemotron';
+
+interface RepoState {
+  repo: string;
+  health: string;
+  status: string;
+  priority: string;
+  queued: number;
+  safe: number;
+  avgRoi: string;
+  doneWeek: number;
+}
+
+interface TrackRecordEntry {
+  timesFocused: number;
+  avgHealthDelta: number;
+}
+
+interface Intelligence {
+  repoStates: RepoState[];
+  patterns: string[];
+  dailyCost: string;
+  monthlyCost: string;
+  monthlyBudget: number;
+  avgHealth: string;
+  brokenRepos: string[];
+  prevFocus: string[];
+  trackRecord: Record<string, TrackRecordEntry>;
+}
+
+interface TaskMapEntry {
+  queued: number;
+  safe: number;
+  avgRoi: string;
+  doneWeek: number;
+}
 
 const BRAIN_SYSTEM = `You are the strategic brain of Project Sentinel — an autonomous DevOps AI managing 12 GitHub repos for a solo founder named Shayan.
 
@@ -63,7 +99,7 @@ async function snapshotHealth(): Promise<Record<string, number>> {
   return snap;
 }
 
-async function gatherIntelligence(): Promise<any> {
+async function gatherIntelligence(): Promise<Intelligence> {
   const [summary, patterns, dailyCost, monthlyCost] = await Promise.all([
     getPortfolioSummary().catch(() => null),
     getOpenPatterns().catch(() => []),
@@ -71,7 +107,14 @@ async function gatherIntelligence(): Promise<any> {
     getMonthlyCost().catch(() => 0),
   ]);
 
-  const taskRows = await query(`
+  interface TaskAggRow {
+    repo_full_name: string;
+    queued: string;
+    safe: string;
+    avg_roi: string | null;
+    done_week: string;
+  }
+  const taskRows = await query<TaskAggRow>(`
     SELECT
       at.repo_full_name,
       COUNT(*)  FILTER (WHERE at.status = 'queued')                                     AS queued,
@@ -81,19 +124,21 @@ async function gatherIntelligence(): Promise<any> {
     FROM audit_tasks at
     LEFT JOIN task_roi_scores trs ON trs.audit_task_id = at.id
     GROUP BY at.repo_full_name
-  `).catch(() => ({ rows: [] }));
+  `).catch(() => ({ rows: [] as TaskAggRow[] }));
 
-  const taskMap: Record<string, any> = {};
+  const taskMap: Record<string, TaskMapEntry> = {};
   for (const r of taskRows.rows) {
-    taskMap[r.repo_full_name.split('/')[1]] = {
-      queued:   parseInt(r.queued   || 0),
-      safe:     parseInt(r.safe     || 0),
-      avgRoi:   parseFloat(r.avg_roi || 0).toFixed(1),
-      doneWeek: parseInt(r.done_week || 0),
+    const shortName = r.repo_full_name.split('/')[1];
+    if (!shortName) continue;
+    taskMap[shortName] = {
+      queued:   parseInt(r.queued   || '0'),
+      safe:     parseInt(r.safe     || '0'),
+      avgRoi:   parseFloat(r.avg_roi || '0').toFixed(1),
+      doneWeek: parseInt(r.done_week || '0'),
     };
   }
 
-  const prev = await query(`
+  const prev = await query<{ decision: BrainDecision }>(`
     SELECT decision FROM brain_decisions
     WHERE decided_at > NOW() - INTERVAL '28 hours'
     ORDER BY decided_at DESC LIMIT 1
@@ -107,16 +152,20 @@ async function gatherIntelligence(): Promise<any> {
   // on a repo actually helped. Pull the last 20 decisions that have a
   // completed outcome and aggregate per-repo: how many times has this repo
   // been focused, and did health actually move when it was?
-  const history = await query(`
+  interface BrainHistoryRow {
+    decision: BrainDecision;
+    outcome: { avgHealthDelta: number } | null;
+  }
+  const history = await query<BrainHistoryRow>(`
     SELECT decision, outcome FROM brain_decisions
     WHERE outcome IS NOT NULL
     ORDER BY decided_at DESC LIMIT 20
-  `).catch(() => ({ rows: [] }));
+  `).catch(() => ({ rows: [] as BrainHistoryRow[] }));
 
   const deltasByRepo: Record<string, number[]> = {};
   for (const row of history.rows) {
     const focusRepos: string[] = row.decision?.focus_repos || [];
-    const delta = parseFloat(row.outcome?.avgHealthDelta);
+    const delta = parseFloat(String(row.outcome?.avgHealthDelta));
     if (!focusRepos.length || Number.isNaN(delta)) continue;
     for (const repo of focusRepos) {
       (deltasByRepo[repo] ||= []).push(delta);
@@ -130,11 +179,11 @@ async function gatherIntelligence(): Promise<any> {
     };
   }
 
-  const repoStates = (summary?.metrics || []).map((m: any) => {
-    const t = taskMap[m.repo_name] || {};
+  const repoStates: RepoState[] = (summary?.metrics || []).map((m) => {
+    const t: TaskMapEntry = taskMap[m.repo_name] || { queued: 0, safe: 0, avgRoi: '0', doneWeek: 0 };
     return {
       repo:     m.repo_name,
-      health:   parseFloat(m.health_score || 5).toFixed(1),
+      health:   parseFloat(m.health_score || '5').toFixed(1),
       status:   m.build_status || 'unknown',
       priority: m.priority || 'medium',
       queued:   t.queued   || 0,
@@ -146,26 +195,26 @@ async function gatherIntelligence(): Promise<any> {
 
   return {
     repoStates,
-    patterns:     patterns.slice(0, 5).map((p: any) => p.description),
+    patterns:     patterns.slice(0, 5).map((p) => p.description || ''),
     dailyCost:    parseFloat(String(dailyCost)).toFixed(2),
     monthlyCost:  parseFloat(String(monthlyCost)).toFixed(2),
     monthlyBudget: 30,
     avgHealth:    summary?.avgHealth || 'N/A',
-    brokenRepos:  (summary?.broken || []).map((m: any) => m.repo_name),
+    brokenRepos:  (summary?.broken || []).map((m) => m.repo_name),
     prevFocus,
     trackRecord,
   };
 }
 
-async function callBrainAI(intelligence: any): Promise<string> {
+async function callBrainAI(intelligence: Intelligence): Promise<string> {
   const repoLines = intelligence.repoStates
-    .sort((a: any, b: any) => parseFloat(a.health) - parseFloat(b.health))
-    .map((r: any) =>
+    .sort((a, b) => parseFloat(a.health) - parseFloat(b.health))
+    .map((r) =>
       `${r.repo}: health=${r.health}/10 build=${r.status} queued=${r.queued}(${r.safe} safe) roi=${r.avgRoi} done_week=${r.doneWeek}`
     ).join('\n');
 
   const trackRecordLines = Object.entries(intelligence.trackRecord || {})
-    .map(([repo, t]: [string, any]) =>
+    .map(([repo, t]) =>
       `${repo}: focused ${t.timesFocused}x before, avg health delta ${t.avgHealthDelta >= 0 ? '+' : ''}${t.avgHealthDelta}`
     ).join('\n');
 
@@ -209,15 +258,14 @@ async function runStrategicBrain(topicId?: number | null): Promise<void> {
     ]);
 
     const raw = await callBrainAI(intelligence);
-    let decision: any;
+    let decision: BrainDecision;
     try {
       const cleaned = raw
         .replace(/<think>[\s\S]*?<\/think>/gi, '')
         .replace(/```json?|```/g, '')
         .trim();
       const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-      decision = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
-      validateBrainOutput(decision);
+      decision = validateBrainOutput(JSON.parse(jsonMatch ? jsonMatch[0] : cleaned));
     } catch (parseErr: any) {
       logger.warn({ raw, err: parseErr.message }, 'Brain returned invalid output — skipping execution');
       await safeFire(sendTelegramMessage(`🧠 Brain error — ${parseErr.message}. Check logs.`, null, topicId), { label: 'sentinelBrain' })
@@ -227,11 +275,12 @@ async function runStrategicBrain(topicId?: number | null): Promise<void> {
     logger.info({ decision }, 'Brain decision');
 
     const autoEnabled   = process.env['BRAIN_AUTO_EXECUTE'] !== 'false';
-    const actionsTaken: any[]  = [];
+    interface ActionTaken { repo: string; skipped?: string; action?: string; }
+    const actionsTaken: ActionTaken[]  = [];
 
     if (decision.auto_execute && autoEnabled && decision.action === 'execute') {
       for (const repoName of (decision.focus_repos || [])) {
-        const entry  = REPO_LIST.find((r: any) => r.repoName === repoName)
+        const entry  = REPO_LIST.find((r) => r.repoName === repoName)
           || { repoName, repoFullName: repoFullName(repoName) };
         const locked = await isRepoLocked(repoName).catch(() => null);
         if (locked) {
@@ -265,13 +314,13 @@ async function runStrategicBrain(topicId?: number | null): Promise<void> {
       decision.reasoning || '',
     ];
 
-    if (decision.alerts?.length > 0) {
+    if ((decision.alerts?.length ?? 0) > 0) {
       lines.push(``, `⚠️ Alerts:`);
-      decision.alerts.forEach((a: string) => lines.push(`  · ${a}`));
+      decision.alerts?.forEach((a: string) => lines.push(`  · ${a}`));
     }
 
-    if (actionsTaken.filter((a: any) => a.action).length > 0) {
-      lines.push(``, `▶️ Auto-executing: ${actionsTaken.filter((a: any) => a.action).map((a: any) => a.repo).join(', ')}`);
+    if (actionsTaken.filter((a) => a.action).length > 0) {
+      lines.push(``, `▶️ Auto-executing: ${actionsTaken.filter((a) => a.action).map((a) => a.repo).join(', ')}`);
     } else if (decision.auto_execute && !autoEnabled) {
       lines.push(``, `⏸ Auto-execute off — set BRAIN_AUTO_EXECUTE=true in Railway to enable.`);
     }
@@ -289,7 +338,7 @@ async function runStrategicBrain(topicId?: number | null): Promise<void> {
 
 async function recordBrainOutcome(): Promise<void> {
   try {
-    const row = await query(`
+    const row = await query<{ id: number; health_before: Record<string, number>; decision: BrainDecision }>(`
       SELECT id, health_before, decision
       FROM brain_decisions
       WHERE decided_at > NOW() - INTERVAL '28 hours'

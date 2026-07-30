@@ -1,3 +1,5 @@
+import type { BrainDecision } from './types/brainDecision';
+
 function validateAuditOutput(parsed: any): any {
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('Audit output must be a JSON object');
@@ -53,7 +55,7 @@ function validateSprintOutput(parsed: any): any {
   return parsed;
 }
 
-function validateBrainOutput(parsed: any): any {
+function validateBrainOutput(parsed: any): BrainDecision {
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('Brain decision must be a JSON object');
   }
