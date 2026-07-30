@@ -7,6 +7,39 @@ import { stopDebugAttempts, query as dbQuery } from '../dbClient';
 import { executeApprovedTasks, triggerAudit, processNextBatch } from '../auditOrchestrator';
 import { stopAllTasksForRepo, updateAuditTask } from '../auditDb';
 import { getAllAgents } from '../agentDb';
+import type {
+  getOpenIssues as getOpenIssuesType,
+  getLatestSecurityScore as getLatestSecurityScoreType,
+  getPortfolioSecuritySummary as getPortfolioSecuritySummaryType,
+  resolveAllOpenIssues as resolveAllOpenIssuesType,
+} from '../securityDb';
+import type { runSecurityScan as runSecurityScanType } from '../securityScanner';
+import type { applySecurityPatches as applySecurityPatchesType } from '../securityPatcher';
+import type { getPortfolioSummary as getPortfolioSummaryType } from '../portfolioAnalytics';
+import type { getAllLocked as getAllLockedType, lockRepo as lockRepoType, unlockRepo as unlockRepoType } from '../repoLock';
+import type {
+  addMemoryEntry as addMemoryEntryType,
+  getMemoryEntries as getMemoryEntriesType,
+  deleteMemoryEntry as deleteMemoryEntryType,
+} from '../projectMemory';
+import type {
+  getFullRepoList as getFullRepoListType,
+  getDefaultBranch as getDefaultBranchType,
+  discoverAndOnboardRepos as discoverAndOnboardReposType,
+} from '../repoDiscovery';
+import type { runStrategicBrain as runStrategicBrainType } from '../sentinelBrain';
+import type { updateSettings as updateSettingsType } from '../settingsDb';
+import type { isPendingAutoApprove as isPendingAutoApproveType, cancelAutoApprove as cancelAutoApproveType } from '../autoApprover';
+import type { syncAllRepoMetrics as syncAllRepoMetricsType } from '../githubMetricsSyncer';
+import type { execAsync as execAsyncType } from '../utils/execAsync';
+import type { listBuilders as listBuildersType } from '../builderRouter';
+import type { canonicalizeRepoName as canonicalizeRepoNameType } from '../repoResolver';
+import type {
+  sendMenu as sendMenuType,
+  showMainMenu as showMainMenuType,
+  showRepoMenu as showRepoMenuType,
+  showApprovalsMenu as showApprovalsMenuType,
+} from '../telegramMenus';
 
 async function handleStop(projectArg: string, topicId: number | null): Promise<boolean> {
   if (!projectArg) {
@@ -80,7 +113,7 @@ async function handleRetry(projectArg: string, topicId: number | null): Promise<
 }
 
 async function handleHelp(topicId: number | null, chatId: string | null): Promise<boolean> {
-  const { sendMenu } = require('../telegramMenus') as { sendMenu: (...args: any[]) => Promise<any> };
+  const { sendMenu } = require('../telegramMenus') as { sendMenu: typeof sendMenuType };
   await sendMenu(chatId, topicId, '🛡️ Project Sentinel — Command Reference', [
     [
       { text: '📊 Reports & Data',    callback_data: 'help:reports'   },
@@ -135,9 +168,7 @@ async function handleManualAudit(repoArg: string, topicId: number | null): Promi
   // in the logs, and gave the user no visible feedback at all. Validating
   // against the actual tracked-repo list first turns a doomed clone
   // attempt + silent-to-the-user failure into an immediate, clear reply.
-  const { getFullRepoList } = require('../repoDiscovery') as {
-    getFullRepoList: () => Promise<Array<{ repoName: string; repoFullName: string }>>;
-  };
+  const { getFullRepoList } = require('../repoDiscovery') as { getFullRepoList: typeof getFullRepoListType };
   const repos = await getFullRepoList().catch((err: any) => {
     logger.warn({ err: err.message }, 'getFullRepoList failed during audit repo-name validation — proceeding without it');
     return null;
@@ -162,7 +193,7 @@ async function handleManualAudit(repoArg: string, topicId: number | null): Promi
   const resolvedRepoFullName = match?.repoFullName || repoFullName(repoArg);
 
   const project = await findNotionProject(resolvedRepoName).catch(() => null);
-  const { getDefaultBranch } = require('../repoDiscovery');
+  const { getDefaultBranch } = require('../repoDiscovery') as { getDefaultBranch: typeof getDefaultBranchType };
   const branchName = await getDefaultBranch(resolvedRepoFullName).catch(() => 'main');
   await sendTelegramMessage(`Manual audit triggered for ${resolvedRepoName}...`, resolvedRepoName, topicId);
   triggerAudit({
@@ -184,8 +215,16 @@ async function handleListTasks(repoArg: string, topicId: number | null, chatId: 
     await sendTelegramMessage('Usage: /sentinel tasks <repo-name>', null, topicId);
     return true;
   }
-  const { query } = require('../dbClient') as { query: (...args: any[]) => Promise<any> };
-  const r = await query(`
+  interface ListedTaskRow {
+    id: number;
+    task_number: number;
+    title: string;
+    priority: string;
+    status: string;
+    safe_to_auto_execute: boolean;
+    batch_number: number;
+  }
+  const r = await dbQuery<ListedTaskRow>(`
     SELECT id, task_number, title, priority, status,
            safe_to_auto_execute, batch_number
     FROM audit_tasks
@@ -200,16 +239,16 @@ async function handleListTasks(repoArg: string, topicId: number | null, chatId: 
   }
 
   const EMOJI: Record<string, string> = { critical:'🔴', high:'🟠', medium:'🟡', low:'🟢' };
-  const list  = r.rows.map((t: any) =>
+  const list  = r.rows.map((t) =>
     `${t.task_number}. [B${t.batch_number}] ${EMOJI[t.priority]||'⚪'} ${t.title} — ${t.status}${t.safe_to_auto_execute?'':' 🔒'}`
   ).join('\n');
 
   await sendTelegramMessage(`Tasks for ${repoArg}:\n\n${list}\n\n🔒 = needs approval`, repoArg, topicId);
 
-  const unsafe = r.rows.filter((t: any) => !t.safe_to_auto_execute && t.status === 'queued');
+  const unsafe = r.rows.filter((t) => !t.safe_to_auto_execute && t.status === 'queued');
   if (unsafe.length > 0 && chatId) {
-    const { sendMenu } = require('../telegramMenus') as { sendMenu: (...args: any[]) => Promise<any> };
-    const buttons = unsafe.map((t: any) => [
+    const { sendMenu } = require('../telegramMenus') as { sendMenu: typeof sendMenuType };
+    const buttons = unsafe.map((t) => [
       { text: `✅ #${t.task_number}: ${t.title.substring(0, 28)}`, callback_data: `task-approve:${t.id}` },
       { text: '⏭️ Skip', callback_data: `task-skip:${t.id}` },
     ]);
@@ -229,8 +268,7 @@ async function handleSkipBatch(repoArg: string, batchNumArg: string, topicId: nu
     );
     return true;
   }
-  const { query } = require('../dbClient') as { query: (...args: any[]) => Promise<any> };
-  const r = await query(`
+  const r = await dbQuery<{ id: number }>(`
     SELECT id FROM audit_tasks
     WHERE repo_full_name=$1
       AND batch_number=$2
@@ -251,7 +289,7 @@ async function handleSkipBatch(repoArg: string, batchNumArg: string, topicId: nu
 
 async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: string | null, topicId: number | null): Promise<boolean> {
   if (parts[2]) {
-    const { canonicalizeRepoName } = require('../repoResolver') as { canonicalizeRepoName: (input: string) => any };
+    const { canonicalizeRepoName } = require('../repoResolver') as { canonicalizeRepoName: typeof canonicalizeRepoNameType };
     const canon = canonicalizeRepoName(parts[2]);
     if (canon) parts[2] = canon.repoName;
   }
@@ -288,7 +326,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
         await sendTelegramMessage('Usage: /sentinel remember <repo> <text to remember>', null, topicId);
         return true;
       }
-      const { addMemoryEntry } = require('../projectMemory') as { addMemoryEntry: (repo: string, type: string, content: string, addedBy?: string) => Promise<any> };
+      const { addMemoryEntry } = require('../projectMemory') as { addMemoryEntry: typeof addMemoryEntryType };
       await addMemoryEntry(repoFullName(repo), 'note', content, 'human');
       await sendTelegramMessage(`🧠 Remembered for ${repo}: ${content}`, repo, topicId);
       return true;
@@ -300,13 +338,13 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       // a topic — a different feature from this repo-scoped engineering memory.
       const repo = parts[2];
       if (!repo) { await sendTelegramMessage('Usage: /sentinel project-memory <repo>', null, topicId); return true; }
-      const { getMemoryEntries } = require('../projectMemory') as { getMemoryEntries: (repo: string) => Promise<any[]> };
+      const { getMemoryEntries } = require('../projectMemory') as { getMemoryEntries: typeof getMemoryEntriesType };
       const entries = await getMemoryEntries(repoFullName(repo));
       if (entries.length === 0) {
         await sendTelegramMessage(`No memory recorded for ${repo} yet. Use /sentinel remember ${repo} <text>.`, repo, topicId);
         return true;
       }
-      const lines = entries.map((e: any) => `#${e.id} [${e.type}] ${e.content}`);
+      const lines = entries.map((e) => `#${e.id} [${e.type}] ${e.content}`);
       await sendTelegramMessage(`🧠 Memory for ${repo}:\n\n${lines.join('\n')}`, repo, topicId);
       return true;
     }
@@ -315,7 +353,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       const repo = parts[2];
       const id = parseInt(parts[3] || '', 10);
       if (!repo || !id) { await sendTelegramMessage('Usage: /sentinel forget <repo> <id>', null, topicId); return true; }
-      const { deleteMemoryEntry } = require('../projectMemory') as { deleteMemoryEntry: (repo: string, id: number) => Promise<boolean> };
+      const { deleteMemoryEntry } = require('../projectMemory') as { deleteMemoryEntry: typeof deleteMemoryEntryType };
       const deleted = await deleteMemoryEntry(repoFullName(repo), id);
       await sendTelegramMessage(deleted ? `🧠 Forgot #${id} for ${repo}.` : `No memory entry #${id} found for ${repo}.`, repo, topicId);
       return true;
@@ -323,7 +361,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
 
     case 'lock': {
       if (!parts[2]) { await sendTelegramMessage('Usage: /sentinel lock <repo>', null, topicId); return true; }
-      const { lockRepo } = require('../repoLock') as { lockRepo: (repo: string, reason?: string) => Promise<void> };
+      const { lockRepo } = require('../repoLock') as { lockRepo: typeof lockRepoType };
       await lockRepo(parts[2], 'manual');
       await sendTelegramMessage(
         `🔐 ${parts[2]} locked. No agents will touch it until /sentinel unlock ${parts[2]}`,
@@ -333,32 +371,32 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
     }
     case 'unlock': {
       if (!parts[2]) { await sendTelegramMessage('Usage: /sentinel unlock <repo>', null, topicId); return true; }
-      const { unlockRepo } = require('../repoLock') as { unlockRepo: (repo: string) => Promise<void> };
+      const { unlockRepo } = require('../repoLock') as { unlockRepo: typeof unlockRepoType };
       await unlockRepo(parts[2]);
       await sendTelegramMessage(`🔓 ${parts[2]} unlocked.`, parts[2], topicId);
       return true;
     }
     case 'locked': {
-      const { getAllLocked } = require('../repoLock') as { getAllLocked: () => Promise<any[]> };
+      const { getAllLocked } = require('../repoLock') as { getAllLocked: typeof getAllLockedType };
       const locked = await getAllLocked();
       if (locked.length === 0) {
         await sendTelegramMessage('No repos currently locked.', null, topicId);
         return true;
       }
-      const lines = locked.map((l: any) =>
+      const lines = locked.map((l) =>
         `🔐 ${l.repoName} — ${l.reason} (since ${new Date(l.lockedAt).toLocaleTimeString('en-CA')})`
       );
       await sendTelegramMessage(lines.join('\n'), null, topicId);
       return true;
     }
     case 'health': {
-      const { getPortfolioSummary } = require('../portfolioAnalytics') as { getPortfolioSummary: () => Promise<any> };
+      const { getPortfolioSummary } = require('../portfolioAnalytics') as { getPortfolioSummary: typeof getPortfolioSummaryType };
       const s = await getPortfolioSummary().catch(() => null);
       if (!s) { await sendTelegramMessage('Portfolio data unavailable.', null, topicId); return true; }
       const lines = [...s.metrics]
-        .sort((a: any, b: any) => parseFloat(a.health_score) - parseFloat(b.health_score))
-        .map((m: any) => {
-          const score = parseFloat(m.health_score);
+        .sort((a, b) => parseFloat(a.health_score || '0') - parseFloat(b.health_score || '0'))
+        .map((m) => {
+          const score = parseFloat(m.health_score || '0');
           const dot   = score >= 7 ? '🟢' : score >= 5 ? '🟡' : '🔴';
           return `${dot} ${m.repo_name}: ${m.health_score}/10`;
         });
@@ -382,8 +420,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
         await sendTelegramMessage('Usage: /sentinel force-execute <repo>', null, topicId);
         return true;
       }
-      const { query: dbQuery } = require('../dbClient') as { query: (...args: any[]) => Promise<any> };
-      const updated = await dbQuery(`
+      const updated = await dbQuery<{ id: number }>(`
         UPDATE audit_tasks SET safe_to_auto_execute = true
         WHERE repo_full_name = $1 AND status = 'queued'
         RETURNING id
@@ -399,17 +436,21 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       return true;
     }
     case 'security': {
-      const { getOpenIssues, getLatestSecurityScore, getPortfolioSecuritySummary } = require('../securityDb') as { getOpenIssues: (...args: any[]) => Promise<any[]>; getLatestSecurityScore: (repo: string) => Promise<any>; getPortfolioSecuritySummary: () => Promise<any[]> };
+      const { getOpenIssues, getLatestSecurityScore, getPortfolioSecuritySummary } = require('../securityDb') as {
+        getOpenIssues: typeof getOpenIssuesType;
+        getLatestSecurityScore: typeof getLatestSecurityScoreType;
+        getPortfolioSecuritySummary: typeof getPortfolioSecuritySummaryType;
+      };
       if (parts[2]) {
         const [score, issues] = await Promise.all([
           getLatestSecurityScore(parts[2]),
           getOpenIssues(repoFullName(parts[2])),
         ]);
         const counts = {
-          critical: issues.filter((i: any) => i.severity === 'critical').length,
-          high:     issues.filter((i: any) => i.severity === 'high').length,
-          medium:   issues.filter((i: any) => i.severity === 'medium').length,
-          low:      issues.filter((i: any) => i.severity === 'low').length,
+          critical: issues.filter((i) => i.severity === 'critical').length,
+          high:     issues.filter((i) => i.severity === 'high').length,
+          medium:   issues.filter((i) => i.severity === 'medium').length,
+          low:      issues.filter((i) => i.severity === 'low').length,
         };
         await sendTelegramMessage([
           `🔒 Security — ${parts[2]}`,
@@ -420,7 +461,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
           `🟡 Medium: ${counts.medium}`,
           `🟢 Low: ${counts.low}`,
           ``,
-          issues.slice(0, 5).map((i: any) => `  · [${i.severity}] ${i.title}`).join('\n'),
+          issues.slice(0, 5).map((i) => `  · [${i.severity}] ${i.title}`).join('\n'),
           ``,
           `/sentinel security-scan ${parts[2]} — fresh scan`,
           `/sentinel security-patch ${parts[2]} — auto-fix safe issues`,
@@ -428,8 +469,8 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       } else {
         const portfolio = await getPortfolioSecuritySummary();
         const lines = portfolio
-          .sort((a: any, b: any) => parseFloat(a.score) - parseFloat(b.score))
-          .map((r: any) => `${r.repo_name}: ${r.score}/10 (${r.critical_count || 0} critical)`);
+          .sort((a, b) => parseFloat(a.score) - parseFloat(b.score))
+          .map((r) => `${r.repo_name}: ${r.score}/10 (${r.critical_count || 0} critical)`);
         await sendTelegramMessage(
           `🔒 Portfolio Security\n\n${lines.join('\n') || 'No security data yet.'}`,
           null, topicId
@@ -442,7 +483,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
         await sendTelegramMessage('Usage: /sentinel security-scan <repo>', null, topicId);
         return true;
       }
-      const { runSecurityScan } = require('../securityScanner') as { runSecurityScan: (...args: any[]) => Promise<any> };
+      const { runSecurityScan } = require('../securityScanner') as { runSecurityScan: typeof runSecurityScanType };
       await sendTelegramMessage(`Running security scan on ${parts[2]}...`, parts[2], topicId);
       fireAndForget(runSecurityScan({
         repoFullName: repoFullName(parts[2]),
@@ -455,8 +496,8 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
         await sendTelegramMessage('Usage: /sentinel security-patch <repo>', null, topicId);
         return true;
       }
-      const { getOpenIssues: getIssues } = require('../securityDb') as { getOpenIssues: (...args: any[]) => Promise<any[]> };
-      const { applySecurityPatches }     = require('../securityPatcher') as { applySecurityPatches: (...args: any[]) => Promise<any> };
+      const { getOpenIssues: getIssues } = require('../securityDb') as { getOpenIssues: typeof getOpenIssuesType };
+      const { applySecurityPatches }     = require('../securityPatcher') as { applySecurityPatches: typeof applySecurityPatchesType };
       const patchIssues = await getIssues(repoFullName(parts[2]));
       fireAndForget(applySecurityPatches(repoFullName(parts[2]), parts[2], patchIssues, topicId), { label: 'repoOps' })
       return true;
@@ -466,7 +507,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
         await sendTelegramMessage('Usage: /sentinel security-approve <repo>', null, topicId);
         return true;
       }
-      const { resolveAllOpenIssues } = require('../securityDb') as { resolveAllOpenIssues: (repo: string) => Promise<number> };
+      const { resolveAllOpenIssues } = require('../securityDb') as { resolveAllOpenIssues: typeof resolveAllOpenIssuesType };
       let count = 0;
       let dbFailed = false;
       try {
@@ -484,9 +525,8 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       return true;
     }
     case 'webhook-status': {
-      const { query: dbq } = require('../dbClient') as { query: (...args: any[]) => Promise<any> };
       const [seen, allMetrics] = await Promise.all([
-        dbq(`
+        dbQuery<{ repo_name: string; last_seen: string; snapshots: number }>(`
           SELECT repo_name, MAX(last_commit_at) as last_seen, COUNT(*) as snapshots
           FROM portfolio_metrics
           WHERE last_commit_at > NOW() - INTERVAL '7 days'
@@ -494,18 +534,18 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
           ORDER BY last_seen DESC
           LIMIT 20
         `).catch(() => ({ rows: [] })),
-        dbq(`SELECT DISTINCT repo_name FROM portfolio_metrics`).catch(() => ({ rows: [] })),
+        dbQuery<{ repo_name: string }>(`SELECT DISTINCT repo_name FROM portfolio_metrics`).catch(() => ({ rows: [] })),
       ]);
 
-      const seenNames = new Set(seen.rows.map((r: any) => r.repo_name.toLowerCase()));
-      const allNames  = allMetrics.rows.map((r: any) => r.repo_name.toLowerCase());
+      const seenNames = new Set(seen.rows.map((r) => r.repo_name.toLowerCase()));
+      const allNames  = allMetrics.rows.map((r) => r.repo_name.toLowerCase());
       const missing   = allNames.filter((n: string) => !seenNames.has(n));
 
       // portfolio_metrics is an append-only snapshot table written by both the
       // webhook handler and the periodic metrics sync — this count reflects
       // metric snapshots, not discrete webhook deliveries, so it must not be
       // labeled "events" (that overstates what's actually being measured).
-      const receivingLines = seen.rows.map((r: any) =>
+      const receivingLines = seen.rows.map((r) =>
         `✅ ${r.repo_name} — last activity ${new Date(r.last_seen).toLocaleDateString('en-CA')} (${r.snapshots} metric snapshot(s) in 7d)`
       );
       const missingLines = missing.map((n: string) => `❌ ${n} — no metric activity in 7 days`);
@@ -523,7 +563,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       return true;
     }
     case 'brain': {
-      const { runStrategicBrain } = require('../sentinelBrain') as { runStrategicBrain: (topicId?: number | null) => Promise<void> };
+      const { runStrategicBrain } = require('../sentinelBrain') as { runStrategicBrain: typeof runStrategicBrainType };
       await sendTelegramMessage('🧠 Running strategic brain...', null, topicId);
       runStrategicBrain(topicId).catch((err: any) =>
         logger.error({ err: err.stack ?? err.message }, 'Manual brain run failed')
@@ -531,21 +571,21 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       return true;
     }
     case 'menu': {
-      const { showMainMenu } = require('../telegramMenus') as { showMainMenu: (...args: any[]) => Promise<any> };
+      const { showMainMenu } = require('../telegramMenus') as { showMainMenu: typeof showMainMenuType };
       await showMainMenu(chatId, topicId);
       return true;
     }
     case 'repo': {
       if (!parts[2]) { await sendTelegramMessage('Usage: /sentinel repo <name>', null, topicId); return true; }
-      const { showRepoMenu } = require('../telegramMenus') as { showRepoMenu: (...args: any[]) => Promise<any> };
+      const { showRepoMenu } = require('../telegramMenus') as { showRepoMenu: typeof showRepoMenuType };
       await showRepoMenu(chatId, topicId, parts[2]);
       return true;
     }
     case 'approve': {
-      const { showApprovalsMenu } = require('../telegramMenus') as { showApprovalsMenu: (...args: any[]) => Promise<any> };
+      const { showApprovalsMenu } = require('../telegramMenus') as { showApprovalsMenu: typeof showApprovalsMenuType };
       let sprintPending = false;
       try {
-        const { isPendingAutoApprove } = require('../autoApprover') as { isPendingAutoApprove: () => Promise<boolean> };
+        const { isPendingAutoApprove } = require('../autoApprover') as { isPendingAutoApprove: typeof isPendingAutoApproveType };
         sprintPending = await isPendingAutoApprove().catch(() => false);
       } catch (err: any) { logger.warn({ err: err.message }, 'autoApprover module failed to load — sprintPending defaults to false'); }
       await showApprovalsMenu(chatId, topicId, {
@@ -557,7 +597,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
     }
     case 'pause': {
       try {
-        const { cancelAutoApprove } = require('../autoApprover') as { cancelAutoApprove: () => Promise<boolean> };
+        const { cancelAutoApprove } = require('../autoApprover') as { cancelAutoApprove: typeof cancelAutoApproveType };
         await safeFire(cancelAutoApprove(), { label: 'repoOps' })
       } catch (err: any) { logger.warn({ err: err.message }, 'cancelAutoApprove failed'); }
       try {
@@ -570,7 +610,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
         // executing any Viktor-initiated action. Without this, pause only
         // ever gated auto-approve and idle agents, not Viktor's authority
         // path, which the plan doc explicitly flagged as unverified.
-        const { updateSettings } = require('../settingsDb') as { updateSettings: (u: Record<string, any>) => Promise<any> };
+        const { updateSettings } = require('../settingsDb') as { updateSettings: typeof updateSettingsType };
         await updateSettings({ sentinel_paused: true });
       } catch (err: any) {
         logger.error({ err: err.stack ?? err.message }, 'pause failed to set sentinel_paused — Viktor kill switch NOT engaged');
@@ -588,7 +628,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
         logger.error({ err: err.stack ?? err.message }, 'Telegram resume failed to update agent_registry');
       }
       try {
-        const { updateSettings } = require('../settingsDb') as { updateSettings: (u: Record<string, any>) => Promise<any> };
+        const { updateSettings } = require('../settingsDb') as { updateSettings: typeof updateSettingsType };
         await updateSettings({ sentinel_paused: false });
       } catch (err: any) {
         logger.error({ err: err.stack ?? err.message }, 'resume failed to clear sentinel_paused');
@@ -601,8 +641,7 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
         await sendTelegramMessage('Usage: /sentinel reset-failed <repo>', null, topicId);
         return true;
       }
-      const { query: dbq } = require('../dbClient') as { query: (...args: any[]) => Promise<any> };
-      const r = await dbq(`
+      const r = await dbQuery<{ id: number }>(`
         UPDATE audit_tasks
         SET status = 'queued', failure_reason = NULL
         WHERE repo_full_name = $1 AND status = 'failed'
@@ -618,21 +657,21 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
     case 'repos': {
       if (parts[2] === 'scan') {
         await sendTelegramMessage('🔎 Scanning GitHub for new repos...', null, topicId);
-        const { discoverAndOnboardRepos } = require('../repoDiscovery') as { discoverAndOnboardRepos: () => Promise<any> };
+        const { discoverAndOnboardRepos } = require('../repoDiscovery') as { discoverAndOnboardRepos: typeof discoverAndOnboardReposType };
         discoverAndOnboardRepos()
-          .then((result: any) => sendTelegramMessage(
+          .then((result) => sendTelegramMessage(
             result.discovered > 0
-              ? `✅ Found and onboarded ${result.discovered} new repo(s): ${result.repos.join(', ')}`
+              ? `✅ Found and onboarded ${result.discovered} new repo(s): ${(result.repos || []).join(', ')}`
               : '✅ Scan complete — no new repos found.',
             null, topicId
           ))
           .catch((err: any) => sendTelegramMessage(`❌ Repo scan failed: ${err.message}`, null, topicId));
         return true;
       }
-      const { getFullRepoList } = require('../repoDiscovery') as { getFullRepoList: () => Promise<any[]> };
+      const { getFullRepoList } = require('../repoDiscovery') as { getFullRepoList: typeof getFullRepoListType };
       const list = await getFullRepoList().catch(() => []);
       await sendTelegramMessage(
-        [`📁 Tracked repos (${list.length}):`, ...list.map((r: any) => `· ${r.repoName}`),
+        [`📁 Tracked repos (${list.length}):`, ...list.map((r) => `· ${r.repoName}`),
          '', '/sentinel repos scan — scan GitHub for new repos now'].join('\n'),
         null, topicId
       );
@@ -640,9 +679,9 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
     }
     case 'sync-metrics': {
       await sendTelegramMessage('🔄 Syncing repo health metrics from GitHub API...', null, topicId);
-      const { syncAllRepoMetrics } = require('../githubMetricsSyncer') as { syncAllRepoMetrics: () => Promise<any> };
+      const { syncAllRepoMetrics } = require('../githubMetricsSyncer') as { syncAllRepoMetrics: typeof syncAllRepoMetricsType };
       syncAllRepoMetrics()
-        .then((result: any) => sendTelegramMessage(
+        .then((result) => sendTelegramMessage(
           `✅ Metrics sync complete — ${result?.synced ?? 0}/${result?.total ?? 0} repos updated.`,
           null, topicId
         ))
@@ -652,8 +691,8 @@ async function handleRepoOpsCmd(subcommand: string, parts: string[], chatId: str
       return true;
     }
     case 'check-builder': {
-      const { execAsync } = require('../utils/execAsync') as { execAsync: (cmd: string, opts?: any) => Promise<any> };
-      const { listBuilders }   = require('../builderRouter') as { listBuilders: () => any[] };
+      const { execAsync } = require('../utils/execAsync') as { execAsync: typeof execAsyncType };
+      const { listBuilders }   = require('../builderRouter') as { listBuilders: typeof listBuildersType };
       const lines: string[] = [];
 
       try {

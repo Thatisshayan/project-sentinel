@@ -59,7 +59,7 @@ async function initBrainSchema(): Promise<void> {
 async function snapshotHealth(): Promise<Record<string, number>> {
   const metrics = await getAllLatestMetrics().catch(() => []);
   const snap: Record<string, number> = {};
-  for (const m of metrics) snap[m.repo_name] = parseFloat(m.health_score || 5);
+  for (const m of metrics) snap[m.repo_name] = parseFloat(m.health_score || '5');
   return snap;
 }
 

@@ -99,7 +99,7 @@ async function getSettings() {
   return merged;
 }
 
-async function updateSettings(updates: Record<string, any>) {
+async function updateSettings(updates: Record<string, unknown>) {
   const allowed = [
     'auto_approve_tasks',
     'audit_cooldown_h',
@@ -117,7 +117,7 @@ async function updateSettings(updates: Record<string, any>) {
 
   // Build dynamic SET clause
   const setClauses: string[] = [];
-  const values: any[] = [];
+  const values: unknown[] = [];
   let paramIndex = 1;
 
   for (const [key, value] of Object.entries(updates)) {

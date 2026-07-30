@@ -2,6 +2,30 @@ import logger from './logger';
 import { query } from './dbClient';
 import { upsertRepoMetrics, getAllLatestMetrics, getDailyCost, getMonthlyCost } from './portfolioDb';
 import { repoFullName as makeFullName } from './repoResolver';
+import type { PortfolioMetricRow } from './types/portfolioRow';
+
+interface RepoStats {
+  buildsPassedToday: number;
+  buildsFailedToday: number;
+  debuggerRunsToday: number;
+  tasksDoneToday: number;
+  tasksQueued: number;
+  lastBuildAt: string | null;
+  lastCommitAt: string | null;
+  healthScore: number;
+  buildStatus: string;
+}
+
+interface PortfolioSummary {
+  metrics: PortfolioMetricRow[];
+  healthy: PortfolioMetricRow[];
+  broken: PortfolioMetricRow[];
+  unknown: PortfolioMetricRow[];
+  avgHealth: string;
+  dailyCost: number;
+  monthlyCost: number;
+  totalRepos: number;
+}
 
 function buildRepoList(): Array<{ repoName: string; repoFullName: string }> {
   try {
@@ -34,7 +58,7 @@ const DEFAULT_PRIORITIES: Record<string, string> = {
   'obsidian-media':      'low',
 };
 
-async function getRepoStats(repoFullName: string, repoName: string): Promise<any> {
+async function getRepoStats(repoFullName: string, repoName: string): Promise<RepoStats> {
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   const pollJobs = await query(`
@@ -106,15 +130,15 @@ async function getRepoStats(repoFullName: string, repoName: string): Promise<any
   };
 }
 
-async function refreshRepoMetrics(repoFullName: string, repoName: string): Promise<any> {
+async function refreshRepoMetrics(repoFullName: string, repoName: string): Promise<RepoStats> {
   const priority = DEFAULT_PRIORITIES[repoName] || 'medium';
   const stats    = await getRepoStats(repoFullName, repoName);
   await upsertRepoMetrics({ repoFullName, repoName, ...stats, priority });
   return stats;
 }
 
-async function refreshAllMetrics(): Promise<any[]> {
-  const results: any[] = [];
+async function refreshAllMetrics(): Promise<Array<RepoStats & { repoName: string; repoFullName: string; priority: string }>> {
+  const results: Array<RepoStats & { repoName: string; repoFullName: string; priority: string }> = [];
 
   const { getFullRepoList } = require('./repoDiscovery') as { getFullRepoList: () => Promise<Array<{ repoName: string; repoFullName: string }>> };
   const repoList = await getFullRepoList().catch(() => REPO_LIST);
@@ -135,16 +159,16 @@ async function refreshAllMetrics(): Promise<any[]> {
   return results;
 }
 
-async function getPortfolioSummary(): Promise<any> {
+async function getPortfolioSummary(): Promise<PortfolioSummary> {
   const metrics     = await getAllLatestMetrics();
   const dailyCost   = await getDailyCost();
   const monthlyCost = await getMonthlyCost();
 
-  const healthy   = metrics.filter((m: any) => m.build_status === 'passing');
-  const broken    = metrics.filter((m: any) => m.build_status === 'failed');
-  const unknown   = metrics.filter((m: any) => m.build_status === 'unknown');
+  const healthy   = metrics.filter((m) => m.build_status === 'passing');
+  const broken    = metrics.filter((m) => m.build_status === 'failed');
+  const unknown   = metrics.filter((m) => m.build_status === 'unknown');
   const avgHealth = metrics.length > 0
-    ? (metrics.reduce((s: number, m: any) => s + parseFloat(m.health_score || 5), 0) / metrics.length).toFixed(1)
+    ? (metrics.reduce((s: number, m) => s + parseFloat(m.health_score || '5'), 0) / metrics.length).toFixed(1)
     : '5.0';
 
   return {

@@ -8,21 +8,12 @@ import simpleGit from 'simple-git';
 import logger from './logger';
 import { sendTelegramMessage } from './telegramClient';
 import { markIssuesPatchPending } from './securityDb';
+import type { SecurityIssueRow } from './types/securityRow';
 
 const SENSITIVE_PATHS: string[] = [
   'auth','middleware','stripe','paypal','payout',
   'billing','users','firebaseAdmin','jwt','token',
 ];
-
-interface SecurityIssue {
-  id: number;
-  auto_fixable: boolean;
-  issue_type: string;
-  severity: string;
-  title: string;
-  description: string;
-  [key: string]: any;
-}
 
 interface PRParams {
   repoFullName: string;
@@ -51,7 +42,7 @@ async function openSecurityPR({ repoFullName, branchName, title, body }: PRParam
   }
 }
 
-async function applySecurityPatches(repoFullName: string, repoName: string, issues: SecurityIssue[], topicId?: any) {
+async function applySecurityPatches(repoFullName: string, repoName: string, issues: SecurityIssueRow[], topicId?: number | null) {
   const autoFixable = issues.filter(i =>
     i.auto_fixable &&
     i.issue_type === 'vulnerability' &&

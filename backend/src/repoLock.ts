@@ -20,7 +20,16 @@ async function unlockRepo(repoName: string): Promise<void> {
   logger.info({ repoName }, 'Repo unlocked');
 }
 
-async function isRepoLocked(repoName: string): Promise<any> {
+interface LockInfo {
+  reason: string;
+  lockedAt: string;
+}
+
+interface LockedRepo extends LockInfo {
+  repoName: string;
+}
+
+async function isRepoLocked(repoName: string): Promise<LockInfo | null> {
   const redis = getRedisConnection();
   if (!redis) return null;
   const val = await redis.get(`${LOCK_PREFIX}${repoName}`);
@@ -28,11 +37,11 @@ async function isRepoLocked(repoName: string): Promise<any> {
   try { return JSON.parse(val); } catch { return null; }
 }
 
-async function getAllLocked(): Promise<any[]> {
+async function getAllLocked(): Promise<LockedRepo[]> {
   const redis = getRedisConnection();
   if (!redis) return [];
   const keys   = await redis.keys(`${LOCK_PREFIX}*`);
-  const locked: any[] = [];
+  const locked: LockedRepo[] = [];
   for (const key of keys) {
     const val = await redis.get(key);
     if (val) {

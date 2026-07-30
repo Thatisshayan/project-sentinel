@@ -1,5 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
+import type { PortfolioMetricRow } from './types/portfolioRow';
 
 const { query } = dbClient;
 
@@ -104,7 +105,7 @@ async function upsertRepoMetrics(data: {
   repoFullName: string; repoName: string; healthScore?: number;
   buildStatus?: string; priority?: string; buildsPassedToday?: number;
   buildsFailedToday?: number; tasksDoneToday?: number; tasksQueued?: number;
-  debuggerRunsToday?: number; lastBuildAt?: string; lastCommitAt?: string | Date;
+  debuggerRunsToday?: number; lastBuildAt?: string | null; lastCommitAt?: string | Date | null;
 }): Promise<void> {
   await query(`
     INSERT INTO portfolio_metrics
@@ -120,7 +121,7 @@ async function upsertRepoMetrics(data: {
   ]);
 }
 
-async function getLatestMetrics(repoFullName: string): Promise<any | null> {
+async function getLatestMetrics(repoFullName: string): Promise<PortfolioMetricRow | null> {
   const r = await query(`
     SELECT * FROM portfolio_metrics
     WHERE repo_full_name = $1
@@ -129,7 +130,7 @@ async function getLatestMetrics(repoFullName: string): Promise<any | null> {
   return r.rows[0] || null;
 }
 
-async function getAllLatestMetrics(): Promise<any[]> {
+async function getAllLatestMetrics(): Promise<PortfolioMetricRow[]> {
   const r = await query(`
     SELECT DISTINCT ON (repo_full_name) *
     FROM portfolio_metrics

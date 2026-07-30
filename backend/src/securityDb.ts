@@ -1,5 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
+import type { SecurityScanRow, SecurityIssueRow, SecurityScoreRow } from './types/securityRow';
 
 const { query } = dbClient;
 
@@ -89,7 +90,7 @@ async function initSecuritySchema(): Promise<void> {
 
 async function createSecurityScan(data: {
   repoFullName: string; commitSha: string; branchName?: string;
-}): Promise<any> {
+}): Promise<SecurityScanRow> {
   const r = await query(`
     INSERT INTO security_scans (repo_full_name, commit_sha, branch_name, status)
     VALUES ($1, $2, $3, 'running') RETURNING *
@@ -97,7 +98,7 @@ async function createSecurityScan(data: {
   return r.rows[0];
 }
 
-async function updateSecurityScan(id: number, updates: Record<string, any>): Promise<any | null> {
+async function updateSecurityScan(id: number, updates: Record<string, unknown>): Promise<SecurityScanRow | null> {
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
   const fields = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
@@ -130,7 +131,7 @@ async function insertSecurityIssue(data: {
   return r.rows[0]?.id;
 }
 
-async function getOpenIssues(repoFullName: string, severity: string | null = null): Promise<any[]> {
+async function getOpenIssues(repoFullName: string, severity: string | null = null): Promise<SecurityIssueRow[]> {
   const ORDER = `ORDER BY
     CASE severity
       WHEN 'critical' THEN 1 WHEN 'high' THEN 2
@@ -181,7 +182,7 @@ async function upsertOwaspItem(repoName: string, owaspItem: string, status: stri
   `, [repoName, owaspItem, status, notes || null]);
 }
 
-async function getLatestSecurityScore(repoName: string): Promise<any | null> {
+async function getLatestSecurityScore(repoName: string): Promise<SecurityScoreRow | null> {
   const r = await query(`
     SELECT * FROM security_scores WHERE repo_name = $1
     ORDER BY recorded_date DESC LIMIT 1
@@ -189,7 +190,7 @@ async function getLatestSecurityScore(repoName: string): Promise<any | null> {
   return r.rows[0] || null;
 }
 
-async function getPortfolioSecuritySummary(): Promise<any[]> {
+async function getPortfolioSecuritySummary(): Promise<SecurityScoreRow[]> {
   const r = await query(`
     SELECT DISTINCT ON (repo_name)
       repo_name, score, vulnerabilities, critical_count,

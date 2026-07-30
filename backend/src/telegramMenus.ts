@@ -9,7 +9,7 @@ interface InlineButton {
   callback_data: string;
 }
 
-async function sendMenu(chatId: number, threadId: number | null, text: string, buttons: InlineButton[][]): Promise<void> {
+async function sendMenu(chatId: number | string | null, threadId: number | null, text: string, buttons: InlineButton[][]): Promise<void> {
   await axios.post(`${BASE_URL()}/sendMessage`, {
     chat_id:           chatId,
     text,
@@ -20,7 +20,7 @@ async function sendMenu(chatId: number, threadId: number | null, text: string, b
   }).catch((err: any) => logger.warn({ err: err.message }, 'Menu send failed'));
 }
 
-async function showMainMenu(chatId: number, threadId: number | null): Promise<void> {
+async function showMainMenu(chatId: number | string | null, threadId: number | null): Promise<void> {
   await sendMenu(chatId, threadId, '🛡️ Sentinel — Quick Actions', [
     [
       { text: '📊 Report',     callback_data: 'menu:report'    },
@@ -40,7 +40,7 @@ async function showMainMenu(chatId: number, threadId: number | null): Promise<vo
   ]);
 }
 
-async function showRepoMenu(chatId: number, threadId: number | null, repoName: string): Promise<void> {
+async function showRepoMenu(chatId: number | string | null, threadId: number | null, repoName: string): Promise<void> {
   await sendMenu(chatId, threadId, `📁 ${repoName} — Actions`, [
     [
       { text: '📊 Status',   callback_data: `repo:status:${repoName}`   },
@@ -57,7 +57,13 @@ async function showRepoMenu(chatId: number, threadId: number | null, repoName: s
   ]);
 }
 
-async function showApprovalsMenu(chatId: number, threadId: number | null, pending: any): Promise<void> {
+interface PendingApprovals {
+  sprint: boolean;
+  selfAudit: boolean;
+  security: string | null;
+}
+
+async function showApprovalsMenu(chatId: number | string | null, threadId: number | null, pending: PendingApprovals): Promise<void> {
   const buttons: InlineButton[][] = [];
   if (pending.sprint) buttons.push([
     { text: '✅ Approve Sprint', callback_data: 'approve:sprint'      },
@@ -77,8 +83,8 @@ async function showApprovalsMenu(chatId: number, threadId: number | null, pendin
   await sendMenu(chatId, threadId, '⏳ Pending Approvals', buttons);
 }
 
-async function showDidYouMean(chatId: number, threadId: number | null, suggestions: any[]): Promise<void> {
-  const buttons: InlineButton[][] = suggestions.map((s: any) => [
+async function showDidYouMean(chatId: number | string | null, threadId: number | null, suggestions: { label: string; action: string }[]): Promise<void> {
+  const buttons: InlineButton[][] = suggestions.map((s) => [
     { text: s.label, callback_data: `dym:${s.action}` }
   ]);
   buttons.push([{ text: '❌ Never mind', callback_data: 'dym:cancel' }]);
