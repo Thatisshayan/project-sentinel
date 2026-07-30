@@ -10,10 +10,10 @@ interface Task {
   task_number: number;
   title: string;
   priority: string;
-  category: string;
-  description: string;
-  affected_files?: string[];
-  acceptance_criteria?: string;
+  category?: string | null;
+  description: string | null;
+  affected_files?: string[] | null;
+  acceptance_criteria?: string | null;
 }
 
 interface TaskContext {

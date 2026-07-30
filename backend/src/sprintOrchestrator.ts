@@ -150,7 +150,7 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
 
     const freshSprint = await getSprintById(sprintId);
     await updateSprint(sprintId, {
-      completed_tasks: (freshSprint.completed_tasks || 0) + 1,
+      completed_tasks: (freshSprint?.completed_tasks || 0) + 1,
     });
 
     await safeFire(sendTelegramMessage([
@@ -207,7 +207,7 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
     const freshSprint = await getSprintById(sprintId);
     await updateSprint(sprintId, {
       status:       'paused',
-      failed_tasks: (freshSprint.failed_tasks || 0) + 1,
+      failed_tasks: (freshSprint?.failed_tasks || 0) + 1,
     });
 
     await safeFire(sendTelegramMessage([
@@ -229,9 +229,9 @@ async function completeSprint(sprintId: number, topicId: number | null): Promise
   const sprint = await getSprintById(sprintId);
   const tasks  = await getSprintTasks(sprintId);
 
-  const done    = tasks.filter((t: any) => t.status === 'done').length;
-  const failed  = tasks.filter((t: any) => t.status === 'failed').length;
-  const skipped = tasks.filter((t: any) => t.status === 'skipped').length;
+  const done    = tasks.filter((t) => t.status === 'done').length;
+  const failed  = tasks.filter((t) => t.status === 'failed').length;
+  const skipped = tasks.filter((t) => t.status === 'skipped').length;
 
   await updateSprint(sprintId, {
     status:          'complete',
@@ -249,7 +249,7 @@ async function completeSprint(sprintId: number, topicId: number | null): Promise
   await safeFire(sendTelegramMessage([
     `Project Sentinel — Sprint Complete 🏁`,
     ``,
-    `Week of ${sprint.week_start}`,
+    `Week of ${sprint?.week_start || 'unknown'}`,
     `✅ Done: ${done}  ❌ Failed: ${failed}  ⏭️ Skipped: ${skipped}`,
     ``,
     velocityReport,
@@ -274,12 +274,12 @@ async function getSprintStatus(topicId: number | null): Promise<void> {
   }
 
   const tasks   = await getSprintTasks(sprint.id);
-  const done    = tasks.filter((t: any) => t.status === 'done').length;
-  const pending = tasks.filter((t: any) => t.status === 'queued').length;
-  const inProg  = tasks.filter((t: any) => t.status === 'in_progress').length;
+  const done    = tasks.filter((t) => t.status === 'done').length;
+  const pending = tasks.filter((t) => t.status === 'queued').length;
+  const inProg  = tasks.filter((t) => t.status === 'in_progress').length;
 
   const STATUS_EMOJI: Record<string, string> = { done: '✅', in_progress: '🔄', queued: '⏳', failed: '❌', skipped: '⏭️' };
-  const taskLines = tasks.slice(0, 10).map((t: any) =>
+  const taskLines = tasks.slice(0, 10).map((t) =>
     `${STATUS_EMOJI[t.status] || '⚪'} ${t.repo_name}: ${t.task_title}`
   ).join('\n');
 
@@ -318,7 +318,7 @@ async function resumeSprint(topicId: number | null): Promise<void> {
 
   // Skip any failed task so we don't retry it
   const tasks  = await getSprintTasks(sprint.id);
-  const failed = tasks.find((t: any) => t.status === 'failed');
+  const failed = tasks.find((t) => t.status === 'failed');
   if (failed) {
     await updateSprintTask(failed.id, { status: 'skipped' });
   }

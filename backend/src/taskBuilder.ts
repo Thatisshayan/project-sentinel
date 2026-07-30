@@ -11,6 +11,9 @@ import loopGuard from './utils/loopGuard';
 import { updateAuditTask } from './auditDb';
 import { updateNotionTaskStatus } from './auditTaskWriter';
 import { execAsync } from './utils/execAsync';
+import type { TaskResult, BatchContext, BatchResult, BuildableTask } from './types/taskBuilder';
+
+type BuilderConfig = ReturnType<typeof getBuilderConfig>;
 
 const AIDER_TIMEOUT_MS: number = parseInt(process.env['AIDER_TIMEOUT_MINUTES'] || '20', 10) * 60 * 1000;
 
@@ -24,11 +27,12 @@ async function resetWorkingTree(repoGit: ReturnType<typeof simpleGit>, taskNumbe
   }
 }
 
-async function executeBatch(tasks: any[], context: any, builderAssignment: string): Promise<any> {
+async function executeBatch(tasks: BuildableTask[], context: BatchContext, builderAssignment: string): Promise<BatchResult> {
   const { repoFullName, branchName, projectName, repoName, topicId, existingBranch } = context;
   const builderConfig = getBuilderConfig(builderAssignment);
-  const batchNum      = tasks[0].batch_number;
-  const batchNums     = `${tasks[0].task_number}-${tasks[tasks.length - 1].task_number}`;
+  // Caller (auditOrchestrator.ts) always guards tasks.length === 0 before calling executeBatch.
+  const batchNum      = tasks[0]!.batch_number;
+  const batchNums     = `${tasks[0]!.task_number}-${tasks[tasks.length - 1]!.task_number}`;
   const baseBranchName = branchName || 'main';
 
   logger.info({
@@ -82,14 +86,14 @@ async function executeBatch(tasks: any[], context: any, builderAssignment: strin
       await repoGit.checkoutLocalBranch(taskBranch);
     }
 
-    const completedTasks: any[] = [];
+    const completedTasks: BuildableTask[] = [];
     let   lastCommitSha: string | null  = null;
     let   lastTaskStdout = '';
     let   lastTaskStderr = '';
 
     for (const task of tasks) {
       let attemptBuilder = builderConfig;
-      let taskResult: any;
+      let taskResult: TaskResult = { success: false, reason: 'not attempted' };
       let attempt = 0;
       let taskCommitted = false;
       const triedBuilders: string[] = [];
@@ -327,7 +331,7 @@ async function installDependencies(repoPath: string): Promise<void> {
   }
 }
 
-async function runAiderForTask(repoPath: string, task: any, context: any, builderConfig: any): Promise<any> {
+async function runAiderForTask(repoPath: string, task: BuildableTask, context: BatchContext, builderConfig: BuilderConfig): Promise<TaskResult> {
   await installDependencies(repoPath);
 
   // Resolve affected_files against the actual repo layout BEFORE building the
@@ -359,7 +363,7 @@ async function runAiderForTask(repoPath: string, task: any, context: any, builde
   const editFormat = builderConfig.editFormat || 'whole';
 
   const args = [
-    '--model',               builderConfig.aiderModel,
+    '--model',               builderConfig.aiderModel || '',
     '--yes-always',
     '--auto-commits',
     '--no-browser',
@@ -382,8 +386,8 @@ async function runAiderForTask(repoPath: string, task: any, context: any, builde
       env: getAiderEnv(builderConfig),
     });
 
-    proc.stdout.on('data', (c: any) => { stdout += c.toString(); });
-    proc.stderr.on('data', (c: any) => { stderr += c.toString(); });
+    proc.stdout.on('data', (c: Buffer) => { stdout += c.toString(); });
+    proc.stderr.on('data', (c: Buffer) => { stderr += c.toString(); });
 
     const timer = setTimeout(() => {
       const { sendTelegramMessage } = require('./telegramClient');
@@ -403,14 +407,14 @@ async function runAiderForTask(repoPath: string, task: any, context: any, builde
       resolve({ success: code === 0, exitCode: code, stdout, stderr });
     });
 
-    proc.on('error', (err: any) => {
+    proc.on('error', (err: Error) => {
       clearTimeout(timer);
       resolve({ success: false, reason: err.message });
     });
   });
 }
 
-function buildAiderTaskMessage(task: any, context: any, resolvedFiles: string[]): string {
+function buildAiderTaskMessage(task: BuildableTask, context: BatchContext, resolvedFiles: string[]): string {
   // Use resolved paths if available — these are the actual paths in the cloned
   // repo and must match what aider sees when it produces diffs.
   const filePaths = (resolvedFiles && resolvedFiles.length > 0)

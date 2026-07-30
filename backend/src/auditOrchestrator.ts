@@ -577,7 +577,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
   }
 
   if (batchResult.status === 'completed') {
-    const completedNums = batchResult.completedTasks.map((t: any) => t.task_number).join(', ');
+    const completedNums = batchResult.completedTasks.map((t) => t.task_number).join(', ');
 
     const { prUrl, prNumber } = await createPullRequest({
       repoFullName,
@@ -630,7 +630,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
     }
 
     const skipped = tasks.filter(
-      (t: any) => !batchResult.completedTasks.find((ct: any) => ct.id === t.id)
+      (t) => !batchResult.completedTasks.find((ct) => ct.id === t.id)
     );
     for (const task of skipped) {
       await updateAuditTask(task.id, { status: 'queued' });
