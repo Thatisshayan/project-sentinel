@@ -29,13 +29,13 @@ async function generateWeeklyReport(): Promise<void> {
       const metrics = await getLatestMetrics(repoName).catch(() => []);
       if (metrics.length === 0) continue;
 
-      const revenue = metrics.find((m: any) => m.metric_name === 'revenue_today');
-      const dau     = metrics.find((m: any) => m.metric_name === 'daily_active_users');
+      const revenue = metrics.find((m) => m.metric_name === 'revenue_today');
+      const dau     = metrics.find((m) => m.metric_name === 'daily_active_users');
       const corr    = await getCorrelationSummary(repoName).catch(() => null);
 
       const parts: string[] = [];
-      if (revenue) parts.push(`Revenue: $${parseFloat(revenue.metric_value).toFixed(0)}/day`);
-      if (dau)     parts.push(`DAU: ${parseInt(dau.metric_value).toLocaleString()}`);
+      if (revenue) parts.push(`Revenue: $${parseFloat(revenue.metric_value || '0').toFixed(0)}/day`);
+      if (dau)     parts.push(`DAU: ${parseInt(dau.metric_value || '0').toLocaleString()}`);
       if (corr && corr.pr_count > 0) {
         parts.push(`PR impact: ${parseFloat(corr.avg_impact).toFixed(1)} avg score`);
       }

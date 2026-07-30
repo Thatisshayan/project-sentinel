@@ -1,5 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
+import type { BusinessMetricRow } from './types/businessMetricRow';
 
 const { query } = dbClient;
 
@@ -108,7 +109,7 @@ async function getMetricTrend(repoName: string, metricName: string, days = 7): P
   return r.rows;
 }
 
-async function getLatestMetrics(repoName: string): Promise<any[]> {
+async function getLatestMetrics(repoName: string): Promise<BusinessMetricRow[]> {
   const r = await query(`
     SELECT DISTINCT ON (metric_name)
       metric_name, metric_value, metric_unit, recorded_date

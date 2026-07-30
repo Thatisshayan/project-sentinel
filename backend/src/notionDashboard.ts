@@ -5,7 +5,17 @@ import { getDailyCost, getMonthlyCost, getOpenPatterns } from './portfolioDb';
 import { getLatestMetrics } from './businessDb';
 import { getLatestSecurityScore } from './securityDb';
 
-const notion  = (): any => new Client({ auth: process.env['NOTION_API_KEY'] });
+// Loosely-shaped block object — matches the handful of Notion block types
+// (heading_2/heading_3/divider/callout/bulleted_list_item/code) this file
+// actually builds, without fighting the Notion SDK's full generic block
+// union for a write-only, never-read-back payload.
+interface NotionBlock {
+  object: 'block';
+  type: string;
+  [key: string]: unknown;
+}
+
+const notion  = (): Client => new Client({ auth: process.env['NOTION_API_KEY'] });
 const PAGE_ID = (): string | undefined => process.env['NOTION_DASHBOARD_PAGE_ID'];
 
 const STATUS_EMOJI: Record<string, string>   = { passing: '✅', failed: '❌', unknown: '⚪', building: '🔄' };
@@ -15,7 +25,8 @@ const PRIORITY_LABEL: Record<string, string> = {
 };
 
 async function updateDashboard(): Promise<void> {
-  if (!PAGE_ID()) {
+  const pageId = PAGE_ID();
+  if (!pageId) {
     logger.debug('NOTION_DASHBOARD_PAGE_ID not set — skipping dashboard update');
     return;
   }
@@ -36,14 +47,14 @@ async function updateDashboard(): Promise<void> {
       dateStyle: 'medium', timeStyle: 'short',
     });
 
-    const sorted = [...metrics].sort((a: any, b: any) => {
+    const sorted = [...metrics].sort((a, b) => {
       const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
       return (order[a.priority] || 2) - (order[b.priority] || 2);
     });
 
-    const secScoreMap: Record<string, any> = {};
+    const secScoreMap: Record<string, string> = {};
     await Promise.allSettled(
-      sorted.map(async (m: any) => {
+      sorted.map(async (m) => {
         const s = await getLatestSecurityScore(m.repo_name).catch(() => null);
         if (s) secScoreMap[m.repo_name] = s.score;
       })
@@ -60,8 +71,8 @@ async function updateDashboard(): Promise<void> {
       ].join('\n'), '📊'),
       divider(),
       heading3('🗂️ Repo Status'),
-      ...sorted.map((m: any) => {
-        const status  = STATUS_EMOJI[m.build_status] || '⚪';
+      ...sorted.map((m) => {
+        const status  = STATUS_EMOJI[m.build_status || 'unknown'] || '⚪';
         const pri    = PRIORITY_LABEL[m.priority]   || '⚪ Unknown';
         const tasks  = m.tasks_queued > 0 ? ` · ${m.tasks_queued} queued` : '';
         const fails  = m.builds_failed > 0
@@ -74,7 +85,7 @@ async function updateDashboard(): Promise<void> {
       divider(),
       heading3('🔍 Cross-Repo Patterns'),
       patterns.length > 0
-        ? callout(patterns.slice(0, 5).map((p: any) =>
+        ? callout(patterns.slice(0, 5).map((p) =>
             `· ${p.description} — affects ${(p.affected_repos || []).join(', ')}`
           ).join('\n'), '🔍')
         : bulletText('✅ No patterns detected'),
@@ -94,7 +105,7 @@ async function updateDashboard(): Promise<void> {
       ),
     ];
 
-    const existing = await notion().blocks.children.list({ block_id: PAGE_ID() });
+    const existing = await notion().blocks.children.list({ block_id: pageId });
     for (const block of existing.results) {
       try {
         await notion().blocks.delete({ block_id: block.id });
@@ -103,8 +114,11 @@ async function updateDashboard(): Promise<void> {
 
     for (let i = 0; i < blocks.length; i += 10) {
       await notion().blocks.children.append({
-        block_id: PAGE_ID(),
-        children: blocks.slice(i, i + 10),
+        block_id: pageId,
+        // NotionBlock is a deliberately loose local shape (see its definition
+        // above) — cast at this one boundary where it meets the SDK's full
+        // strict block union.
+        children: blocks.slice(i, i + 10) as any,
       });
     }
 
@@ -117,18 +131,18 @@ async function updateDashboard(): Promise<void> {
 
 const REVENUE_REPOS: string[] = ['tapcash', 'acc', 'costpilot'];
 
-async function buildBusinessSection(): Promise<any[]> {
+async function buildBusinessSection(): Promise<NotionBlock[]> {
   try {
-    const blocks: any[] = [];
+    const blocks: NotionBlock[] = [];
 
     for (const repoName of REVENUE_REPOS) {
       const metrics = await getLatestMetrics(repoName).catch(() => []);
       if (metrics.length === 0) continue;
 
-      const lines = metrics.map((m: any) => {
+      const lines = metrics.map((m) => {
         const val = m.metric_unit === 'usd'
-          ? `$${parseFloat(m.metric_value).toFixed(2)}`
-          : parseFloat(m.metric_value).toLocaleString();
+          ? `$${parseFloat(m.metric_value || '0').toFixed(2)}`
+          : parseFloat(m.metric_value || '0').toLocaleString();
         return `${m.metric_name.replace(/_/g, ' ')}: ${val}`;
       }).join('\n');
 
@@ -142,30 +156,30 @@ async function buildBusinessSection(): Promise<any[]> {
   }
 }
 
-function heading2(text: string): any {
+function heading2(text: string): NotionBlock {
   return { object: 'block', type: 'heading_2',
     heading_2: { rich_text: [{ type: 'text', text: { content: text } }] } };
 }
-function heading3(text: string): any {
+function heading3(text: string): NotionBlock {
   return { object: 'block', type: 'heading_3',
     heading_3: { rich_text: [{ type: 'text', text: { content: text } }] } };
 }
-function divider(): any {
+function divider(): NotionBlock {
   return { object: 'block', type: 'divider', divider: {} };
 }
-function callout(text: string, emoji = '💡'): any {
+function callout(text: string, emoji = '💡'): NotionBlock {
   return { object: 'block', type: 'callout', callout: {
     rich_text: [{ type: 'text', text: { content: text.substring(0, 2000) } }],
     icon: { emoji },
   }};
 }
-function bulletText(text: string): any {
+function bulletText(text: string): NotionBlock {
   return { object: 'block', type: 'bulleted_list_item',
     bulleted_list_item: {
       rich_text: [{ type: 'text', text: { content: text.substring(0, 2000) } }],
     }};
 }
-function code(text: string): any {
+function code(text: string): NotionBlock {
   return { object: 'block', type: 'code',
     code: { rich_text: [{ type: 'text', text: { content: text } }], language: 'plain text' } };
 }

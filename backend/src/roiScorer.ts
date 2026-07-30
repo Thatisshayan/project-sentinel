@@ -37,10 +37,10 @@ async function scoreTask(task: any, repoName: string, repoPriority: string): Pro
   }
 
   const metrics = await getLatestMetrics(repoName).catch(() => []);
-  const revenue = metrics.find((m: any) => m.metric_name === 'revenue_today');
-  if (revenue && parseFloat(revenue.metric_value) > 0) {
+  const revenue = metrics.find((m) => m.metric_name === 'revenue_today');
+  if (revenue && parseFloat(revenue.metric_value || '0') > 0) {
     revenueBonus = 2;
-    reasons.push(`active revenue ($${parseFloat(revenue.metric_value).toFixed(0)}/day) (+2)`);
+    reasons.push(`active revenue ($${parseFloat(revenue.metric_value || '0').toFixed(0)}/day) (+2)`);
   }
 
   const finalScore = Math.min(10, baseScore + priorityBonus + healthBonus + revenueBonus);
