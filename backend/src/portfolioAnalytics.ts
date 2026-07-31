@@ -2,7 +2,7 @@ import logger from './logger';
 import { query } from './dbClient';
 import { upsertRepoMetrics, getAllLatestMetrics, getDailyCost, getMonthlyCost } from './portfolioDb';
 import { repoFullName as makeFullName } from './repoResolver';
-import type { PortfolioMetricRow } from './types/portfolioRow';
+import type { PortfolioMetricRow, PortfolioSummary } from './types/portfolioRow';
 
 interface RepoStats {
   buildsPassedToday: number;
@@ -14,17 +14,6 @@ interface RepoStats {
   lastCommitAt: string | null;
   healthScore: number;
   buildStatus: string;
-}
-
-interface PortfolioSummary {
-  metrics: PortfolioMetricRow[];
-  healthy: PortfolioMetricRow[];
-  broken: PortfolioMetricRow[];
-  unknown: PortfolioMetricRow[];
-  avgHealth: string;
-  dailyCost: number;
-  monthlyCost: number;
-  totalRepos: number;
 }
 
 function buildRepoList(): Array<{ repoName: string; repoFullName: string }> {

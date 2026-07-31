@@ -31,3 +31,17 @@ export interface PortfolioMetricRow {
   last_build_at: string | null;
   recorded_at: string;
 }
+
+// portfolioAnalytics.ts's getPortfolioSummary() return shape — lives here
+// (rather than in portfolioAnalytics.ts) so dailyReport.ts and other
+// consumers can import it without pulling in the analytics module itself.
+export interface PortfolioSummary {
+  metrics: PortfolioMetricRow[];
+  healthy: PortfolioMetricRow[];
+  broken: PortfolioMetricRow[];
+  unknown: PortfolioMetricRow[];
+  avgHealth: string;
+  dailyCost: number;
+  monthlyCost: number;
+  totalRepos: number;
+}
