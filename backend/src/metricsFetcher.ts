@@ -4,30 +4,46 @@ import logger from './logger';
 import { query } from './dbClient';
 import { upsertMetric } from './businessDb';
 
+interface MetricSource {
+  name: string;
+  repo: string;
+  url?: string;
+  auth?: string;
+  headers?: Record<string, string>;
+  fromDb?: boolean;
+}
+
+interface MetricConnectorRow {
+  connector_name: string;
+  repo_name: string;
+  config: { url?: string; auth?: string; headers?: Record<string, string> } | null;
+  last_pull_at: string | null;
+}
+
 async function fetchAllMetrics(): Promise<void> {
   const today = new Date().toISOString().split('T')[0] || '';
 
-  let envSources: any[] = [];
+  let envSources: MetricSource[] = [];
   try {
     if (process.env['METRICS_SOURCES']) {
       envSources = JSON.parse(process.env['METRICS_SOURCES']);
     }
-  } catch (e: any) {
-    logger.warn({ err: e.message }, 'METRICS_SOURCES is not valid JSON — skipping env sources');
+  } catch (e) {
+    logger.warn({ err: (e as Error).message }, 'METRICS_SOURCES is not valid JSON — skipping env sources');
   }
 
-  const dbResult = await query(
+  const dbResult = await query<MetricConnectorRow>(
     'SELECT connector_name, repo_name, config, last_pull_at FROM metric_connectors WHERE is_active = true'
-  ).catch(() => ({ rows: [] }));
+  ).catch(() => ({ rows: [] as MetricConnectorRow[] }));
 
-  const dbSources = dbResult.rows.map((r: any) => ({
+  const dbSources: MetricSource[] = dbResult.rows.map((r) => ({
     name:    r.connector_name,
     repo:    r.repo_name,
     url:     r.config?.url,
     auth:    r.config?.auth,
     headers: r.config?.headers || {},
     fromDb:  true,
-  })).filter((s: any) => s.url);
+  })).filter((s) => s.url);
 
   const allSources = [...envSources, ...dbSources];
 
@@ -43,13 +59,14 @@ async function fetchAllMetrics(): Promise<void> {
     try {
       await fetchOne(source, today);
       fetched++;
-    } catch (err: any) {
+    } catch (err) {
       failed++;
-      logger.warn({ source: source.name, err: err.message }, 'Metrics fetch failed');
+      const e = err as Error;
+      logger.warn({ source: source.name, err: e.message }, 'Metrics fetch failed');
       if (source.fromDb) {
         await safeFire(query(
           'UPDATE metric_connectors SET last_error = $2 WHERE connector_name = $1',
-          [source.name, err.message.substring(0, 500)]
+          [source.name, e.message.substring(0, 500)]
         ), { label: 'metricsFetcher' })
       }
     }
@@ -58,7 +75,7 @@ async function fetchAllMetrics(): Promise<void> {
   logger.info({ fetched, failed, total: allSources.length }, 'Metrics fetch complete');
 }
 
-async function fetchOne(source: any, today: string): Promise<void> {
+async function fetchOne(source: MetricSource, today: string): Promise<void> {
   const { name, repo, url, auth, headers: extraHeaders = {} } = source;
 
   if (!url)  throw new Error('No URL configured');
