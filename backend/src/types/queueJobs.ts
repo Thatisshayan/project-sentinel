@@ -10,6 +10,7 @@ export interface BuildCheckJobData {
   commitUrl?: string;
   commitMessage?: string;
   authorName?: string;
+  authorEmail?: string;
   changedFiles?: string[];
   topicId?: number | null;
   attemptNumber?: number;

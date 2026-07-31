@@ -1,8 +1,27 @@
-import { Worker } from 'bullmq';
+import { Worker, Job } from 'bullmq';
 import { getRedisConnection } from '../queueClient';
 import { sendTelegramMessage } from '../telegramClient';
 import { approveSprint } from '../sprintOrchestrator';
 import logger from '../logger';
+
+// Superset of every scheduled job type's data payload — this worker
+// dispatches on job.name to one of several unrelated job shapes, so a
+// single discriminated union isn't worth the ceremony here; every field
+// below is only ever read by the branch that matches its job type.
+interface ScheduledJobData {
+  sprintId?: number;
+  topicId?: number | null;
+  impactId?: number;
+  repoName?: string;
+  cycleId?: string;
+  repoFullName?: string;
+  commitSha?: string;
+  auditPayload?: Record<string, unknown>;
+  prNumber?: number;
+  prUrl?: string;
+  pushedAt?: string;
+  sessionId?: string;
+}
 
 const AUTO_APPROVE_JOB       = 'auto-approve-sprint';
 const PR_IMPACT_CHECK_JOB    = 'pr-impact-check';
@@ -18,9 +37,9 @@ const SELF_REVIEW_FALLBACK_JOB   = 'self-review-fallback';
  * spinning up a real BullMQ Worker requires a live Redis connection, which
  * isn't available in this test environment.
  */
-async function processScheduledJob(job: any): Promise<void> {
+async function processScheduledJob(job: Job<ScheduledJobData>): Promise<void> {
   if (job.name === AUTO_APPROVE_JOB) {
-    const { sprintId, topicId } = job.data;
+    const { sprintId, topicId = null } = job.data;
     const redis = getRedisConnection();
     const REDIS_KEY = 'sentinel:sprint:pending-auto-approve';
     if (redis) {
@@ -53,14 +72,14 @@ async function processScheduledJob(job: any): Promise<void> {
   }
 
   if (job.name === SPRINT_CONTINUE_JOB) {
-    const { sprintId, topicId } = job.data;
+    const { sprintId, topicId = null } = job.data;
     const { executeNextSprintTask } = require('../sprintOrchestrator');
     await executeNextSprintTask(sprintId, topicId);
     return;
   }
 
   if (job.name === AUDIT_APPROVAL_TIMEOUT_JOB) {
-    const { cycleId, repoFullName, repoName, topicId } = job.data;
+    const { cycleId, repoFullName, repoName, topicId = null } = job.data;
     const { checkApprovalTimeout } = require('../auditOrchestrator');
     await checkApprovalTimeout(cycleId, repoFullName, repoName, topicId);
     return;
@@ -85,7 +104,7 @@ async function processScheduledJob(job: any): Promise<void> {
   }
 
   if (job.name === SELF_REVIEW_FALLBACK_JOB) {
-    const { repoFullName, repoName, prNumber, prUrl, topicId, pushedAt } = job.data;
+    const { repoFullName, repoName, prNumber, prUrl, topicId = null, pushedAt } = job.data;
     const { hasCodeRabbitFindingSince } = require('../auditDb');
     const alreadyReviewed = await hasCodeRabbitFindingSince(repoFullName, pushedAt).catch((err: any) => {
       logger.error({ err: err.message, repoFullName, prNumber },
@@ -124,7 +143,7 @@ export function startScheduledJobsWorker(): Worker | null {
     concurrency: 5,
   });
 
-  worker.on('failed', (job: any, err: Error) => {
+  worker.on('failed', (job: Job<ScheduledJobData> | undefined, err: Error) => {
     logger.error({ jobId: job?.id, jobName: job?.name, err: err.message }, 'Scheduled job failed');
   });
 

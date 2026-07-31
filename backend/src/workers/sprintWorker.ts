@@ -1,4 +1,4 @@
-import { Worker, Queue } from 'bullmq';
+import { Worker, Queue, Job } from 'bullmq';
 import { getRedisConnection } from '../queueClient';
 import { runSelfAudit } from '../selfAuditor';
 import { checkAndHeal } from '../selfHealer';
@@ -35,7 +35,7 @@ export function startSprintWorker(): Worker | null {
     repeat: { pattern: '0 21 * * 0', tz: SENTINEL_TZ },
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule self-audit cron'));
 
-  const worker = new Worker('sprint', async (job: any) => {
+  const worker = new Worker('sprint', async (job: Job) => {
     if (job.name === 'propose') {
       await recordWeeklyVelocity();
       await generateSprintProposal();
@@ -49,7 +49,7 @@ export function startSprintWorker(): Worker | null {
     }
   }, { connection: conn });
 
-  worker.on('failed', (job: any, err: Error) => {
+  worker.on('failed', (job: Job | undefined, err: Error) => {
     logger.error({ err: err.stack ?? err.message, job: job?.name }, 'Sprint worker job failed');
   });
 
