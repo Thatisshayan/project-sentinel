@@ -11,7 +11,7 @@ import type { BusinessMetricRow } from './types/businessMetricRow';
 
 async function callAI(prompt: string): Promise<string | null> {
   try {
-    return await callAnyProvider({ userPrompt: prompt, maxTokens: 600, temperature: 0.4 });
+    return await callAnyProvider({ userPrompt: prompt, maxTokens: 600, temperature: 0.4, timeoutMs: 60000 });
   } catch {
     return null;
   }

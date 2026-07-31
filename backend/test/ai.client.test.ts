@@ -4,11 +4,27 @@ import { callAnyProvider } from '../src/ai/client';
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
-const ENV_KEYS = ['NVIDIA_API_KEY', 'GEMINI_API_KEY', 'DASHSCOPE_API_KEY', 'DEEPSEEK_API_KEY', 'ANTHROPIC_API_KEY'] as const;
+const mockCreate = jest.fn();
+jest.mock('@anthropic-ai/sdk', () => {
+  return jest.fn().mockImplementation(() => ({
+    messages: { create: mockCreate },
+  }));
+});
+
+const ENV_KEYS = ['NVIDIA_API_KEY', 'GEMINI_API_KEY', 'DASHSCOPE_API_KEY', 'DEEPSEEK_API_KEY', 'ANTHROPIC_API_KEY', 'AI_PROVIDER_CALLS_ENABLED'] as const;
+const ORIGINAL_ENV: Record<string, string | undefined> = {};
+for (const k of ENV_KEYS) ORIGINAL_ENV[k] = process.env[k];
 
 function clearProviderKeys(): void {
   for (const k of ENV_KEYS) delete process.env[k];
 }
+
+afterAll(() => {
+  for (const k of ENV_KEYS) {
+    if (ORIGINAL_ENV[k] === undefined) delete process.env[k];
+    else process.env[k] = ORIGINAL_ENV[k];
+  }
+});
 
 describe('ai/client callAnyProvider', () => {
   beforeEach(() => {
@@ -64,5 +80,50 @@ describe('ai/client callAnyProvider', () => {
 
     const [, body] = mockedAxios.post.mock.calls[0] as any[];
     expect(body.model).toBe('custom/model');
+  });
+
+  test('treats an empty response as a failure and tries the next provider', async () => {
+    process.env['NVIDIA_API_KEY'] = 'nv-key';
+    process.env['GEMINI_API_KEY'] = 'gm-key';
+    mockedAxios.post
+      .mockResolvedValueOnce({ data: { choices: [{ message: { content: '' } }] } })
+      .mockResolvedValueOnce({ data: { choices: [{ message: { content: 'from gemini' } }] } });
+
+    const result = await callAnyProvider({ userPrompt: 'hi' });
+
+    expect(result).toBe('from gemini');
+    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+  });
+
+  test('throws when every provider returns an empty response', async () => {
+    process.env['NVIDIA_API_KEY'] = 'nv-key';
+    mockedAxios.post.mockResolvedValue({ data: { choices: [{ message: { content: '' } }] } });
+
+    await expect(callAnyProvider({ userPrompt: 'hi' })).rejects.toThrow('empty response');
+  });
+
+  test('rejects immediately when AI_PROVIDER_CALLS_ENABLED is disabled, even with keys configured', async () => {
+    process.env['NVIDIA_API_KEY'] = 'nv-key';
+    process.env['AI_PROVIDER_CALLS_ENABLED'] = 'false';
+
+    await expect(callAnyProvider({ userPrompt: 'hi' })).rejects.toThrow('AI provider calls disabled');
+    expect(mockedAxios.post).not.toHaveBeenCalled();
+  });
+
+  test('calls Anthropic with temperature and timeoutMs forwarded when opted in', async () => {
+    process.env['ANTHROPIC_API_KEY'] = 'an-key';
+    mockCreate.mockResolvedValue({ content: [{ type: 'text', text: 'from claude' }] });
+
+    const result = await callAnyProvider({
+      userPrompt: 'hi', systemPrompt: 'sys', temperature: 0.3, timeoutMs: 12345,
+      includeAnthropic: true,
+    });
+
+    expect(result).toBe('from claude');
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    const [body, options] = mockCreate.mock.calls[0] as any[];
+    expect(body.temperature).toBe(0.3);
+    expect(body.system).toBe('sys');
+    expect(options.timeout).toBe(12345);
   });
 });

@@ -78,22 +78,45 @@ async function callOpenAiCompatible(provider: Provider, opts: CallAnyProviderOpt
 async function callAnthropic(apiKey: string, opts: CallAnyProviderOptions): Promise<string> {
   const model  = opts.models?.anthropic || DEFAULT_MODELS.anthropic;
   const client = new Anthropic({ apiKey });
-  const res    = await client.messages.create({
-    model,
-    max_tokens: opts.maxTokens ?? 1000,
-    ...(opts.systemPrompt ? { system: opts.systemPrompt } : {}),
-    messages: [{ role: 'user', content: opts.userPrompt }],
-  });
+  const res    = await client.messages.create(
+    {
+      model,
+      max_tokens: opts.maxTokens ?? 1000,
+      ...(opts.systemPrompt ? { system: opts.systemPrompt } : {}),
+      ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+      messages: [{ role: 'user', content: opts.userPrompt }],
+    },
+    { timeout: opts.timeoutMs ?? 30000 }
+  );
   const block = res.content[0];
   return (block && block.type === 'text' ? block.text : '') || '';
 }
 
 /**
+ * True unless AI_PROVIDER_CALLS_ENABLED is explicitly set to a falsy value
+ * ('false'/'0'/''). Defaults to enabled so existing deployments that already
+ * rely on provider keys being present don't silently go dark on upgrade —
+ * set AI_PROVIDER_CALLS_ENABLED=false to hard-disable billable calls even
+ * when provider keys are configured (e.g. a staging env sharing prod keys).
+ */
+function providerCallsEnabled(): boolean {
+  const raw = process.env['AI_PROVIDER_CALLS_ENABLED'];
+  return raw === undefined || !['false', '0', ''].includes(raw.toLowerCase());
+}
+
+/**
  * Walks the standard free-tier-first provider precedence, trying each
- * configured provider until one succeeds. Throws only if every configured
- * provider fails (or none are configured).
+ * configured provider until one succeeds. A provider response is only
+ * accepted if it returned non-empty content — an empty string is treated
+ * as a failure so the loop moves on to the next provider instead of
+ * silently returning nothing. Throws only if every configured provider
+ * fails (or none are configured).
  */
 export async function callAnyProvider(opts: CallAnyProviderOptions): Promise<string> {
+  if (!providerCallsEnabled()) {
+    throw new Error('AI provider calls disabled via AI_PROVIDER_CALLS_ENABLED');
+  }
+
   const providers = buildProviders(opts.models || {}).filter((p) => p.key);
   const anthropicKey = opts.includeAnthropic ? process.env['ANTHROPIC_API_KEY'] : undefined;
 
@@ -104,7 +127,9 @@ export async function callAnyProvider(opts: CallAnyProviderOptions): Promise<str
   let lastErr: unknown;
   for (const provider of providers) {
     try {
-      return await callOpenAiCompatible(provider, opts);
+      const content = await callOpenAiCompatible(provider, opts);
+      if (!content) throw new Error('empty response');
+      return content;
     } catch (err: any) {
       lastErr = err;
       logger.warn({ provider: provider.name, err: err.message }, 'AI provider failed — trying next');
@@ -113,7 +138,9 @@ export async function callAnyProvider(opts: CallAnyProviderOptions): Promise<str
 
   if (anthropicKey) {
     try {
-      return await callAnthropic(anthropicKey, opts);
+      const content = await callAnthropic(anthropicKey, opts);
+      if (!content) throw new Error('empty response');
+      return content;
     } catch (err: any) {
       lastErr = err;
       logger.warn({ provider: 'Anthropic', err: err.message }, 'AI provider failed — trying next');
