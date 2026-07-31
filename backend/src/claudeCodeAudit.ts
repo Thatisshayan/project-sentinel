@@ -1,5 +1,4 @@
 import { spawn } from 'child_process';
-import axios from 'axios';
 import simpleGit from 'simple-git';
 import tmp from 'tmp';
 import fs from 'fs';
@@ -8,6 +7,7 @@ import logger from './logger';
 import { validateAuditOutput } from './aiOutputValidator';
 import { buildChildEnv } from './utils/childEnv';
 import projectMemory from './projectMemory';
+import { callAnyProvider } from './ai/client';
 import type { AuditResult, AuditTask } from './types/auditResult';
 
 const AUDIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -250,33 +250,23 @@ async function runClaudeCodeAudit(repoPath: string, payload: AuditPayload, memor
   });
 }
 
-// NVIDIA NIM fallback — used when ANTHROPIC_API_KEY is absent but NVIDIA_API_KEY is set.
-// Sends the same audit prompt directly to the NVIDIA NIM chat completions endpoint.
-// Unlike the Claude Code CLI path, this model has no Read tool, so repoContext
+// D-005: OpenAI-compatible fallback chain — used when ANTHROPIC_API_KEY is
+// absent but at least one of NVIDIA/Gemini/DashScope/DeepSeek is configured.
+// Unlike the Claude Code CLI path, these models have no Read tool, so repoContext
 // (built from a real clone of the repo) is embedded directly in the prompt.
-async function runNvidiaAudit(payload: AuditPayload, repoContext: string, memoryText?: string): Promise<AuditResult> {
+async function runProviderAudit(payload: AuditPayload, repoContext: string, memoryText?: string): Promise<AuditResult> {
   const prompt = buildAuditPrompt(payload, repoContext, memoryText);
 
-  logger.info({ repo: payload.repoFullName, model: AUDIT_MODEL }, 'NVIDIA NIM audit starting');
+  logger.info({ repo: payload.repoFullName, model: AUDIT_MODEL }, 'Provider fallback audit starting');
 
-  const response = await axios.post(
-    'https://integrate.api.nvidia.com/v1/chat/completions',
-    {
-      model:       AUDIT_MODEL,
-      messages:    [{ role: 'user', content: prompt }],
-      max_tokens:  4096,
-      temperature: 0.1,
-    },
-    {
-      headers: {
-        Authorization:  `Bearer ${process.env['NVIDIA_API_KEY']}`,
-        'Content-Type': 'application/json',
-      },
-      timeout: AUDIT_TIMEOUT_MS,
-    }
-  );
+  const text = await callAnyProvider({
+    userPrompt:  prompt,
+    maxTokens:   4096,
+    temperature: 0.1,
+    timeoutMs:   AUDIT_TIMEOUT_MS,
+    models:      { nvidia: AUDIT_MODEL },
+  });
 
-  const text = response.data.choices[0]?.message?.content || '';
   return parseAuditOutput(text);
 }
 
@@ -352,10 +342,13 @@ async function runAudit(payload: AuditPayload): Promise<AuditResult> {
     // every audit cycle.
     const memoryText = await projectMemory.getMemoryForPrompt(repoFullName);
 
-    // NVIDIA NIM is the primary audit path — no ANTHROPIC_API_KEY required.
-    // It has no Read tool, so it gets a text snapshot of the cloned repo instead.
-    if (process.env['NVIDIA_API_KEY']) {
-      const auditResult = await runNvidiaAudit(payload, buildRepoContext(tmpDir.name), memoryText);
+    // Any OpenAI-compatible provider is the primary audit path — no
+    // ANTHROPIC_API_KEY required. These models have no Read tool, so they
+    // get a text snapshot of the cloned repo instead.
+    const hasProviderKey = process.env['NVIDIA_API_KEY'] || process.env['GEMINI_API_KEY']
+      || process.env['DASHSCOPE_API_KEY'] || process.env['DEEPSEEK_API_KEY'];
+    if (hasProviderKey) {
+      const auditResult = await runProviderAudit(payload, buildRepoContext(tmpDir.name), memoryText);
       logger.info({
         repoFullName,
         tasks: auditResult.tasks.length,

@@ -3,6 +3,7 @@ import https from 'https';
 import { sendTelegramMessage } from './telegramClient';
 import { logAgentMessage, getConfig, setConfig } from './agentDb';
 import logger from './logger';
+import { callAnyProvider } from './ai/client';
 import type { AgentRow, AgentMessageRow } from './types/agentRow';
 import type { PortfolioMetricRow } from './types/portfolioRow';
 
@@ -98,48 +99,23 @@ async function answerCallback(queryId: string, text = ''): Promise<void> {
 
 async function generatePersonalityMessage(agentId: string, baseMessage: string): Promise<string> {
   const personality = AGENT_PERSONALITY[agentId];
-  if (!personality || !process.env['NVIDIA_API_KEY']) return baseMessage;
+  const hasProviderKey = process.env['NVIDIA_API_KEY'] || process.env['GEMINI_API_KEY']
+    || process.env['DASHSCOPE_API_KEY'] || process.env['DEEPSEEK_API_KEY'];
+  if (!personality || !hasProviderKey) return baseMessage;
 
   try {
-    const model    = process.env['CHAT_MODEL'] || 'meta/llama-3.1-70b-instruct';
-    const bodyJson = JSON.stringify({
-      model,
-      messages: [
-        {
-          role:    'system',
-          content: `You are ${agentId}, an AI coding agent. Your communication style is ${personality}. Rewrite the status update below in your voice. Under 3 sentences. No greeting. Output only the rewritten message.`,
-        },
-        { role: 'user', content: baseMessage },
-      ],
-      max_tokens:  100,
-      temperature: 0.7,
+    // D-005: shared provider fallback chain, NVIDIA model pinned to CHAT_MODEL
+    // (or its own default) to preserve this feature's prior behavior.
+    const content = await callAnyProvider({
+      systemPrompt: `You are ${agentId}, an AI coding agent. Your communication style is ${personality}. Rewrite the status update below in your voice. Under 3 sentences. No greeting. Output only the rewritten message.`,
+      userPrompt:   baseMessage,
+      maxTokens:    100,
+      temperature:  0.7,
+      timeoutMs:    8000,
+      models:       { nvidia: process.env['CHAT_MODEL'] || 'meta/llama-3.1-70b-instruct' },
     });
 
-    interface NvidiaChatResult {
-      choices?: { message?: { content?: string } }[];
-    }
-    const result = await new Promise<NvidiaChatResult | null>((resolve, reject) => {
-      const req = https.request({
-        hostname: 'integrate.api.nvidia.com',
-        path:     '/v1/chat/completions',
-        method:   'POST',
-        headers:  {
-          'Content-Type':   'application/json',
-          'Content-Length': Buffer.byteLength(bodyJson),
-          'Authorization':  `Bearer ${process.env['NVIDIA_API_KEY']}`,
-        },
-      }, (res) => {
-        let data = '';
-        res.on('data', (chunk: string) => { data += chunk; });
-        res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
-      });
-      req.on('error', reject);
-      req.setTimeout(8000, () => { req.destroy(); reject(new Error('NIM timeout')); });
-      req.write(bodyJson);
-      req.end();
-    });
-
-    return result?.choices?.[0]?.message?.content?.trim() || baseMessage;
+    return content.trim() || baseMessage;
   } catch {
     return baseMessage;
   }

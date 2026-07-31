@@ -1,7 +1,7 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
-import axios from 'axios';
 import logger from './logger';
 import { upsertOwaspItem } from './securityDb';
+import { callAnyProvider } from './ai/client';
 
 interface OwaspItemDef {
   id: string;
@@ -28,26 +28,16 @@ const OWASP_ITEMS: OwaspItemDef[] = [
   { id: 'A10:ssrf',          name: 'Server-Side Request Forgery (SSRF)', weight: 1.2 },
 ];
 
-// Calls NVIDIA NIM directly — no exported callNvidia in claudeCodeAudit.js
-async function callNvidiaForSecurity(prompt: string): Promise<string> {
-  if (!process.env['NVIDIA_API_KEY']) throw new Error('NVIDIA_API_KEY not set');
-  const response = await axios.post(
-    'https://integrate.api.nvidia.com/v1/chat/completions',
-    {
-      model:       process.env['OWASP_MODEL'] || 'meta/llama-3.1-70b-instruct',
-      messages:    [{ role: 'user', content: prompt }],
-      max_tokens:  1000,
-      temperature: 0.1,
-    },
-    {
-      headers: {
-        Authorization:  `Bearer ${process.env['NVIDIA_API_KEY']}`,
-        'Content-Type': 'application/json',
-      },
-      timeout: 60000,
-    }
-  );
-  return response.data.choices[0]?.message?.content || '';
+// D-005: shared provider fallback chain, NVIDIA model pinned to OWASP_MODEL
+// (or its own default) to preserve this checker's prior behavior/cost profile.
+async function callProviderForSecurity(prompt: string): Promise<string> {
+  return callAnyProvider({
+    userPrompt:  prompt,
+    maxTokens:   1000,
+    temperature: 0.1,
+    timeoutMs:   60000,
+    models:      { nvidia: process.env['OWASP_MODEL'] || 'meta/llama-3.1-70b-instruct' },
+  });
 }
 
 async function evaluateOwasp(repoName: string, repoPath: string, fileList: string[]) {
@@ -80,7 +70,7 @@ Be conservative. Do not invent issues.`;
   let evaluation: OwaspEvaluation[] = [];
 
   try {
-    const response = await callNvidiaForSecurity(prompt);
+    const response = await callProviderForSecurity(prompt);
     const clean    = response
       .replace(/<think>[\s\S]*?<\/think>/gi, '')
       .replace(/```json|```/g, '')
