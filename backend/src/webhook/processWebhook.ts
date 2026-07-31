@@ -1,6 +1,7 @@
 import { safeFire, fireAndForget } from '../utils/safeFire';
 import logger from '../logger';
 import { extractPayload } from '../extractPayload';
+import type { GitHubPushPayload } from '../extractPayload';
 import { findNotionProject, updateNotionProject, appendChangelog } from '../notionClient';
 import { sendTelegramMessage } from '../telegramClient';
 import { claimProcessing, unmarkProcessed } from '../deduplication';
@@ -26,12 +27,12 @@ function isPermanentNotionError(err: unknown): boolean {
   return PERMANENT_NOTION_ERROR_CODES.has((err as { code?: string })?.code || '');
 }
 
-export async function processWebhook(payload: any): Promise<void> {
+export async function processWebhook(payload: GitHubPushPayload): Promise<void> {
   let data: WebhookPayload;
   try {
     data = extractPayload(payload);
-  } catch (err: any) {
-    logger.error({ err: err.stack ?? err.message }, 'Payload extraction failed — cannot process');
+  } catch (err) {
+    logger.error({ err: (err as Error).stack ?? (err as Error).message }, 'Payload extraction failed — cannot process');
     return;
   }
 

@@ -47,14 +47,20 @@ function severityFromBody(body: string): 'critical' | 'high' | 'medium' | 'low' 
  * webhook.ts's /github route already does with the same event, not a
  * replacement.
  */
-async function processCodeRabbitPRComment(payload: any): Promise<void> {
+interface CodeRabbitPRCommentPayload {
+  comment?: { user?: { login?: string }; body?: string; path?: string; html_url?: string };
+  pull_request?: { head?: { sha?: string }; number?: number; html_url?: string };
+  repository?: { full_name?: string };
+}
+
+async function processCodeRabbitPRComment(payload: CodeRabbitPRCommentPayload): Promise<void> {
   const comment = payload?.comment;
   const pr = payload?.pull_request;
   const repository = payload?.repository;
   if (!comment || !pr || !repository) return;
   if (!isFromCodeRabbit(comment.user?.login)) return;
 
-  const repoFullName = repository.full_name;
+  const repoFullName = repository.full_name || '';
   const repoName = repoFullName.split('/')[1] || repoFullName;
   const commitSha = pr.head?.sha || 'unknown';
 
