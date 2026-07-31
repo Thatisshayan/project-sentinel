@@ -5,6 +5,26 @@ import { getDebugAttempt, createDebugAttempt, incrementAttempt, updateDebugAttem
 import { assessLogRisk, sanitizeLogs } from './riskAssessor';
 import { sendTelegramMessage } from './telegramClient';
 import { updateNotionProject, findNotionProject } from './notionClient';
+import type { CloneResult } from './types/debugFix';
+import type { DebugAttemptRow } from './types/debugAttemptRow';
+
+interface DebugPayload {
+  projectName?: string;
+  repoName: string;
+  repoFullName: string;
+  branchName: string;
+  commitSha: string;
+  commitUrl?: string;
+  commitMessage?: string;
+  authorName?: string;
+  changedFiles?: string[];
+  buildProvider?: string;
+  buildUrl?: string | null;
+  logsUrl?: string | null;
+  failureReason?: string | null;
+  failureLogs?: string;
+  topicId?: number | null;
+}
 
 const MAX_ATTEMPTS = (): number => parseInt(process.env['MAX_DEBUG_ATTEMPTS'] || '5');
 const DRY_RUN      = (): boolean => process.env['DEBUGGER_DRY_RUN'] === 'true';
@@ -18,7 +38,7 @@ function getAgentLabel(agent: string): string {
   return agent === 'aider' ? 'Aider' : 'Claude Code';
 }
 
-async function orchestrateDebug(payload: any): Promise<void> {
+async function orchestrateDebug(payload: DebugPayload): Promise<void> {
   const {
     projectName, repoName, repoFullName, branchName,
     commitSha, commitUrl, commitMessage, authorName,
@@ -34,7 +54,7 @@ async function orchestrateDebug(payload: any): Promise<void> {
     return;
   }
 
-  const logRisk  = assessLogRisk(sanitizeLogs(failureLogs), buildProvider);
+  const logRisk  = assessLogRisk(sanitizeLogs(failureLogs ?? null), buildProvider || '');
   const fileRisk = (changedFiles || []).some((f: string) => {
     const lower = f.toLowerCase();
     return ['.env', 'secret', 'auth', 'payment', 'billing', 'migration',
@@ -122,18 +142,18 @@ async function orchestrateDebug(payload: any): Promise<void> {
     agentLabel,
   };
 
-  let fixResult: any;
+  let fixResult: CloneResult;
   try {
     fixResult = await cloneAndFix(fixContext);
-  } catch (err: any) {
-    logger.error({ err: err.stack ?? err.message }, 'cloneAndFix threw unexpectedly');
-    fixResult = { status: 'error', reason: err.message };
+  } catch (err) {
+    logger.error({ err: (err as Error).stack ?? (err as Error).message }, 'cloneAndFix threw unexpectedly');
+    fixResult = { status: 'error', reason: (err as Error).message };
   }
 
   if (fixResult.status === 'fixed') {
     const { prUrl, prNumber } = await createPullRequest({
       repoFullName,
-      fixBranch:  fixResult.fixBranch,
+      fixBranch:  fixResult.fixBranch || '',
       baseBranch: branchName,
       context: {
         projectName, repoName, commitSha,
@@ -189,7 +209,14 @@ async function orchestrateDebug(payload: any): Promise<void> {
   }
 }
 
-async function updateNotionForHighRisk(repoFullName: string, commitSha: string, data: any): Promise<void> {
+interface HighRiskNotionData {
+  failureReason?: string | null;
+  buildProvider?: string;
+  buildUrl?: string | null;
+  reason: string;
+}
+
+async function updateNotionForHighRisk(repoFullName: string, commitSha: string, data: HighRiskNotionData): Promise<void> {
   try {
     const repoName = repoFullName.split('/')[1] || '';
     const project  = await findNotionProject(repoName);
@@ -205,12 +232,20 @@ async function updateNotionForHighRisk(repoFullName: string, commitSha: string, 
       highRiskReason:      data.reason,
       currentProjectState: 'Broken — Human Required',
     });
-  } catch (err: any) {
-    logger.warn({ err: err.message }, 'Could not update Notion for high-risk failure');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'Could not update Notion for high-risk failure');
   }
 }
 
-async function updateNotionState(repoFullName: string, state: string, extra: any = {}): Promise<void> {
+interface NotionStateExtra {
+  fix_commit_url?: string;
+  fix_pr_url?: string | null;
+  fix_branch?: string;
+  debugger_used?: string;
+  attempt_number?: number;
+}
+
+async function updateNotionState(repoFullName: string, state: string, extra: NotionStateExtra = {}): Promise<void> {
   try {
     const repoName = repoFullName.split('/')[1] || '';
     const project  = await findNotionProject(repoName);
@@ -220,12 +255,23 @@ async function updateNotionState(repoFullName: string, state: string, extra: any
       currentProjectState: state,
       ...extra,
     });
-  } catch (err: any) {
-    logger.warn({ err: err.message, state }, 'Could not update Notion state');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, state }, 'Could not update Notion state');
   }
 }
 
-function buildHighRiskMessage(d: any): string {
+interface HighRiskMessageData {
+  projectName?: string;
+  repoName: string;
+  branchName: string;
+  commitSha: string;
+  buildProvider?: string;
+  buildUrl?: string | null;
+  failureReason?: string | null;
+  reason: string;
+}
+
+function buildHighRiskMessage(d: HighRiskMessageData): string {
   return [
     `Project Sentinel — High-Risk Failure ⛔`,
     ``,
@@ -245,7 +291,15 @@ function buildHighRiskMessage(d: any): string {
   ].filter((l: string) => l !== '').join('\n');
 }
 
-function buildStartingMessage(d: any): string {
+interface StartingMessageData {
+  projectName?: string;
+  repoName: string;
+  attemptNumber: number;
+  max: number;
+  agentLabel: string;
+}
+
+function buildStartingMessage(d: StartingMessageData): string {
   return [
     `Project Sentinel — Debugger Starting 🛠️`,
     ``,
@@ -258,7 +312,15 @@ function buildStartingMessage(d: any): string {
   ].join('\n');
 }
 
-function buildDryRunMessage(d: any): string {
+interface DryRunMessageData {
+  projectName?: string;
+  repoName: string;
+  attemptNumber: number;
+  agentLabel: string;
+  failureReason?: string;
+}
+
+function buildDryRunMessage(d: DryRunMessageData): string {
   return [
     `Project Sentinel — Dry Run 🧪`,
     ``,
@@ -274,7 +336,17 @@ function buildDryRunMessage(d: any): string {
   ].join('\n');
 }
 
-function buildFixReadyMessage(d: any): string {
+interface FixReadyMessageData {
+  projectName?: string;
+  repoName: string;
+  attemptNumber: number;
+  agentLabel: string;
+  fixResult: CloneResult;
+  prUrl: string | null;
+  prNumber: number | null;
+}
+
+function buildFixReadyMessage(d: FixReadyMessageData): string {
   const files = (d.fixResult.filesChanged || []).slice(0, 5).join(', ');
   return [
     `Project Sentinel — Fix Ready for Review 🔧`,
@@ -293,7 +365,16 @@ function buildFixReadyMessage(d: any): string {
   ].filter((l: string) => l !== '').join('\n');
 }
 
-function buildCannotFixMessage(d: any): string {
+interface CannotFixMessageData {
+  projectName?: string;
+  repoName: string;
+  attemptNumber: number;
+  agentLabel: string;
+  reason?: string;
+  attemptsLeft: number;
+}
+
+function buildCannotFixMessage(d: CannotFixMessageData): string {
   return [
     `Project Sentinel — Cannot Fix ⚠️`,
     ``,
@@ -310,7 +391,16 @@ function buildCannotFixMessage(d: any): string {
   ].join('\n');
 }
 
-function buildExhaustedMessage(d: any): string {
+interface ExhaustedMessageData {
+  projectName?: string;
+  repoName: string;
+  branchName: string;
+  commitUrl?: string;
+  attempt: DebugAttemptRow;
+  buildUrl?: string | null;
+}
+
+function buildExhaustedMessage(d: ExhaustedMessageData): string {
   return [
     `Project Sentinel — Needs Human Help 🚨`,
     ``,

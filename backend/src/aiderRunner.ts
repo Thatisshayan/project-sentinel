@@ -7,23 +7,12 @@ import logger from './logger';
 import { sanitizeLogs } from './riskAssessor';
 import { getBuilderConfig, getAiderEnv, getFallbackBuilder } from './builderRouter';
 import loopGuard from './utils/loopGuard';
+import type { AiderContext, CloneResult } from './types/debugFix';
 
 const TIMEOUT_MS = (): number =>
   parseInt(process.env['DEBUG_TIMEOUT_MINUTES'] || '30') * 60 * 1000;
 
 // ── Build the message Aider receives ────────────────────────────────────────
-
-interface AiderContext {
-  failureReason?: string;
-  failureLogs?: string;
-  changedFiles?: string[];
-  buildProvider?: string;
-  attemptNumber?: number;
-  repoFullName?: string;
-  repoName?: string;
-  branchName?: string;
-  projectMemoryText?: string;
-}
 
 function buildAiderMessage(context: AiderContext): string {
   const { failureReason, failureLogs, changedFiles, buildProvider, attemptNumber, projectMemoryText } = context;
@@ -163,16 +152,6 @@ async function runAider(repoPath: string, context: AiderContext, builderId?: str
 
 // ── Clone repo and run Aider ─────────────────────────────────────────────────
 
-interface CloneResult {
-  status: string;
-  reason?: string;
-  fixBranch?: string;
-  aiderOutput?: string;
-  commitSha?: string;
-  commitMessage?: string;
-  filesChanged?: string[];
-}
-
 async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
   const { repoFullName, branchName, attemptNumber } = context;
   const tmpDir = tmp.dirSync({ unsafeCleanup: true, prefix: 'sentinel-' });
@@ -213,7 +192,7 @@ async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
     // a commit lands or every builder with a configured key has been tried.
     let builderId: string | undefined;
     let aiderResult: AiderResult = { success: false };
-    let latestCommit: any = null;
+    let latestCommit: { hash: string; message: string } | null = null;
     let attempt = 0;
     const triedBuilders: string[] = [];
     const guard = new loopGuard.LoopGuard({
