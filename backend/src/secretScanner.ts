@@ -57,9 +57,23 @@ function detectHighEntropyStrings(line: string): string[] {
   return matches.map(m => m.slice(1, -1)).filter(s => shannonEntropy(s) > 4.5);
 }
 
-async function scanDiff(diffText: string, repoFullName: string, scanId: any, commitSha: string) {
+interface SecretIssue {
+  scanId: number;
+  repoFullName: string;
+  issueType: string;
+  severity: string;
+  title: string;
+  description: string;
+  filePath: string;
+  lineNumber: number;
+  fixAvailable: boolean;
+  fixDescription?: string;
+  autoFixable: boolean;
+}
+
+async function scanDiff(diffText: string, repoFullName: string, scanId: number, commitSha: string): Promise<SecretIssue[]> {
   if (!diffText) return [];
-  const issues: any[] = [];
+  const issues: SecretIssue[] = [];
   const lines  = diffText.split('\n');
   let currentFile = '';
 
@@ -91,7 +105,7 @@ async function scanDiff(diffText: string, repoFullName: string, scanId: any, com
 
     const highEntropy = detectHighEntropyStrings(content);
     for (const s of highEntropy) {
-      const caught = issues.some((iss: any) => iss.filePath === currentFile && iss.lineNumber === i);
+      const caught = issues.some((iss) => iss.filePath === currentFile && iss.lineNumber === i);
       if (caught) continue;
       const issue = {
         scanId, repoFullName, issueType: 'secret', severity: 'medium',

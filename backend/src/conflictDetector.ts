@@ -8,9 +8,24 @@ const DEPENDENT_REPOS: string[][] = [
   [resolveRepoFullName('AlphonsoEcosystem'), resolveRepoFullName('session-guard')],
 ];
 
-const pendingConflicts = new Map<string, any>();
+interface FileConflict {
+  filePath: string;
+  lockedBy: string;
+}
 
-async function checkAndLockFiles(repoFullName: string, filePaths: string[], agentId: string, agentLabel: string, taskId: string | number): Promise<{ canProceed: boolean; conflicts: any[]; acquired: any[] }> {
+interface PendingConflict {
+  repoFullName: string;
+  agentId: string;
+  agentLabel: string;
+  filePaths: string[];
+  taskId: string | number;
+  conflicts: FileConflict[];
+  createdAt: number;
+}
+
+const pendingConflicts = new Map<string, PendingConflict>();
+
+async function checkAndLockFiles(repoFullName: string, filePaths: string[], agentId: string, agentLabel: string, taskId: string | number): Promise<{ canProceed: boolean; conflicts: FileConflict[]; acquired: string[] }> {
   await safeFire(releaseExpiredLocks(), { label: 'conflictDetector' })
 
   if (!filePaths || filePaths.length === 0) {
@@ -39,7 +54,7 @@ async function checkAndLockFiles(repoFullName: string, filePaths: string[], agen
   return { canProceed, conflicts, acquired };
 }
 
-async function releaseAllLocks(repoFullName: string, agentId: string): Promise<any[]> {
+async function releaseAllLocks(repoFullName: string, agentId: string): Promise<string[]> {
   const released = await releaseFileLocks(repoFullName, agentId);
   logger.info({ repoFullName, agentId, count: released.length }, 'File locks released');
   return released;
@@ -72,7 +87,7 @@ async function checkDependencyConflicts(repoFullName: string): Promise<{ hasConf
   return { hasConflict: false };
 }
 
-function getPendingConflict(conflictId: string): any {
+function getPendingConflict(conflictId: string): PendingConflict | null {
   return pendingConflicts.get(conflictId) || null;
 }
 

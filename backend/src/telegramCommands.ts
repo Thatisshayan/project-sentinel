@@ -473,7 +473,10 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery): Promis
       break;
 
     case 'reassign':
-      await safeFire(releaseAllLocks(conflict.repoFullName, conflict.lockedBy || conflict.agentId), { label: 'telegramCommands' })
+      // conflict.lockedBy never existed on PendingConflict (only per-file
+      // conflicts[].lockedBy does) — this always fell through to agentId at
+      // runtime even under the old `any` typing; simplified accordingly.
+      await safeFire(releaseAllLocks(conflict.repoFullName, conflict.agentId), { label: 'telegramCommands' })
       await safeFire(sendTelegramMessage(
         `🔄 Locks released for ${repoName}. ${conflict.agentId} can now acquire the files or be reassigned.`,
         null, topicId
