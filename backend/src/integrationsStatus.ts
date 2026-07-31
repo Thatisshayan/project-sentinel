@@ -1,17 +1,23 @@
 import axios from 'axios';
 import logger from './logger';
 
-async function ping(name: string, fn: () => Promise<any>): Promise<{ name: string; status: string; detail: string | null }> {
+interface ConnectorStatus {
+  name: string;
+  status: string;
+  detail: string | null;
+}
+
+async function ping(name: string, fn: () => Promise<string>): Promise<ConnectorStatus> {
   try {
     const result = await fn();
     return { name, status: 'connected', detail: result || null };
-  } catch (err: any) {
-    logger.warn({ name, err: err.message }, 'Integration probe failed');
-    return { name, status: 'error', detail: err.message };
+  } catch (err) {
+    logger.warn({ name, err: (err as Error).message }, 'Integration probe failed');
+    return { name, status: 'error', detail: (err as Error).message };
   }
 }
 
-async function checkGitHub(): Promise<{ name: string; status: string; detail: string | null }> {
+async function checkGitHub(): Promise<ConnectorStatus> {
   if (!process.env['GITHUB_ORG'] || !process.env['GITHUB_WEBHOOK_SECRET']) {
     return { name: 'GitHub', status: 'unconfigured', detail: 'GITHUB_ORG or GITHUB_WEBHOOK_SECRET not set' };
   }
@@ -26,7 +32,7 @@ async function checkGitHub(): Promise<{ name: string; status: string; detail: st
   });
 }
 
-async function checkTelegram(): Promise<{ name: string; status: string; detail: string | null }> {
+async function checkTelegram(): Promise<ConnectorStatus> {
   if (!process.env['TELEGRAM_BOT_TOKEN']) {
     return { name: 'Telegram', status: 'unconfigured', detail: 'TELEGRAM_BOT_TOKEN not set' };
   }
@@ -39,7 +45,7 @@ async function checkTelegram(): Promise<{ name: string; status: string; detail: 
   });
 }
 
-async function checkNotion(): Promise<{ name: string; status: string; detail: string | null }> {
+async function checkNotion(): Promise<ConnectorStatus> {
   if (!process.env['NOTION_API_KEY'] || !process.env['NOTION_DATABASE_ID']) {
     return { name: 'Notion', status: 'unconfigured', detail: 'NOTION_API_KEY or NOTION_DATABASE_ID not set' };
   }
@@ -58,7 +64,7 @@ async function checkNotion(): Promise<{ name: string; status: string; detail: st
   });
 }
 
-async function checkRailway(): Promise<{ name: string; status: string; detail: string | null }> {
+async function checkRailway(): Promise<ConnectorStatus> {
   if (!process.env['RAILWAY_TOKEN']) {
     return { name: 'Railway', status: 'unconfigured', detail: 'RAILWAY_TOKEN not set' };
   }
@@ -79,7 +85,7 @@ async function checkRailway(): Promise<{ name: string; status: string; detail: s
   });
 }
 
-async function getIntegrationsStatus(): Promise<{ connectors: any[] }> {
+async function getIntegrationsStatus(): Promise<{ connectors: ConnectorStatus[] }> {
   const [github, telegram, notion, railway] = await Promise.all([
     checkGitHub(),
     checkTelegram(),

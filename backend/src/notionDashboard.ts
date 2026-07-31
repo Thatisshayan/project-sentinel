@@ -117,8 +117,8 @@ async function updateDashboard(): Promise<void> {
         block_id: pageId,
         // NotionBlock is a deliberately loose local shape (see its definition
         // above) — cast at this one boundary where it meets the SDK's full
-        // strict block union.
-        children: blocks.slice(i, i + 10) as any,
+        // strict block union, via the SDK's own parameter type rather than any.
+        children: blocks.slice(i, i + 10) as Parameters<Client['blocks']['children']['append']>[0]['children'],
       });
     }
 

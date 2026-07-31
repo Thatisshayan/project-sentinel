@@ -5,21 +5,23 @@ const { query } = dbClient;
 import { getRedisConnection, getBuildPollQueue } from './queueClient';
 
 async function healthCheck(req: Request, res: Response): Promise<void> {
-  const health: Record<string, any> = {
+  const services: Record<string, string> = {
+    notion:   'unchecked',
+    telegram: 'unchecked',
+    database: 'unchecked',
+    redis:    'unchecked',
+  };
+  const queues: Record<string, unknown> = {
+    buildPoll: 'unchecked',
+  };
+  const health: Record<string, unknown> = {
     status:     'ok',
     timestamp:  new Date().toISOString(),
     uptime:     Math.floor(process.uptime()),
     phase:      3,
     dryRunMode: process.env['DEBUGGER_DRY_RUN'] === 'true',
-    services:   {
-      notion:   'unchecked',
-      telegram: 'unchecked',
-      database: 'unchecked',
-      redis:    'unchecked',
-    },
-    queues: {
-      buildPoll: 'unchecked',
-    },
+    services,
+    queues,
   };
 
   // Notion
@@ -27,18 +29,18 @@ async function healthCheck(req: Request, res: Response): Promise<void> {
     const { Client } = require('@notionhq/client');
     const client = new Client({ auth: process.env['NOTION_API_KEY'] });
     await client.databases.retrieve({ database_id: process.env['NOTION_DATABASE_ID'] });
-    health['services']['notion'] = 'ok';
+    services['notion'] = 'ok';
   } catch (err: any) {
-    health['services']['notion'] = 'error';
+    services['notion'] = 'error';
     logger.warn({ err: err.message }, 'Health: Notion error');
   }
 
   // Database
   try {
     await query('SELECT 1');
-    health['services']['database'] = 'ok';
+    services['database'] = 'ok';
   } catch (err: any) {
-    health['services']['database'] = 'error';
+    services['database'] = 'error';
     logger.warn({ err: err.message }, 'Health: DB error');
   }
 
@@ -46,18 +48,18 @@ async function healthCheck(req: Request, res: Response): Promise<void> {
   try {
     const conn = getRedisConnection();
     if (!conn) {
-      health['services']['redis'] = 'not_configured';
+      services['redis'] = 'not_configured';
     } else {
       await conn.ping();
-      health['services']['redis'] = 'ok';
+      services['redis'] = 'ok';
     }
   } catch (err: any) {
-    health['services']['redis'] = 'error';
+    services['redis'] = 'error';
     logger.warn({ err: err.message }, 'Health: Redis error');
   }
 
   // Telegram
-  health['services']['telegram'] = (process.env['TELEGRAM_BOT_TOKEN'] && process.env['TELEGRAM_CHAT_ID'])
+  services['telegram'] = (process.env['TELEGRAM_BOT_TOKEN'] && process.env['TELEGRAM_CHAT_ID'])
     ? 'configured'
     : 'not_configured';
 
@@ -65,13 +67,13 @@ async function healthCheck(req: Request, res: Response): Promise<void> {
   try {
     const queue = getBuildPollQueue();
     if (!queue) {
-      health['queues']['buildPoll'] = 'not_configured';
+      queues['buildPoll'] = 'not_configured';
     } else {
       const counts = await queue.getJobCounts();
-      health['queues']['buildPoll'] = counts;
+      queues['buildPoll'] = counts;
     }
   } catch (err: any) {
-    health['queues']['buildPoll'] = 'error';
+    queues['buildPoll'] = 'error';
   }
 
   // Audit stats
