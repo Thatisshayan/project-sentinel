@@ -4,6 +4,7 @@ import { sendTelegramMessage } from './telegramClient';
 import { logAgentMessage, getConfig, setConfig } from './agentDb';
 import logger from './logger';
 import type { AgentRow, AgentMessageRow } from './types/agentRow';
+import type { PortfolioMetricRow } from './types/portfolioRow';
 
 const AGENT_ROOM_TOPIC_ID = (): string | undefined => process.env['AGENT_ROOM_TOPIC_ID'];
 const BOT_TOKEN           = (): string | undefined => process.env['TELEGRAM_BOT_TOKEN'];
@@ -54,7 +55,13 @@ function getEmoji(agentId: string): string {
 
 // ── Low-level Telegram API ────────────────────────────────────────────────────
 
-function telegramApiPost(method: string, body: any): Promise<any> {
+interface TelegramApiResult {
+  ok?: boolean;
+  result?: { message_id?: number };
+  [key: string]: unknown;
+}
+
+function telegramApiPost(method: string, body: Record<string, unknown>): Promise<TelegramApiResult | null> {
   return new Promise((resolve, reject) => {
     if (!BOT_TOKEN()) { resolve(null); return; }
     const bodyJson = JSON.stringify(body);
@@ -108,7 +115,10 @@ async function generatePersonalityMessage(agentId: string, baseMessage: string):
       temperature: 0.7,
     });
 
-    const result = await new Promise<any>((resolve, reject) => {
+    interface NvidiaChatResult {
+      choices?: { message?: { content?: string } }[];
+    }
+    const result = await new Promise<NvidiaChatResult | null>((resolve, reject) => {
       const req = https.request({
         hostname: 'integrate.api.nvidia.com',
         path:     '/v1/chat/completions',
@@ -174,8 +184,16 @@ async function announceConflict(agentId: string, agentLabel: string, repoName: s
 }
 
 // Improvement 2 — rich handoff with completed work, ready tasks, high-risk files, next task
-async function announceHandoff(fromAgentId: string, fromLabel: string, toLabel: string, repoName: string, context: string, extras: any = {}): Promise<void> {
-  const { completedTitle, readyCount, affectedFiles, nextTask } = extras;
+interface HandoffExtras {
+  completedTitle?: string;
+  readyCount?: number;
+  affectedFiles?: string[];
+  nextTask?: string;
+  highRiskFiles?: string[];
+}
+
+async function announceHandoff(fromAgentId: string, fromLabel: string, toLabel: string, repoName: string, context: string, extras: HandoffExtras = {}): Promise<void> {
+  const { completedTitle, readyCount = 0, affectedFiles, nextTask } = extras;
 
   // Identify high-risk files from affected list
   let highRiskFiles: string[] = extras.highRiskFiles || [];
@@ -364,9 +382,9 @@ async function sendMorningBriefing(): Promise<void> {
   try {
     const { getPortfolioSummary } = require('./portfolioAnalytics');
     const summary = await getPortfolioSummary();
-    const focus   = summary?.metrics?.reduce((min: any, m: any) =>
-      (!min || m.health_score < min.health_score) ? m : min, null
-    );
+    const focus: PortfolioMetricRow | null = summary?.metrics?.reduce((min: PortfolioMetricRow | null, m: PortfolioMetricRow) =>
+      (!min || parseFloat(m.health_score || '0') < parseFloat(min.health_score || '0')) ? m : min, null
+    ) ?? null;
     if (focus) focusLine = `🎯 Focus: ${focus.repo_name} (health ${focus.health_score}/10)`;
   } catch (err: any) {
     logger.warn({ err: err.message }, 'Failed to build focus line — omitting from dashboard');
