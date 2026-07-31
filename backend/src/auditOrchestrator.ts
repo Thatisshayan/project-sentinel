@@ -611,13 +611,22 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
     if (!prUrl) {
       logger.error({ repoFullName, taskBranch: batchResult.taskBranch },
         'PR creation failed after a successful batch — branch pushed, no PR opened');
-      await safeFire(sendTelegramMessage([
+      // fireAndForget, not safeFire+await: safeFire rethrows on rejection
+      // when awaited, and this runs before the build_check task-status
+      // updates a few lines below — a Telegram/network hiccup on THIS
+      // alert must not also abort those DB writes and leave real completed
+      // work (which is already pushed) without even a build_check record.
+      // Confirmed as a real reachable failure mode by CodeRabbit + Qodo
+      // (2026-07-31): every other alert in this file that has critical
+      // state writes after it already uses fireAndForget for this reason;
+      // this one didn't when first added.
+      fireAndForget(sendTelegramMessage([
         `Project Sentinel — PR Creation Failed ⚠️`,
         ``,
         `Repo: ${repoName}`,
         `Batch ${batchNum} committed successfully (tasks ${completedNums}), but opening a PR failed — check GitHub API status/rate limits.`,
         `Branch: ${batchResult.taskBranch}`,
-        `Open a PR manually from that branch on GitHub — the tasks are already marked build_check and will pick up once one exists.`,
+        `Open a PR manually from that branch on GitHub — merging it will still mark these tasks done (processPREvent.ts now also matches by branch name when pr_url/pr_number are null).`,
       ].join('\n'), repoName, topicId), { label: 'auditOrchestrator' })
     }
 
