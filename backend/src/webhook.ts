@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import logger from './logger';
@@ -8,6 +8,10 @@ import { processCodeRabbitEvent } from './webhook/processCodeRabbitEvent';
 import { processCodeRabbitPRComment } from './webhook/processCodeRabbitPRComment';
 import { handleSlackEvent } from './slackEvents';
 import { handleSlackInteraction } from './slackInteractions';
+
+interface RawBodyRequest extends Request {
+  rawBody?: Buffer;
+}
 
 const router = express.Router();
 
@@ -19,8 +23,9 @@ const limiter = rateLimit({
   message:         { error: 'Too many requests — slow down' },
 });
 
-function verifySignature(req: any, res: any, next: any): void {
-  const signature = req.headers['x-hub-signature-256'];
+function verifySignature(req: RawBodyRequest, res: Response, next: NextFunction): void {
+  const signatureHeader = req.headers['x-hub-signature-256'];
+  const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
 
   if (!signature) {
     logger.warn({ ip: req.ip }, 'Webhook received without x-hub-signature-256 header');
@@ -55,8 +60,9 @@ function verifySignature(req: any, res: any, next: any): void {
 // Re-check against CodeRabbit's real webhook-delivery docs/dashboard before
 // relying on this in production; update the header name and/or algorithm
 // here if it turns out different, nothing else needs to change.
-function verifyCodeRabbitSignature(req: any, res: any, next: any): void {
-  const signature = req.headers['x-coderabbit-signature-256'];
+function verifyCodeRabbitSignature(req: RawBodyRequest, res: Response, next: NextFunction): void {
+  const signatureHeader = req.headers['x-coderabbit-signature-256'];
+  const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
   const secret    = process.env['CODERABBIT_WEBHOOK_SECRET'];
 
   if (!secret) {
@@ -86,7 +92,7 @@ function verifyCodeRabbitSignature(req: any, res: any, next: any): void {
   next();
 }
 
-router.post('/github', limiter, verifySignature, (req: any, res: any) => {
+router.post('/github', limiter, verifySignature, (req: Request, res: Response) => {
   res.status(200).json({ received: true });
 
   const event = req.headers['x-github-event'] || 'push';
@@ -103,7 +109,7 @@ router.post('/github', limiter, verifySignature, (req: any, res: any) => {
   }
 
   if (event === 'pull_request') {
-    processPREvent(req.body).catch((err: any) => {
+    processPREvent(req.body).catch((err) => {
       logger.error({ err: err.stack ?? err.message }, 'Unhandled error in processPREvent');
     });
     return;
@@ -126,7 +132,7 @@ router.post('/github', limiter, verifySignature, (req: any, res: any) => {
   });
 });
 
-router.post('/coderabbit', limiter, verifyCodeRabbitSignature, (req: any, res: any) => {
+router.post('/coderabbit', limiter, verifyCodeRabbitSignature, (req: Request, res: Response) => {
   res.status(200).json({ received: true });
 
   processCodeRabbitEvent(req.body).catch((err: any) => {
@@ -138,14 +144,14 @@ router.post('/coderabbit', limiter, verifyCodeRabbitSignature, (req: any, res: a
 // to see the raw body/headers directly, and must special-case the
 // url_verification handshake before any signature check applies) rather
 // than a shared middleware, unlike the two routes above.
-router.post('/slack/events', limiter, (req: any, res: any) => {
+router.post('/slack/events', limiter, (req: Request, res: Response) => {
   handleSlackEvent(req, res).catch((err: any) => {
     logger.error({ err: err.stack ?? err.message }, 'Unhandled error in handleSlackEvent');
     if (!res.headersSent) res.status(500).json({ error: 'Internal error' });
   });
 });
 
-router.post('/slack/interactions', limiter, (req: any, res: any) => {
+router.post('/slack/interactions', limiter, (req: Request, res: Response) => {
   handleSlackInteraction(req, res).catch((err: any) => {
     logger.error({ err: err.stack ?? err.message }, 'Unhandled error in handleSlackInteraction');
     if (!res.headersSent) res.status(500).json({ error: 'Internal error' });
