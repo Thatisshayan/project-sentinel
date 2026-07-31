@@ -6,7 +6,7 @@ const rateLimitStore: RateLimitStore = new Map();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 const RATE_LIMIT_MAX_REQUESTS = 60; // max 60 requests per minute
 
-export function rateLimitMiddleware(ip: string): { allowed: boolean; remaining: number } {
+export function rateLimitMiddleware(ip: string): { allowed: boolean; remaining: number; resetAt: number } {
   const now = Date.now();
   let clientData = rateLimitStore.get(ip);
 
@@ -17,11 +17,11 @@ export function rateLimitMiddleware(ip: string): { allowed: boolean; remaining: 
   }
 
   clientData.count++;
-  
+
   const allowed = clientData.count <= RATE_LIMIT_MAX_REQUESTS;
   const remaining = Math.max(0, RATE_LIMIT_MAX_REQUESTS - clientData.count);
 
-  return { allowed, remaining };
+  return { allowed, remaining, resetAt: clientData.resetTime };
 }
 
 export function cleanupExpiredEntries(): void {

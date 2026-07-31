@@ -5,6 +5,12 @@ import { AGENTS } from "@/lib/data";
 import { callAction } from "@/lib/actions";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { priorityColor } from "@/lib/theme";
+import { fadeInStagger, growHeight, useSafeReducedMotion } from "@/lib/motion";
+import { ColorBadge } from "./color-badge";
+import { MeterBar } from "./meter-bar";
+import { PagePanel } from "./page-panel";
+import { ApiErrorBanner, EmptyNote } from "./empty-state";
 
 interface DisplayTask {
   title: string;
@@ -34,6 +40,7 @@ export function SprintView({
   loadError?: boolean;
 }) {
   const router = useRouter();
+  const reduced = useSafeReducedMotion();
   const maxV   = Math.max(...velocity.map(v => v.value), 1);
   const [pausing, setPausing] = useState(false);
 
@@ -65,11 +72,7 @@ export function SprintView({
 
   return (
     <div className="p-5 space-y-5">
-      {loadError && (
-        <div className="px-4 py-2.5 rounded-lg border border-s-red/40 bg-s-red/10 text-[11px] text-s-red font-mono">
-          ⚠ Could not reach the sprint API — showing no data rather than guessing. Check the backend connection and refresh.
-        </div>
-      )}
+      {loadError && <ApiErrorBanner label="sprint" />}
       {/* Sprint card */}
       {sprint ? (
         <div className="border border-s-border rounded-lg overflow-hidden">
@@ -95,44 +98,29 @@ export function SprintView({
               <span className="text-[10px] text-s-muted">Progress</span>
               <span className="text-[11px] font-mono font-bold text-s-ind">{sprint.progress}%</span>
             </div>
-            <div className="h-1.5 bg-s-border rounded-full overflow-hidden">
-              <motion.div
-                initial={{ width:0 }}
-                animate={{ width:`${sprint.progress}%` }}
-                transition={{ duration:0.8, ease:"easeOut" }}
-                className="h-full rounded-full bg-s-ind"
-              />
-            </div>
+            <MeterBar pct={sprint.progress} color="#6366F1" height={6} />
           </div>
         </div>
       ) : !loadError && (
-        <div className="border border-s-border rounded-lg px-4 py-6 text-center text-[11px] text-s-dim">
+        <EmptyNote className="border border-s-border rounded-lg py-6">
           No active sprint this week. Propose one via <span className="font-mono">/sentinel propose-sprint</span>.
-        </div>
+        </EmptyNote>
       )}
 
       <div className="grid grid-cols-[1fr_240px] gap-5">
         {/* Task list */}
-        <div className="border border-s-border rounded-lg overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-s-border text-[10px] font-bold uppercase tracking-widest text-s-dim bg-white/[0.01]">
-            Tasks ({tasks.length})
-          </div>
+        <PagePanel title={`Tasks (${tasks.length})`}>
           {tasks.length > 0 ? tasks.map((task, i) => {
             const agent = AGENTS.find(a => a.name === task.agent);
             return (
               <motion.div
                 key={task.id || i}
-                initial={{ opacity:0, x:-4 }}
-                animate={{ opacity:1, x:0 }}
-                transition={{ delay: i*0.04 }}
+                {...fadeInStagger(i, !!reduced, "x")}
                 className="flex items-center gap-3 px-4 py-2.5 border-b border-s-border last:border-b-0 hover:bg-white/[0.02]"
               >
                 <StatusIcon s={task.status} />
                 <span className="flex-1 text-xs text-s-text">{task.title}</span>
-                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${
-                  task.priority==="P0" ? "text-s-red bg-s-red/10" :
-                  task.priority==="P1" ? "text-s-amber bg-s-amber/10" : "text-s-muted bg-white/5"
-                }`}>{task.priority}</span>
+                <ColorBadge color={priorityColor(task.priority)} size="xs" uppercase>{task.priority}</ColorBadge>
                 {agent && (
                   <div className="flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full" style={{ background: agent.color }} />
@@ -158,23 +146,18 @@ export function SprintView({
               </motion.div>
             );
           }) : (
-            <div className="px-4 py-6 text-center text-[11px] text-s-dim">No tasks.</div>
+            <EmptyNote>No tasks.</EmptyNote>
           )}
-        </div>
+        </PagePanel>
 
         {/* Velocity chart */}
-        <div className="border border-s-border rounded-lg overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-s-border text-[10px] font-bold uppercase tracking-widest text-s-dim bg-white/[0.01]">
-            Velocity (last {velocity.length} sprints)
-          </div>
+        <PagePanel title={`Velocity (last ${velocity.length} sprints)`}>
           {velocity.length > 0 ? (
             <div className="p-4 flex items-end gap-2 h-[180px]">
               {velocity.map((v, i) => (
                 <div key={i} className="flex-1 flex flex-col items-center gap-1">
                   <motion.div
-                    initial={{ height:0 }}
-                    animate={{ height:`${(v.value / maxV) * 100}%` }}
-                    transition={{ delay: i*0.06, duration:0.5, ease:"easeOut" }}
+                    {...growHeight((v.value / maxV) * 100, !!reduced, i * 0.06)}
                     className="w-full rounded-t"
                     style={{
                       background: i === velocity.length-1 ? "var(--s-ind)" : "#2e2e2e",
@@ -186,9 +169,9 @@ export function SprintView({
               ))}
             </div>
           ) : (
-            <div className="px-4 py-6 text-center text-[11px] text-s-dim">No velocity data yet.</div>
+            <EmptyNote>No velocity data yet.</EmptyNote>
           )}
-        </div>
+        </PagePanel>
       </div>
     </div>
   );

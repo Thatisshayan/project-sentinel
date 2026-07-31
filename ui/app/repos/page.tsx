@@ -1,30 +1,12 @@
 import { getPortfolio } from "@/lib/api";
-import { AGENTS, healthColor } from "@/lib/data";
+import { AGENTS } from "@/lib/data";
+import { scoreColor } from "@/lib/theme";
+import { mapBuild, mapPriority, relativeTime } from "@/lib/format";
 import { RepoRow } from "@/components/sentinel/repo-row";
 import { RepoActions } from "@/components/sentinel/repo-actions";
 import type { Repo } from "@/lib/types";
 
 export const revalidate = 30;
-
-function mapBuild(s: string | null): Repo["build"] {
-  if (s === "passing" || s === "passed" || s === "pass" || s === "success") return "pass";
-  if (s === "failed" || s === "fail" || s === "failure") return "fail";
-  return "pending";
-}
-function mapPriority(s: string | null): Repo["priority"] {
-  if (s === "critical") return "P0";
-  if (s === "high")     return "P1";
-  return "P2";
-}
-function relTime(iso: string | null) {
-  if (!iso) return "—";
-  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1)  return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
 
 export default async function ReposPage() {
   let repos: Repo[] = [];
@@ -39,7 +21,7 @@ export default async function ReposPage() {
       agent:    portfolio.agents.find(a =>
         a.repo_full_name?.endsWith(`/${r.repo_name}`) && a.status === "working"
       )?.agent_label ?? null,
-      commit:   relTime(r.last_commit_at),
+      commit:   relativeTime(r.last_commit_at),
       build:    mapBuild(r.build_status),
       priority: mapPriority(r.priority),
       tasks:    r.tasks_queued ?? 0,
@@ -83,8 +65,8 @@ export default async function ReposPage() {
             repo={repo}
             agent={AGENTS.find(a => a.name === repo.agent) ?? null}
             index={i}
-            healthColor={healthColor(repo.health)}
-            secColor={healthColor(repo.security)}
+            healthColor={scoreColor(repo.health)}
+            secColor={scoreColor(repo.security)}
           />
         ))}
       </div>

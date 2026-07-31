@@ -1,14 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimitMiddleware } from "@/lib/rateLimit";
 
-// Rate limit configuration
-const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
-const RATE_LIMIT_MAX_REQUESTS = 60; // max 60 requests per minute
-
-// Rate limit store (in-memory, resets on container restart)
-type RateLimitStore = Map<string, { count: number; resetTime: number }>;
-const rateLimitStore: RateLimitStore = new Map();
-
 function getRateLimitKey(req: NextRequest): string {
   // Use x-forwarded-for header for production, fall back to socket IP
   const forwardedFor = req.headers.get("x-forwarded-for");
@@ -21,34 +13,8 @@ function getRateLimitKey(req: NextRequest): string {
 }
 
 function checkRateLimit(req: NextRequest): { allowed: boolean; remaining: number; resetAt: number } {
-  const key = getRateLimitKey(req);
-  const now = Date.now();
-  let clientData = rateLimitStore.get(key);
-
-  if (!clientData || now > clientData.resetTime) {
-    // New window
-    clientData = { count: 0, resetTime: now + RATE_LIMIT_WINDOW_MS };
-    rateLimitStore.set(key, clientData);
-  }
-
-  clientData.count++;
-  
-  const allowed = clientData.count <= RATE_LIMIT_MAX_REQUESTS;
-  const remaining = Math.max(0, RATE_LIMIT_MAX_REQUESTS - clientData.count);
-  const resetAt = clientData.resetTime;
-
-  return { allowed, remaining, resetAt };
+  return rateLimitMiddleware(getRateLimitKey(req));
 }
-
-// Clean up expired entries every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, data] of Array.from(rateLimitStore.entries())) {
-    if (now > data.resetTime) {
-      rateLimitStore.delete(ip);
-    }
-  }
-}, 5 * 60 * 1000);
 
 // Only these backend paths may be reached through the universal action proxy.
 // Prevents an attacker from pivoting the proxy to arbitrary backend routes.
@@ -73,6 +39,8 @@ const ALLOWED_PATH_PATTERNS: RegExp[] = [
   /^\/api\/security\/issue\/[\w.-]+\/patch$/,
   /^\/api\/command$/,
   /^\/api\/settings\/update$/,
+  /^\/api\/repo\/[\w.-]+\/memory$/,
+  /^\/api\/repo\/[\w.-]+\/memory\/\d+$/,
 ];
 
 // The regex patterns' [\w.-]+ segments technically accept a literal "." or
@@ -99,7 +67,9 @@ function isValidOrigin(req: NextRequest): boolean {
   return true; // dev: allow all
 }
 
-// Universal proxy — client sends { path, body } → we forward to backend with secret key
+// Universal proxy — client sends { path, body, method? } → we forward to
+// backend with secret key. method defaults to POST; only DELETE is also
+// accepted (needed for the repo-memory delete route).
 export async function POST(req: NextRequest) {
   const rateLimit = checkRateLimit(req);
   if (!rateLimit.allowed) {
@@ -124,23 +94,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Origin not allowed" }, { status: 403 });
   }
 
-  const { path, body } = await req.json();
+  const { path, body, method } = await req.json();
   if (typeof path !== "string" || !path.startsWith("/api/")) {
     return NextResponse.json({ error: "Invalid path" }, { status: 400 });
   }
   if (!isAllowedPath(path)) {
     return NextResponse.json({ error: "Path not allowed" }, { status: 403 });
   }
+  const forwardMethod = method === "DELETE" ? "DELETE" : "POST";
 
   try {
     const r = await fetch(`${base}${path}`, {
-      method: "POST",
+      method: forwardMethod,
       headers: {
         "Content-Type": "application/json",
         ...(key ? { "x-sentinel-key": key } : {}),
         "X-RateLimit-Remaining": rateLimit.remaining.toString(),
       },
-      body: JSON.stringify(body ?? {}),
+      ...(forwardMethod === "DELETE" ? {} : { body: JSON.stringify(body ?? {}) }),
     });
     const data = await r.json().catch(() => ({}));
     return NextResponse.json(data, { 

@@ -2,31 +2,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { callAction } from "@/lib/actions";
-
-function scoreColor(n: number) {
-  if (n >= 80) return "#22C55E";
-  if (n >= 60) return "#F59E0B";
-  return "#EF4444";
-}
+import { scoreColor, cvssColor, severityColor } from "@/lib/theme";
+import { ColorBadge } from "./color-badge";
+import { PagePanel } from "./page-panel";
+import { ApiErrorBanner, EmptyNote } from "./empty-state";
 
 function CvssBadge({ cvss }: { cvss: number | null }) {
   if (!cvss) return <span className="text-s-dim text-[10px] font-mono">—</span>;
-  const color = cvss >= 9 ? "#EF4444" : cvss >= 7 ? "#F59E0B" : "#22C55E";
-  return (
-    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded" style={{ color, background: color + "15" }}>
-      {cvss}
-    </span>
-  );
-}
-
-function SeverityBadge({ s }: { s: string }) {
-  const map: Record<string,string> = { critical:"#EF4444", high:"#F59E0B", medium:"#6366F1", low:"#888" };
-  const color = map[s] ?? "#888";
-  return (
-    <span className="text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded" style={{ color, background: color + "20" }}>
-      {s}
-    </span>
-  );
+  return <ColorBadge color={cvssColor(cvss)} size="sm">{cvss}</ColorBadge>;
 }
 
 interface Props {
@@ -68,11 +51,7 @@ export function SecurityView({ scores, issues, summary, loadError }: Props) {
 
   return (
     <div className="p-5 space-y-5 overflow-y-auto flex-1">
-      {loadError && (
-        <div className="px-4 py-3 rounded-lg border border-s-red/40 bg-s-red/10 text-[11px] text-s-red font-mono">
-          ⚠ Could not reach the security API — showing no data rather than guessing. Check the backend connection and refresh.
-        </div>
-      )}
+      {loadError && <ApiErrorBanner label="security" />}
 
       {/* Summary bar */}
       <div className="grid grid-cols-4 gap-3">
@@ -95,9 +74,9 @@ export function SecurityView({ scores, issues, summary, loadError }: Props) {
       )}
 
       {/* Repo grid */}
-      <div className="border border-s-border rounded-lg overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-s-border bg-white/[0.01]">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-s-dim">Portfolio Security</span>
+      <PagePanel
+        title="Portfolio Security"
+        action={
           <button
             onClick={runScan}
             disabled={scanning}
@@ -105,7 +84,8 @@ export function SecurityView({ scores, issues, summary, loadError }: Props) {
           >
             {scanning ? "Scanning…" : "Run All Scans"}
           </button>
-        </div>
+        }
+      >
         {scores.length > 0 ? (
           <div className="grid grid-cols-3 gap-px bg-s-border">
             {scores.map(r => {
@@ -135,51 +115,50 @@ export function SecurityView({ scores, issues, summary, loadError }: Props) {
             })}
           </div>
         ) : (
-          <div className="px-4 py-6 text-center text-[11px] text-s-dim">
+          <EmptyNote>
             {loadError ? "No data — backend unreachable." : "No security data yet — run a scan to get started."}
-          </div>
+          </EmptyNote>
         )}
-      </div>
+      </PagePanel>
 
       {/* Issues table */}
       {issues.length > 0 && (
-        <div className="border border-s-border rounded-lg overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-s-border bg-white/[0.01]">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-s-dim">Open Issues</span>
+        <PagePanel
+          title="Open Issues"
+          action={
             <button
               onClick={() => issues.filter(i => i.status === "open").forEach(i => patch(i.id))}
               className="text-[10px] px-3 py-1 rounded border border-s-green/40 text-s-green hover:bg-s-green/10 transition-all"
             >
               Patch All Safe
             </button>
-          </div>
-          <div>
-            {issues.map(issue => (
-              <div key={issue.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-s-border last:border-b-0 hover:bg-white/[0.02]">
-                <SeverityBadge s={issue.severity} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs truncate">{issue.title}</div>
-                  <div className="text-[10px] text-s-muted font-mono">{issue.repo}</div>
-                </div>
-                {issue.cve && <span className="text-[9px] font-mono text-s-dim flex-shrink-0">{issue.cve}</span>}
-                <CvssBadge cvss={issue.cvss} />
-                <span className={`text-[9px] font-mono flex-shrink-0 ${
-                  issue.status === "patched" ? "text-s-green" :
-                  issue.status === "review"  ? "text-s-amber" : "text-s-muted"
-                }`}>{issue.status}</span>
-                {issue.status === "open" && (
-                  <button
-                    onClick={() => patch(issue.id)}
-                    disabled={patching === issue.id}
-                    className="text-[10px] px-2 py-0.5 rounded border border-s-green/30 text-s-green hover:bg-s-green/10 transition-all disabled:opacity-40 flex-shrink-0"
-                  >
-                    {patching === issue.id ? "…" : "Patch"}
-                  </button>
-                )}
+          }
+        >
+          {issues.map(issue => (
+            <div key={issue.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-s-border last:border-b-0 hover:bg-white/[0.02]">
+              <ColorBadge color={severityColor(issue.severity)} size="xs" uppercase>{issue.severity}</ColorBadge>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs truncate">{issue.title}</div>
+                <div className="text-[10px] text-s-muted font-mono">{issue.repo}</div>
               </div>
-            ))}
-          </div>
-        </div>
+              {issue.cve && <span className="text-[9px] font-mono text-s-dim flex-shrink-0">{issue.cve}</span>}
+              <CvssBadge cvss={issue.cvss} />
+              <span className={`text-[9px] font-mono flex-shrink-0 ${
+                issue.status === "patched" ? "text-s-green" :
+                issue.status === "review"  ? "text-s-amber" : "text-s-muted"
+              }`}>{issue.status}</span>
+              {issue.status === "open" && (
+                <button
+                  onClick={() => patch(issue.id)}
+                  disabled={patching === issue.id}
+                  className="text-[10px] px-2 py-0.5 rounded border border-s-green/30 text-s-green hover:bg-s-green/10 transition-all disabled:opacity-40 flex-shrink-0"
+                >
+                  {patching === issue.id ? "…" : "Patch"}
+                </button>
+              )}
+            </div>
+          ))}
+        </PagePanel>
       )}
     </div>
   );

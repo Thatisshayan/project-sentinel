@@ -154,11 +154,27 @@ export const getCurrentSprint = () =>
 export const getSecurityPortfolio = () =>
   api<{ scores: SecurityScore[]; issues: SecurityIssue[] }>('/security/portfolio');
 
-export const getCosts = () =>
-  api<{ monthly: number; byRepo: { repo_full_name: string; cost: number }[] }>('/costs');
+export interface RepoAspectState {
+  aspect: string;
+  sprintCount: number;
+}
 
 export const getRepoDetail = (name: string) =>
-  api<RepoMetric & { tasks: AuditTask[]; lastCycle: object | null }>(`/repo/${name}`);
+  api<RepoMetric & { tasks: AuditTask[]; lastCycle: object | null; aspect: RepoAspectState | null }>(`/repo/${name}`);
+
+export type ProjectMemoryType = 'dismissed_finding' | 'convention' | 'decision' | 'note';
+
+export interface ProjectMemoryEntry {
+  id: number;
+  repo_full_name: string;
+  type: ProjectMemoryType;
+  content: string;
+  added_by: string | null;
+  created_at: string;
+}
+
+export const getRepoMemory = (name: string) =>
+  api<ProjectMemoryEntry[]>(`/repo/${name}/memory`);
 
 export interface ConnectorStatus {
   name: string;

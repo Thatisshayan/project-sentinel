@@ -3,6 +3,9 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { callAction } from "@/lib/actions";
+import { fadeInStagger, useSafeReducedMotion } from "@/lib/motion";
+import { statusColor } from "@/lib/theme";
+import { ApiErrorBanner, EmptyNote } from "./empty-state";
 
 interface Agent {
   id: string; label: string; color: string; status: string;
@@ -10,14 +13,9 @@ interface Agent {
   completedTasks: number; failedTasks: number;
 }
 
-const STATUS_COLOR: Record<string, string> = {
-  working: "text-s-green", idle: "text-s-muted",
-  failed: "text-s-red",    paused: "text-s-amber",
-  error:  "text-s-red",    unconfigured: "text-s-amber",
-};
-
 function AgentCard({ agent, index }: { agent: Agent; index: number }) {
   const router = useRouter();
+  const reduced = useSafeReducedMotion();
   const [loading, setLoading] = useState(false);
   // The backend toggle (POST /agents/:id/toggle) only flips idle <-> paused
   // — 'idle' is the normal enabled/ready resting state, not an "off" state
@@ -38,16 +36,12 @@ function AgentCard({ agent, index }: { agent: Agent; index: number }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.04, duration: 0.2 }}
+      {...fadeInStagger(index, !!reduced)}
       className="border border-s-border rounded-lg p-4 hover:border-s-border-2 transition-colors relative overflow-hidden"
     >
       {/* Status glow line */}
       <div className="absolute top-0 left-0 right-0 h-[2px]" style={{
-        background: agent.status === "working" ? agent.color
-          : agent.status === "error" ? "#EF4444"
-          : "transparent",
+        background: agent.status === "working" || agent.status === "error" ? statusColor(agent.status) : "transparent",
         opacity: 0.7,
       }} />
 
@@ -61,7 +55,7 @@ function AgentCard({ agent, index }: { agent: Agent; index: number }) {
           </div>
           <div>
             <div className="text-xs font-semibold leading-tight">{agent.label}</div>
-            <div className={`text-[10px] mt-0.5 font-mono ${STATUS_COLOR[agent.status] ?? "text-s-muted"}`}>
+            <div className="text-[10px] mt-0.5 font-mono" style={{ color: statusColor(agent.status) }}>
               {agent.status}
               {agent.status === "working" && (
                 <span className="inline-block ml-1 w-1 h-1 rounded-full bg-s-green animate-pulse" />
@@ -130,11 +124,7 @@ export function AgentsView({ agents, loadError }: { agents: Agent[]; loadError?:
 
   return (
     <div className="p-5 overflow-y-auto flex-1">
-      {loadError && (
-        <div className="mb-5 px-4 py-3 rounded-lg border border-s-red/40 bg-s-red/10 text-[11px] text-s-red font-mono">
-          ⚠ Could not reach the agents API — showing no data rather than guessing. Check the backend connection and refresh.
-        </div>
-      )}
+      {loadError && <ApiErrorBanner label="agents" className="mb-5" />}
       <div className="flex items-center justify-between mb-5">
         <span className="text-xs text-s-muted">{agents.length} agents configured</span>
         <div className="flex gap-2">
@@ -155,7 +145,7 @@ export function AgentsView({ agents, loadError }: { agents: Agent[]; loadError?:
       </div>
 
       {agents.length === 0 && !loadError && (
-        <div className="px-4 py-8 text-center text-[11px] text-s-dim">No agents configured yet.</div>
+        <EmptyNote className="py-8">No agents configured yet.</EmptyNote>
       )}
 
       <div className="grid grid-cols-2 gap-3 mb-6">
