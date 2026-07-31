@@ -213,7 +213,7 @@ async function getConfig(key: string): Promise<string | null> {
   return r.rows[0]?.value || null;
 }
 
-async function setConfig(key: string, value: any): Promise<void> {
+async function setConfig(key: string, value: string | number | boolean): Promise<void> {
   await query(`
     INSERT INTO agent_room_config (key, value) VALUES ($1, $2)
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value

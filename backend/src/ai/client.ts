@@ -84,7 +84,8 @@ async function callAnthropic(apiKey: string, opts: CallAnyProviderOptions): Prom
     ...(opts.systemPrompt ? { system: opts.systemPrompt } : {}),
     messages: [{ role: 'user', content: opts.userPrompt }],
   });
-  return (res.content[0] as any)?.text || '';
+  const block = res.content[0];
+  return (block && block.type === 'text' ? block.text : '') || '';
 }
 
 /**

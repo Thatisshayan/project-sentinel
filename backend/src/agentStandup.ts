@@ -10,9 +10,17 @@ const { query } = dbClient;
 
 const AGENT_ROOM_TOPIC = (): number => parseInt(process.env['AGENT_ROOM_TOPIC_ID'] || '494');
 
-async function getRealAgentStats(agentId: string): Promise<any> {
+interface AgentRealStats {
+  done: number;
+  failed: number;
+  queued: number;
+  prs: number;
+  audits: number;
+}
+
+async function getRealAgentStats(agentId: string): Promise<AgentRealStats> {
   const [taskRows, cycleRows] = await Promise.all([
-    query(`
+    query<{ done: number; failed: number; queued: number; prs: number }>(`
       SELECT
         COUNT(CASE WHEN status IN ('done','build_check') THEN 1 END)::int AS done,
         COUNT(CASE WHEN status = 'failed' THEN 1 END)::int                AS failed,
@@ -21,20 +29,20 @@ async function getRealAgentStats(agentId: string): Promise<any> {
       FROM audit_tasks
       WHERE builder_agent = $1
         AND created_at > NOW() - INTERVAL '7 days'
-    `, [agentId]).catch(() => ({ rows: [{}] })),
-    query(`
+    `, [agentId]).catch(() => ({ rows: [] as { done: number; failed: number; queued: number; prs: number }[] })),
+    query<{ audits: number }>(`
       SELECT COUNT(*)::int AS audits
       FROM audit_cycles
       WHERE audit_agent = $1
         AND created_at > NOW() - INTERVAL '7 days'
-    `, [agentId]).catch(() => ({ rows: [{}] })),
+    `, [agentId]).catch(() => ({ rows: [] as { audits: number }[] })),
   ]);
   return {
-    done:   parseInt(taskRows.rows[0]?.done    || 0),
-    failed: parseInt(taskRows.rows[0]?.failed  || 0),
-    queued: parseInt(taskRows.rows[0]?.queued  || 0),
-    prs:    parseInt(taskRows.rows[0]?.prs     || 0),
-    audits: parseInt(cycleRows.rows[0]?.audits || 0),
+    done:   Number(taskRows.rows[0]?.done    || 0),
+    failed: Number(taskRows.rows[0]?.failed  || 0),
+    queued: Number(taskRows.rows[0]?.queued  || 0),
+    prs:    Number(taskRows.rows[0]?.prs     || 0),
+    audits: Number(cycleRows.rows[0]?.audits || 0),
   };
 }
 
@@ -47,7 +55,7 @@ async function runAgentStandup(): Promise<void> {
     for (const agent of agents) {
       if (agent.status === 'disabled') continue;
 
-      const real  = await getRealAgentStats(agent.agent_id).catch(() => ({}));
+      const real  = await getRealAgentStats(agent.agent_id).catch(() => ({} as Partial<AgentRealStats>));
 
       const stats = {
         tasks:          real.done   || 0,

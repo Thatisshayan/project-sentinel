@@ -37,7 +37,7 @@ async function selectAgent(taskComplexity: string, preferredBuilder?: string): P
 
   const active = await getActiveAgents();
   const activeCounts: Record<string, number> = {};
-  active.forEach((a: any) => {
+  active.forEach((a) => {
     activeCounts[a.agent_id] = (activeCounts[a.agent_id] || 0) + 1;
   });
 
@@ -76,7 +76,7 @@ async function selectAgent(taskComplexity: string, preferredBuilder?: string): P
   return AGENT_POOL[0]!.id;
 }
 
-async function assignAgent(agentId: string, taskData: any): Promise<void> {
+async function assignAgent(agentId: string, taskData: { repoFullName: string; taskType: string; taskId: number; taskTitle: string }): Promise<void> {
   await setAgentWorking(agentId, taskData);
 }
 

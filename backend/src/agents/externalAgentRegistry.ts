@@ -25,6 +25,14 @@ interface ExternalAgent {
   enabled: boolean;
 }
 
+interface ExternalAgentRow {
+  id: string;
+  display_name: string;
+  slack_mention: string;
+  role: 'worker' | 'auditor' | 'authority' | 'assistant';
+  enabled: boolean;
+}
+
 async function initExternalAgentSchema(): Promise<void> {
   await query(`
     CREATE TABLE IF NOT EXISTS external_agents (
@@ -104,12 +112,12 @@ async function getExternalAgent(agentId: string): Promise<ExternalAgent | null> 
 }
 
 async function listExternalAgents(opts: { enabledOnly?: boolean } = {}): Promise<ExternalAgent[]> {
-  const r = await query(
+  const r = await query<ExternalAgentRow>(
     opts.enabledOnly
       ? `SELECT * FROM external_agents WHERE enabled = true ORDER BY id`
       : `SELECT * FROM external_agents ORDER BY id`
   );
-  return r.rows.map((row: any) => ({
+  return r.rows.map((row) => ({
     id: row.id,
     displayName: row.display_name,
     slackMention: row.slack_mention,

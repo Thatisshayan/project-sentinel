@@ -234,7 +234,7 @@ async function callSynthesisLLM(question: string, repliesText: string): Promise<
     throw new Error('No AI provider available for roundtable synthesis');
   }
 
-  let lastErr: any;
+  let lastErr: unknown;
   for (const p of providers) {
     try {
       return await tryProvider(p.key, p.url, p.model);
