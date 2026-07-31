@@ -8,7 +8,7 @@ import { PagePanel } from "./page-panel";
 import { ApiErrorBanner, EmptyNote } from "./empty-state";
 
 function CvssBadge({ cvss }: { cvss: number | null }) {
-  if (!cvss) return <span className="text-s-dim text-[10px] font-mono">—</span>;
+  if (cvss == null) return <span className="text-s-dim text-[10px] font-mono">—</span>;
   return <ColorBadge color={cvssColor(cvss)} size="sm">{cvss}</ColorBadge>;
 }
 

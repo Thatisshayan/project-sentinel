@@ -17,6 +17,10 @@ import projectDb from './projectDb';
 
 const MEMORY_TYPES = ['dismissed_finding', 'convention', 'decision', 'note'] as const;
 const MAX_MEMORY_CONTENT_LENGTH = 2000;
+// getMemoryEntries defaults to 20 (MAX_ENTRIES_IN_PROMPT), tuned for prompt
+// injection, not a management UI's full history view — pass an explicit,
+// UI-appropriate limit here instead of silently inheriting that cap.
+const MEMORY_LIST_LIMIT = 200;
 
 const router = express.Router();
 
@@ -180,14 +184,18 @@ router.get('/repo/:name', async (req: Request, res: Response) => {
 
 // ── Project memory ────────────────────────────────────────────────────────────
 
+function isValidRepoNameParam(name: unknown): name is string {
+  return typeof name === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name);
+}
+
 router.get('/repo/:name/memory', async (req: Request, res: Response) => {
   const name = req.params['name'];
-  if (typeof name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
+  if (!isValidRepoNameParam(name)) {
     res.status(400).json({ error: 'Invalid repo name' });
     return;
   }
   try {
-    const entries = await projectMemory.getMemoryEntries(repoFullName(name));
+    const entries = await projectMemory.getMemoryEntries(repoFullName(name), MEMORY_LIST_LIMIT);
     res.json(entries);
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message }, 'GET /repo/:name/memory error');
@@ -197,7 +205,7 @@ router.get('/repo/:name/memory', async (req: Request, res: Response) => {
 
 router.post('/repo/:name/memory', async (req: Request, res: Response) => {
   const name = req.params['name'];
-  if (typeof name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
+  if (!isValidRepoNameParam(name)) {
     res.status(400).json({ error: 'Invalid repo name' });
     return;
   }
@@ -221,7 +229,7 @@ router.post('/repo/:name/memory', async (req: Request, res: Response) => {
 
 router.delete('/repo/:name/memory/:id', async (req: Request, res: Response) => {
   const name = req.params['name'];
-  if (typeof name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
+  if (!isValidRepoNameParam(name)) {
     res.status(400).json({ error: 'Invalid repo name' });
     return;
   }

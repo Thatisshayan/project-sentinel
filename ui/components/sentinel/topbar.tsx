@@ -82,7 +82,7 @@ export function Topbar() {
         <Divider />
 
         {/* Cost */}
-        <button className="flex items-center gap-1.5 px-2 py-[5px] rounded border border-s-gold/25 bg-s-gold/6 hover:bg-s-gold/12 transition-colors">
+        <button className="flex items-center gap-1.5 px-2 py-[5px] rounded border border-s-gold/25 bg-s-gold/[0.06] hover:bg-s-gold/[0.12] transition-colors">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#C8961C" strokeWidth="2.2" strokeLinecap="round">
             <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
           </svg>

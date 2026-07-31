@@ -37,7 +37,7 @@ function AgentCard({ agent, index }: { agent: Agent; index: number }) {
   return (
     <motion.div
       {...fadeInStagger(index, !!reduced)}
-      className="border border-s-border rounded-lg p-4 hover:border-s-border-2 transition-colors relative overflow-hidden"
+      className="border border-s-border rounded-lg p-4 hover:border-s-border2 transition-colors relative overflow-hidden"
     >
       {/* Status glow line */}
       <div className="absolute top-0 left-0 right-0 h-[2px]" style={{

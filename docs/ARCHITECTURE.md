@@ -51,7 +51,8 @@ Next.js 14 App Router, server components, Tailwind CSS.
 | Route | Purpose |
 |-------|---------|
 | `/` | Portfolio overview — health, agents, costs |
-| `/repos` | Per-repo detail with tasks and build history |
+| `/repos` | Repo list — health, security, build status |
+| `/repos/[name]` | Per-repo detail — audit tasks (status-filterable) and project memory (add/delete) |
 | `/agents` | Agent status panel |
 | `/sprint` | Sprint board — current and upcoming |
 | `/security` | Security scores and open issues |

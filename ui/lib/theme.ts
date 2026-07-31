@@ -45,6 +45,12 @@ const AGENT_LABEL_KEYS: [string, string][] = [
   ["nvidia", AGENT_PALETTE.nemotron],
   ["nemotron", AGENT_PALETTE.nemotron],
   ["hermes", AGENT_PALETTE.nemotron],
+  // Model-specific Qwen keys must come before the generic "qwen" fallback —
+  // substring matching returns on first hit, so "qwen" alone would swallow
+  // qwen-max/qwen-turbo/qwen-dash labels before they reach their own color.
+  ["qwen-max", AGENT_PALETTE["qwen-max"]],
+  ["qwen-turbo", AGENT_PALETTE["qwen-turbo"]],
+  ["qwen-dash", AGENT_PALETTE["qwen-dash"]],
   ["qwen", AGENT_PALETTE["qwen-coder"]],
   ["gemini", AGENT_PALETTE.gemini],
   ["llama", AGENT_PALETTE.llama],

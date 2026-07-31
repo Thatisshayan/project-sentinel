@@ -44,13 +44,19 @@ function CountUp({ target, color, reduced }: { target: number; color: string; re
     const start = Date.now();
     const dur = 900;
     const from = 0;
+    let frameId: number;
     const frame = () => {
       const t = Math.min((Date.now() - start) / dur, 1);
       const eased = 1 - Math.pow(1 - t, 3);
       if (ref.current) ref.current.textContent = String(Math.round(from + (target - from) * eased));
-      if (t < 1) requestAnimationFrame(frame);
+      if (t < 1) frameId = requestAnimationFrame(frame);
     };
-    requestAnimationFrame(frame);
+    frameId = requestAnimationFrame(frame);
+    // Cancel on cleanup — otherwise a pending frame from a prior run (e.g.
+    // reduced flipping false→true mid-animation, which re-triggers this
+    // effect) can fire once more and overwrite the value reduced motion
+    // just set to its final state.
+    return () => cancelAnimationFrame(frameId);
   }, [target, reduced]);
 
   return (

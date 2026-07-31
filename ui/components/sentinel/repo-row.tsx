@@ -26,9 +26,7 @@ export function RepoRow({ repo, agent, index, healthColor, secColor }: Props) {
   const [auditing, setAuditing] = useState(false);
   const isWorking = !!agent && agent.status === "working";
 
-  const audit = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const audit = async () => {
     setAuditing(true);
     try { await callAction(`/api/repo/${repo.name}/audit`); } catch {}
     setAuditing(false);
@@ -36,26 +34,31 @@ export function RepoRow({ repo, agent, index, healthColor, secColor }: Props) {
   };
 
   return (
-    <Link href={`/repos/${repo.name}`} className="contents">
-      <motion.div
-        {...fadeInStagger(index, !!reduced)}
-        className={cn(
-          "group relative border-b border-[#1c1c1c] hover:bg-white/[0.022] transition-colors duration-100 cursor-pointer",
-          isWorking && "bg-s-ind/[0.025]"
-        )}
-        style={{ display: "grid", gridTemplateColumns: "18px 1fr 96px 72px 76px 28px", gap: "10px", alignItems: "center", padding: "8px 14px" }}
-      >
-        {/* Left health indicator */}
-        <div className="absolute left-0 top-2 bottom-2 w-[2px] rounded-r-sm transition-all"
-          style={{ background: healthColor, opacity: isWorking ? 1 : 0.35 }} />
+    <motion.div
+      {...fadeInStagger(index, !!reduced)}
+      className={cn(
+        "group relative border-b border-[#1c1c1c] hover:bg-white/[0.022] transition-colors duration-100",
+        isWorking && "bg-s-ind/[0.025]"
+      )}
+      style={{ display: "grid", gridTemplateColumns: "18px 1fr 96px 72px 76px 28px", gap: "10px", alignItems: "center", padding: "8px 14px" }}
+    >
+      {/* Left health indicator */}
+      <div className="absolute left-0 top-2 bottom-2 w-[2px] rounded-r-sm transition-all"
+        style={{ background: healthColor, opacity: isWorking ? 1 : 0.35 }} />
 
+      {/* The audit button below must NOT be a descendant of this Link — a
+          <button> nested inside an <a> is invalid HTML5 (interactive content
+          inside interactive content). className="contents" keeps these cells
+          as direct grid items of the row while the anchor itself renders no
+          box, so cursor-pointer is set per-cell rather than on the Link. */}
+      <Link href={`/repos/${repo.name}`} className="contents">
         {/* Build icon */}
-        <div className="flex justify-center">
+        <div className="flex justify-center cursor-pointer">
           <BuildIcon status={repo.build} />
         </div>
 
         {/* Name + agent */}
-        <div className="min-w-0 overflow-hidden">
+        <div className="min-w-0 overflow-hidden cursor-pointer">
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="font-mono text-[12px] font-medium text-s-text truncate">{repo.name}</span>
             <ColorBadge color={priorityColor(repo.priority)} size="2xs" bordered>
@@ -85,33 +88,33 @@ export function RepoRow({ repo, agent, index, healthColor, secColor }: Props) {
         </div>
 
         {/* Health bar */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 cursor-pointer">
           <MeterBar pct={repo.health} color={healthColor} delay={index * 0.03 + 0.2} />
           <span className="text-[10px] font-mono w-5 text-right tabular-nums" style={{ color: healthColor }}>{repo.health}</span>
         </div>
 
         {/* Security bar */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 cursor-pointer">
           <MeterBar pct={repo.security} color={secColor} delay={index * 0.03 + 0.25} />
           <span className="text-[10px] font-mono w-5 text-right tabular-nums" style={{ color: secColor }}>{repo.security}</span>
         </div>
 
         {/* Commit */}
-        <span className="text-[10px] text-[#555555] font-mono truncate">{repo.commit}</span>
+        <span className="text-[10px] text-[#555555] font-mono truncate cursor-pointer">{repo.commit}</span>
+      </Link>
 
-        {/* Actions */}
-        <div className="flex justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={audit}
-            disabled={auditing}
-            aria-label="Audit repo"
-            title="Audit this repo"
-            className="p-1 rounded hover:bg-white/10 text-[#666666] hover:text-s-text transition-colors disabled:opacity-40"
-          >
-            {auditing ? <Loader2 size={12} className="animate-spin" /> : <MoreHorizontal size={12} />}
-          </button>
-        </div>
-      </motion.div>
-    </Link>
+      {/* Actions — a sibling of the Link, not nested inside it */}
+      <div className="flex justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={audit}
+          disabled={auditing}
+          aria-label="Audit repo"
+          title="Audit this repo"
+          className="p-1 rounded hover:bg-white/10 text-[#666666] hover:text-s-text transition-colors disabled:opacity-40"
+        >
+          {auditing ? <Loader2 size={12} className="animate-spin" /> : <MoreHorizontal size={12} />}
+        </button>
+      </div>
+    </motion.div>
   );
 }

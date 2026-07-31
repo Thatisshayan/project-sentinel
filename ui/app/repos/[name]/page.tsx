@@ -22,25 +22,26 @@ interface RepoDetailData {
 
 export default async function RepoDetailPage({ params }: { params: { name: string } }) {
   const { name } = params;
-  let detail: RepoDetailData | null = null;
-  let memory: ProjectMemoryEntry[] = [];
-  let loadError = false;
 
-  try {
-    const [d, m] = await Promise.all([getRepoDetail(name), getRepoMemory(name)]);
-    detail = d as unknown as RepoDetailData;
-    memory = m;
-  } catch {
+  // Independent try/catch (not a single Promise.all) — repo detail/tasks and
+  // project memory are separate endpoints, and a memory-only failure
+  // shouldn't take down the primary repo view.
+  const [detailResult, memoryResult] = await Promise.allSettled([
+    getRepoDetail(name),
+    getRepoMemory(name),
+  ]);
+
+  const detail = detailResult.status === "fulfilled" ? (detailResult.value as unknown as RepoDetailData) : null;
+  const memory: ProjectMemoryEntry[] = memoryResult.status === "fulfilled" ? memoryResult.value : [];
+  const memoryError = memoryResult.status === "rejected";
+
+  if (!detail) {
     // Deliberately no mock fallback — see app/repos/page.tsx for the
     // rationale. Show an honest empty/error state instead.
-    loadError = true;
-  }
-
-  if (loadError || !detail) {
     return (
       <div className="p-5 space-y-4">
         <BackLink />
-        <ApiErrorBanner label={loadError ? "repo detail" : "repo"} />
+        <ApiErrorBanner label="repo detail" />
       </div>
     );
   }
@@ -93,6 +94,7 @@ export default async function RepoDetailPage({ params }: { params: { name: strin
         </PagePanel>
 
         <PagePanel title="Project Memory">
+          {memoryError && <ApiErrorBanner label="project memory" className="m-4" />}
           <RepoMemoryPanel repoName={name} entries={memory} />
         </PagePanel>
       </div>

@@ -171,7 +171,7 @@ describe('GET /api/repo/:name/memory', () => {
     const res = await request(app).get('/api/repo/tapcash/memory');
     expect(res.status).toBe(200);
     expect(res.body).toEqual(entries);
-    expect(projectMemory.getMemoryEntries).toHaveBeenCalledWith('your-org/tapcash');
+    expect(projectMemory.getMemoryEntries).toHaveBeenCalledWith('your-org/tapcash', 200);
   });
 
   it('returns 400 for an invalid repo name', async () => {

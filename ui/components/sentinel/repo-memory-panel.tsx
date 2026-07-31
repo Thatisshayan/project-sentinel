@@ -19,7 +19,7 @@ export function RepoMemoryPanel({ repoName, entries }: { repoName: string; entri
   const [type, setType] = useState<ProjectMemoryType>("note");
   const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set());
 
   const add = async () => {
     const trimmed = content.trim();
@@ -36,14 +36,18 @@ export function RepoMemoryPanel({ repoName, entries }: { repoName: string; entri
   };
 
   const remove = async (id: number) => {
-    setDeletingId(id);
+    setDeletingIds((prev) => new Set(prev).add(id));
     try {
       await callAction(`/api/repo/${repoName}/memory/${id}`, undefined, "DELETE");
       router.refresh();
     } catch {
       // callAction already raised an error toast
     }
-    setDeletingId(null);
+    setDeletingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   };
 
   return (
@@ -53,6 +57,7 @@ export function RepoMemoryPanel({ repoName, entries }: { repoName: string; entri
         <select
           value={type}
           onChange={(e) => setType(e.target.value as ProjectMemoryType)}
+          aria-label="Memory entry type"
           className="bg-s-surface border border-s-border rounded px-2 py-1 text-[11px] text-s-text outline-none focus:border-s-ind/50"
         >
           {TYPES.map((t) => (
@@ -100,7 +105,7 @@ export function RepoMemoryPanel({ repoName, entries }: { repoName: string; entri
               </div>
               <button
                 onClick={() => remove(entry.id)}
-                disabled={deletingId === entry.id}
+                disabled={deletingIds.has(entry.id)}
                 aria-label="Delete memory entry"
                 title="Delete this memory entry"
                 className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-white/10 text-s-dim hover:text-s-red disabled:opacity-40 flex-shrink-0"
