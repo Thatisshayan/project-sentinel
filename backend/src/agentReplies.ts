@@ -2,6 +2,14 @@ import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { sendAsAgent } from './agentBots';
 import { handleMessage } from './telegramAI';
+import type { AgentRow } from './types/agentRow';
+
+interface TelegramMessage {
+  reply_to_message?: { from?: { username?: string } };
+  text?: string;
+  from?: { first_name?: string; username?: string };
+  message_id?: number;
+}
 
 // Telegram bot username (lowercase, no @) → agent ID
 const BOT_USERNAME_TO_AGENT: Record<string, string> = {
@@ -14,7 +22,7 @@ const BOT_USERNAME_TO_AGENT: Record<string, string> = {
 };
 
 // Returns agent ID if the message is a reply to a specific agent bot, else null
-function detectAgentReply(message: any): string | null {
+function detectAgentReply(message: TelegramMessage): string | null {
   const replyTo = message?.reply_to_message;
   if (!replyTo) return null;
 
@@ -27,7 +35,7 @@ function detectAgentReply(message: any): string | null {
 }
 
 // Route a message that is a reply to a specific agent
-async function handleAgentReply(message: any, agentId: string, topicId: number): Promise<void> {
+async function handleAgentReply(message: TelegramMessage, agentId: string, topicId: number): Promise<void> {
   const text      = message.text || '';
   const fromName  = message.from?.first_name || message.from?.username || 'Shayan';
   const messageId = message.message_id;
@@ -36,13 +44,13 @@ async function handleAgentReply(message: any, agentId: string, topicId: number):
 
   try {
     const { getAgentRoomSummary } = require('./agentRoom');
-    const { getAllAgents }         = require('./agentDb');
+    const { getAllAgents }         = require('./agentDb') as { getAllAgents: () => Promise<AgentRow[]> };
 
     const [agents] = await Promise.all([
       getAllAgents().catch(() => []),
     ]);
 
-    const thisAgent = agents.find((a: any) => a.agent_id === agentId);
+    const thisAgent = agents.find((a) => a.agent_id === agentId);
 
     const agentContext = thisAgent
       ? `You are specifically being addressed as ${thisAgent.agent_label}. ` +
@@ -53,10 +61,10 @@ async function handleAgentReply(message: any, agentId: string, topicId: number):
       : `You are being directly addressed as agent: ${agentId}`;
 
     // handleMessage(text, fromName, topicId, roomContext, targetAgentId, agentContext, replyToMessageId)
-    await handleMessage(text, fromName, topicId, undefined, agentId as any, agentContext as any, messageId);
+    await handleMessage(text, fromName, topicId, undefined, agentId, agentContext, messageId);
 
-  } catch (err: any) {
-    logger.error({ err: err.stack ?? err.message, agentId }, 'Agent reply handling failed');
+  } catch (err) {
+    logger.error({ err: (err as Error).stack ?? (err as Error).message, agentId }, 'Agent reply handling failed');
     await safeFire(sendAsAgent(
       agentId,
       'Sorry, I had trouble processing that. Try again or use /sentinel agents.',
