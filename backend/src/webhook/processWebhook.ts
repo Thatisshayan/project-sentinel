@@ -146,7 +146,7 @@ export async function processWebhook(payload: any): Promise<void> {
         commitMessage: data.commitMessage,
         authorName:    data.authorName,
         changedFiles:  data.changedFiles,
-        topicId:       notionProject.topicId || null,
+        topicId:       notionProject.topicId ? parseInt(notionProject.topicId, 10) : null,
       });
       logger.info({ repoName: data.repoName }, 'Build check job queued');
     } catch (err: any) {
