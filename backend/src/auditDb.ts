@@ -280,11 +280,11 @@ async function createAuditTask(data: {
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'queued')
         RETURNING *
       `, [
-        data.auditCycleId,      data.repoFullName,       taskNumber,
-        data.title,             data.description,        data.priority,
-        data.category,          data.affectedFiles || [], data.complexity,
-        data.safeToAutoExecute, data.safetyReason,       data.acceptanceCriteria,
-        batchNumber,            data.builderAgent || 'nvidia',
+        data.auditCycleId,           data.repoFullName,        taskNumber,
+        data.title,                  data.description,         data.priority ?? 'medium',
+        data.category,               data.affectedFiles || [], data.complexity ?? 'medium',
+        data.safeToAutoExecute ?? false, data.safetyReason,    data.acceptanceCriteria,
+        batchNumber,                 data.builderAgent || 'nvidia',
         data.source || 'sentinel',
       ]);
       return r.rows[0] || null;

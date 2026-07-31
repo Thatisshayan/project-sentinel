@@ -35,8 +35,10 @@ async function generateWeeklyReport(): Promise<void> {
       const corr    = await getCorrelationSummary(repoName).catch(() => null);
 
       const parts: string[] = [];
-      if (revenue) parts.push(`Revenue: $${parseFloat(revenue.metric_value || '0').toFixed(0)}/day`);
-      if (dau)     parts.push(`DAU: ${parseInt(dau.metric_value || '0').toLocaleString()}`);
+      // metric_value can be a genuine NULL (not yet recorded) — only report
+      // revenue/DAU when there's an actual value, not a false "$0"/"0".
+      if (revenue?.metric_value != null) parts.push(`Revenue: $${parseFloat(revenue.metric_value).toFixed(0)}/day`);
+      if (dau?.metric_value != null)     parts.push(`DAU: ${parseInt(dau.metric_value).toLocaleString()}`);
       if (corr && corr.pr_count && corr.pr_count !== '0') {
         parts.push(`PR impact: ${parseFloat(corr.avg_impact || '0').toFixed(1)} avg score`);
       }

@@ -1,6 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
-import type { SecurityScanRow, SecurityIssueRow, SecurityScoreRow } from './types/securityRow';
+import type { SecurityScanRow, SecurityIssueRow, SecurityScoreRow, SecurityScoreSummaryRow } from './types/securityRow';
 
 const { query } = dbClient;
 
@@ -190,8 +190,8 @@ async function getLatestSecurityScore(repoName: string): Promise<SecurityScoreRo
   return r.rows[0] || null;
 }
 
-async function getPortfolioSecuritySummary(): Promise<SecurityScoreRow[]> {
-  const r = await query(`
+async function getPortfolioSecuritySummary(): Promise<SecurityScoreSummaryRow[]> {
+  const r = await query<SecurityScoreSummaryRow>(`
     SELECT DISTINCT ON (repo_name)
       repo_name, score, vulnerabilities, critical_count,
       high_count, medium_count, low_count, recorded_date

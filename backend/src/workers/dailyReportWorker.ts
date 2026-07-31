@@ -189,7 +189,10 @@ export function startDailyReportWorker(): Worker | null {
       return;
     }
     if (job.name === 'stale-tasks') {
-      const result = await query<{ repo_full_name: string; count: number }>(`
+      // COUNT(*) returns PostgreSQL bigint, which node-postgres returns as a
+      // string (no registered parser) — typed as string, not number, same as
+      // the aggregate-count pattern already used in sentinelBrain.ts.
+      const result = await query<{ repo_full_name: string; count: string }>(`
         SELECT repo_full_name, COUNT(*) AS count
         FROM audit_tasks
         WHERE status = 'queued'
@@ -203,7 +206,7 @@ export function startDailyReportWorker(): Worker | null {
         return;
       }
       const lines = rows.map((r) =>
-        `  · ${r.repo_full_name.split('/')[1]}: ${r.count} task(s)`
+        `  · ${r.repo_full_name.split('/')[1]}: ${Number.parseInt(r.count, 10)} task(s)`
       ).join('\n');
       await safeFire(sendTelegramMessage(
         `🕰️ Stale Task Report — tasks queued >7 days:\n\n${lines}\n\n` +

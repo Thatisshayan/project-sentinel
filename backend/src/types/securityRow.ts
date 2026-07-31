@@ -52,3 +52,18 @@ export interface SecurityScoreRow {
   recorded_date: string;
   recorded_at: string;
 }
+
+/**
+ * getPortfolioSecuritySummary()'s DISTINCT ON projection — deliberately
+ * omits `id`/`recorded_at` (not selected), unlike the full SecurityScoreRow.
+ */
+export interface SecurityScoreSummaryRow {
+  repo_name: string;
+  score: string;
+  vulnerabilities: number;
+  critical_count: number;
+  high_count: number;
+  medium_count: number;
+  low_count: number;
+  recorded_date: string;
+}

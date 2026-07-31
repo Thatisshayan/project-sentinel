@@ -5,7 +5,10 @@ export interface BusinessMetricRow {
   metric_name: string;
   metric_value: string | null;
   metric_unit: string | null;
-  recorded_date: string;
+  // No pg type-parser override is registered for DATE (OID 1082) anywhere
+  // in this codebase, so node-postgres's default parser applies — this
+  // column comes back as a JS Date, not a string.
+  recorded_date: Date;
 }
 
 // PR business-impact snapshot/delta shapes (see businessDb.ts's

@@ -114,10 +114,14 @@ async function upsertRepoMetrics(data: {
        tasks_queued, debugger_runs, last_build_at, last_commit_at)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
   `, [
-    data.repoFullName,      data.repoName,         data.healthScore ?? null,
-    data.buildStatus ?? null, data.priority ?? null, data.buildsPassedToday ?? null,
-    data.buildsFailedToday ?? null, data.tasksDoneToday ?? null, data.tasksQueued ?? null,
-    data.debuggerRunsToday ?? null, data.lastBuildAt ?? null, data.lastCommitAt ?? null,
+    // priority/builds_*/tasks_*/debugger_runs default via ?? rather than
+    // relying on the DDL column defaults — an explicit NULL parameter
+    // overrides a column's DEFAULT, so passing `?? null` here previously
+    // persisted NULL instead of ever falling back to 'medium'/0.
+    data.repoFullName,      data.repoName,             data.healthScore ?? null,
+    data.buildStatus ?? null, data.priority ?? 'medium', data.buildsPassedToday ?? 0,
+    data.buildsFailedToday ?? 0, data.tasksDoneToday ?? 0, data.tasksQueued ?? 0,
+    data.debuggerRunsToday ?? 0, data.lastBuildAt ?? null, data.lastCommitAt ?? null,
   ]);
 }
 

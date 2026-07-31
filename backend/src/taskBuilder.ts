@@ -424,7 +424,7 @@ function buildAiderTaskMessage(task: BuildableTask, context: BatchContext, resol
   return `You are an autonomous code improvement agent working on ${context.projectName || context.repoName}.
 ${context.projectMemoryText ? `\n${context.projectMemoryText}\n` : ''}
 TASK: ${task.title}
-${task.description}
+${task.description ?? ''}
 
 Files to edit: ${filePaths}
 Acceptance criteria: ${task.acceptance_criteria || 'see description above'}

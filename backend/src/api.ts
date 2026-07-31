@@ -246,8 +246,8 @@ router.post('/command', async (req: Request, res: Response) => {
 router.get('/agent-room/messages', async (req: Request, res: Response) => {
   try {
     const rawLimit = req.query['limit'];
-    const parsedLimit = parseInt(typeof rawLimit === 'string' ? rawLimit : '50', 10);
-    const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
+    const parsedLimit = Number(typeof rawLimit === 'string' ? rawLimit : '50');
+    const safeLimit = Number.isFinite(parsedLimit) && Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
     const limit = Math.min(safeLimit, 200);
     const r = await query(`
       SELECT id, agent_id, agent_label, message, message_type, repo_name, created_at
@@ -374,13 +374,17 @@ router.post('/system/set-builder', async (req: Request, res: Response) => {
 // ── Repo actions ──────────────────────────────────────────────────────────────
 
 router.post('/repo/:name/audit', async (req: Request, res: Response) => {
+  const name = req.params['name'];
+  if (typeof name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
+    res.status(400).json({ error: 'Invalid repository name' });
+    return;
+  }
+
   // Respond immediately; audit runs async in background
-  res.json({ ok: true, message: `Audit queued for ${req.params['name']}` });
+  res.json({ ok: true, message: `Audit queued for ${name}` });
   try {
     const { triggerAudit } = require('./auditOrchestrator');
     const { getDefaultBranch } = require('./repoDiscovery');
-    const name = req.params['name'];
-    if (typeof name !== 'string') return;
     const fullName = repoFullName(name);
     const branchName = await getDefaultBranch(fullName);
     triggerAudit({

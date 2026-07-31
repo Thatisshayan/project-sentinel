@@ -6,7 +6,7 @@ import { getSprintStatus } from './sprintOrchestrator';
 import { getVelocityReport } from './velocityTracker';
 import { getPortfolioSecuritySummary } from './securityDb';
 import { getLatestMetrics } from './businessDb';
-import type { SecurityScoreRow } from './types/securityRow';
+import type { SecurityScoreSummaryRow } from './types/securityRow';
 import type { BusinessMetricRow } from './types/businessMetricRow';
 
 async function callAI(prompt: string): Promise<string | null> {
@@ -29,7 +29,7 @@ async function generateCEOReport(topicId?: number | null): Promise<void> {
     ]);
 
     const p = portfolioResult.status === 'fulfilled' ? portfolioResult.value : null;
-    const s: SecurityScoreRow[] = securityResult.status  === 'fulfilled' ? securityResult.value  : [];
+    const s: SecurityScoreSummaryRow[] = securityResult.status  === 'fulfilled' ? securityResult.value  : [];
 
     const avgHealth   = p?.avgHealth || 'N/A';
     const healthy     = p?.healthy?.length || 0;

@@ -149,9 +149,17 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
     }
 
     const freshSprint = await getSprintById(sprintId);
-    await updateSprint(sprintId, {
-      completed_tasks: (freshSprint?.completed_tasks || 0) + 1,
-    });
+    if (!freshSprint) {
+      // Sprint row vanished between the top-of-function fetch and here —
+      // extremely unlikely (no code path deletes sprints mid-execution),
+      // but silently defaulting to 0 would understate completed_tasks
+      // instead of surfacing that something deleted the sprint underneath us.
+      logger.error({ sprintId, taskId: task.id }, 'Sprint row missing when recording task completion — skipping counter update');
+    } else {
+      await updateSprint(sprintId, {
+        completed_tasks: freshSprint.completed_tasks + 1,
+      });
+    }
 
     await safeFire(sendTelegramMessage([
       `Sprint Task ${task.execution_order}/${sprint.total_tasks} Done ✅`,
@@ -205,10 +213,15 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
     });
 
     const freshSprint = await getSprintById(sprintId);
-    await updateSprint(sprintId, {
-      status:       'paused',
-      failed_tasks: (freshSprint?.failed_tasks || 0) + 1,
-    });
+    if (!freshSprint) {
+      logger.error({ sprintId, taskId: task.id }, 'Sprint row missing when recording task failure — pausing without a counter update');
+      await updateSprint(sprintId, { status: 'paused' });
+    } else {
+      await updateSprint(sprintId, {
+        status:       'paused',
+        failed_tasks: freshSprint.failed_tasks + 1,
+      });
+    }
 
     await safeFire(sendTelegramMessage([
       `Sprint Paused ⏸️`,
@@ -227,6 +240,13 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
 
 async function completeSprint(sprintId: number, topicId: number | null): Promise<void> {
   const sprint = await getSprintById(sprintId);
+  if (!sprint) {
+    // Same not-actually-happens-in-practice guard as executeNextSprintTask's
+    // freshSprint checks — log loudly and abort rather than send a
+    // "Sprint Complete" notification for a sprint that no longer exists.
+    logger.error({ sprintId }, 'Sprint row missing at completion — aborting completeSprint, no notification sent');
+    return;
+  }
   const tasks  = await getSprintTasks(sprintId);
 
   const done    = tasks.filter((t) => t.status === 'done').length;
@@ -249,7 +269,7 @@ async function completeSprint(sprintId: number, topicId: number | null): Promise
   await safeFire(sendTelegramMessage([
     `Project Sentinel — Sprint Complete 🏁`,
     ``,
-    `Week of ${sprint?.week_start || 'unknown'}`,
+    `Week of ${sprint.week_start}`,
     `✅ Done: ${done}  ❌ Failed: ${failed}  ⏭️ Skipped: ${skipped}`,
     ``,
     velocityReport,

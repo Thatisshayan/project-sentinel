@@ -69,15 +69,17 @@ async function getVelocityReport(): Promise<string> {
   const avg4w       = trend.reduce((s: number, t) => s + (t.tasks_completed || 0), 0) / trend.length;
 
   const lines = trend.map((t) =>
-    `  w/o ${t.week_start}: ${t.tasks_completed} tasks · ${t.prs_merged} PRs · health ${t.avg_health}/10`
+    `  w/o ${t.week_start}: ${t.tasks_completed} tasks · ${t.prs_merged} PRs · health ${parseFloat(t.avg_health || '0').toFixed(1)}/10`
   ).join('\n');
+
+  const latestHealth = parseFloat(latest.avg_health || '0').toFixed(1);
 
   return [
     `📈 Velocity Report (last ${trend.length} weeks)`,
     ``,
     lines,
     ``,
-    `Latest: health ${latest.avg_health}/10 ${arrow} (${healthDelta > 0 ? '+' : ''}${healthDelta})`,
+    `Latest: health ${latestHealth}/10 ${arrow} (${healthDelta > 0 ? '+' : ''}${healthDelta})`,
     `4-week avg: ${avg4w.toFixed(1)} tasks/week`,
     `API cost this month: $${parseFloat(latest.api_cost || '0').toFixed(2)}`,
   ].join('\n');

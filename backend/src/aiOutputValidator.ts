@@ -80,6 +80,19 @@ function validateBrainOutput(parsed: unknown): BrainDecision {
   if (!p['daily_goal'] || typeof p['daily_goal'] !== 'string') {
     throw new Error('Brain decision missing required field: daily_goal (string)');
   }
+  // alerts/skip_repos are optional, but a malformed value (e.g. a bare
+  // string instead of an array) would otherwise pass through untyped and
+  // break downstream .forEach()/iteration after auto-execution and DB
+  // persistence have already happened. Normalize rather than reject so a
+  // model that gets the shape slightly wrong doesn't abort an otherwise
+  // valid decision.
+  const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+  if (p['alerts'] !== undefined && !isStringArray(p['alerts'])) {
+    p['alerts'] = [];
+  }
+  if (p['skip_repos'] !== undefined && !isStringArray(p['skip_repos'])) {
+    p['skip_repos'] = [];
+  }
   return p as unknown as BrainDecision;
 }
 

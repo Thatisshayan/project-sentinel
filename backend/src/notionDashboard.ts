@@ -140,9 +140,14 @@ async function buildBusinessSection(): Promise<NotionBlock[]> {
       if (metrics.length === 0) continue;
 
       const lines = metrics.map((m) => {
+        // metric_value can be a genuine NULL (not yet recorded) — reporting
+        // that as $0.00/0 would be a false measurement, not "no data".
+        if (m.metric_value == null) {
+          return `${m.metric_name.replace(/_/g, ' ')}: N/A`;
+        }
         const val = m.metric_unit === 'usd'
-          ? `$${parseFloat(m.metric_value || '0').toFixed(2)}`
-          : parseFloat(m.metric_value || '0').toLocaleString();
+          ? `$${parseFloat(m.metric_value).toFixed(2)}`
+          : parseFloat(m.metric_value).toLocaleString();
         return `${m.metric_name.replace(/_/g, ' ')}: ${val}`;
       }).join('\n');
 

@@ -43,7 +43,7 @@ import {
   releaseAllLocks,
 } from './conflictDetector';
 import type { AgentRow, AgentMessageRow } from './types/agentRow';
-import type { SecurityScoreRow } from './types/securityRow';
+import type { SecurityScoreSummaryRow } from './types/securityRow';
 
 interface TelegramMessage {
   reply_to_message?: { from?: { username?: string } };
@@ -294,7 +294,7 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery): Promis
         fireAndForget(runSelfAudit(), { label: 'telegramCommands' })
       } else if (action === 'security') {
         const { getPortfolioSecuritySummary } = require('./securityDb') as {
-          getPortfolioSecuritySummary: () => Promise<SecurityScoreRow[]>;
+          getPortfolioSecuritySummary: () => Promise<SecurityScoreSummaryRow[]>;
         };
         const p = await getPortfolioSecuritySummary().catch(() => []);
         const lines = p.sort((a, b) => parseFloat(a.score) - parseFloat(b.score))

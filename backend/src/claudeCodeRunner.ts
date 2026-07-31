@@ -29,10 +29,10 @@ function buildTaskPrompt(task: Task, context: TaskContext): string {
 TASK ${task.task_number}/10:
 Title: ${task.title}
 Priority: ${task.priority}
-Category: ${task.category}
+Category: ${task.category ?? 'general'}
 
 Description:
-${task.description}
+${task.description ?? ''}
 
 Files likely involved:
 ${(task.affected_files || []).join('\n') || 'Determine from description'}

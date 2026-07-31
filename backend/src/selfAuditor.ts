@@ -64,6 +64,7 @@ async function runSelfAudit(): Promise<void> {
       // not Notion), so every task write below would fail individually with
       // the same DB error. Fail loud once instead of 10 silent per-task ones.
       logger.error({ cycleSha }, 'Could not create self-audit cycle — aborting self-audit, no tasks written');
+      await safeFire(updateSelfAuditCycle(selfCycle.id, { status: 'failed' }), { label: 'selfAuditor' })
       await safeFire(sendTelegramMessage(
         '🛡️ Sentinel Self-Audit — could not create an audit cycle. No tasks were written. Check logs.',
         null, null

@@ -360,7 +360,11 @@ async function recordBrainOutcome(): Promise<void> {
         count++;
       }
     }
-    const avgDelta = count > 0 ? (total / count).toFixed(2) : 0;
+    // Normalize to a number at write time — toFixed(2) returns a string,
+    // which previously made the persisted avgHealthDelta a string|number
+    // union depending on whether count was 0, contradicting the
+    // BrainHistoryRow type (avgHealthDelta: number) that reads it back.
+    const avgDelta = count > 0 ? Number((total / count).toFixed(2)) : 0;
 
     await query(`
       UPDATE brain_decisions
