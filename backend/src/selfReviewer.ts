@@ -67,14 +67,15 @@ function parseFindings(stdout: string): SelfReviewFinding[] {
   }
   const parsed = JSON.parse(jsonMatch[0]);
   if (!Array.isArray(parsed.findings)) return [];
-  return parsed.findings
-    .filter((f: any) => f && typeof f.title === 'string')
+  const rawFindings: Record<string, unknown>[] = parsed.findings;
+  return rawFindings
+    .filter((f) => f && typeof f['title'] === 'string')
     .slice(0, 15)
-    .map((f: any) => ({
-      title:       String(f.title).slice(0, 80),
-      description: String(f.description || ''),
-      severity:    severityToPriority(f.severity),
-      path:        typeof f.path === 'string' ? f.path : undefined,
+    .map((f) => ({
+      title:       String(f['title']).slice(0, 80),
+      description: String(f['description'] || ''),
+      severity:    severityToPriority(String(f['severity'])),
+      path:        typeof f['path'] === 'string' ? f['path'] as string : undefined,
     }));
 }
 

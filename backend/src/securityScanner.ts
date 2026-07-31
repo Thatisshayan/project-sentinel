@@ -23,7 +23,6 @@ interface SecurityIssue {
   severity: string;
   issueType: string;
   title: string;
-  [key: string]: any;
 }
 
 interface ScanCounts {
