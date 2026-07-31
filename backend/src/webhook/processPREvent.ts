@@ -67,14 +67,20 @@ export async function processPREvent(payload: GitHubPREventPayload): Promise<voi
       }
     }
 
+    // The (pr_url IS NULL AND pr_number IS NULL AND branch_name = $4) arm
+    // covers tasks left with null PR fields by auditOrchestrator.ts's
+    // PR-creation-failure path (createPullRequest() can fail after a batch
+    // already committed and pushed) — without it, a human manually opening
+    // and merging a PR from that same branch would never match these tasks,
+    // leaving them stuck in build_check forever even after the work landed.
     const updated = await query<{ id: number }>(`
       UPDATE audit_tasks
       SET status = 'done', updated_at = NOW()
       WHERE repo_full_name = $1
-        AND (pr_url = $2 OR (pr_url IS NULL AND pr_number = $3))
+        AND (pr_url = $2 OR (pr_url IS NULL AND pr_number = $3) OR (pr_url IS NULL AND pr_number IS NULL AND branch_name = $4))
         AND status IN ('build_check', 'in_progress')
       RETURNING id
-    `, [repoFullName, prUrl, prNumber]).catch(() => null);
+    `, [repoFullName, prUrl, prNumber, branchName]).catch(() => null);
 
     const taskIds = updated?.rows || [];
     logger.info({ count: taskIds.length, repoFullName }, 'Tasks marked done after PR merge');
@@ -125,10 +131,10 @@ export async function processPREvent(payload: GitHubPREventPayload): Promise<voi
       SET status = 'queued', branch_name = NULL, commit_sha = NULL,
           pr_url = NULL, pr_number = NULL, updated_at = NOW()
       WHERE repo_full_name = $1
-        AND (pr_url = $2 OR (pr_url IS NULL AND pr_number = $3))
+        AND (pr_url = $2 OR (pr_url IS NULL AND pr_number = $3) OR (pr_url IS NULL AND pr_number IS NULL AND branch_name = $4))
         AND status IN ('build_check', 'in_progress')
       RETURNING id
-    `, [repoFullName, prUrl, prNumber]).catch(() => null);
+    `, [repoFullName, prUrl, prNumber, branchName]).catch(() => null);
 
     const count = updated?.rows?.length || 0;
     logger.info({ count, repoFullName }, 'Tasks requeued after PR rejection');

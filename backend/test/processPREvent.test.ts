@@ -81,7 +81,7 @@ describe('processPREvent', () => {
     const [sql, params] = (query as jest.Mock).mock.calls[0];
     expect(sql).toContain("status = 'done'");
     expect(sql).toContain('pr_url = $2 OR (pr_url IS NULL AND pr_number = $3)');
-    expect(params).toEqual(['your-org/tapcash', 'https://github.com/your-org/tapcash/pull/99', 99]);
+    expect(params).toEqual(['your-org/tapcash', 'https://github.com/your-org/tapcash/pull/99', 99, 'sentinel/batch-1-tasks-1-5']);
 
     expect(updateNotionTaskStatus).toHaveBeenCalledTimes(1);
     expect(updateNotionTaskStatus).toHaveBeenCalledWith(1, 'done', {
@@ -125,7 +125,7 @@ describe('processPREvent', () => {
     // The corrected clause shape — must NOT be the buggy `OR pr_number = $3`
     // alone, which would match a row with a stale pr_number even when its
     // pr_url is set to a different PR.
-    expect(sql).toContain('(pr_url = $2 OR (pr_url IS NULL AND pr_number = $3))');
+    expect(sql).toContain('pr_url = $2 OR (pr_url IS NULL AND pr_number = $3)');
     expect(sql).not.toMatch(/pr_url = \$2 OR pr_number = \$3/);
   });
 
@@ -144,6 +144,16 @@ describe('processPREvent', () => {
     expect(updateNotionTaskStatus).toHaveBeenCalledWith(7, 'done', expect.anything());
   });
 
+  test('merged PR: WHERE clause also matches by branch_name when pr_url and pr_number are both null (manual-PR recovery for auditOrchestrator.ts PR-creation-failure gap)', async () => {
+    (query as jest.Mock).mockResolvedValue({ rows: [{ id: 3 }] });
+
+    await processPREvent(build());
+
+    const [sql, params] = (query as jest.Mock).mock.calls[0];
+    expect(sql).toContain('(pr_url IS NULL AND pr_number IS NULL AND branch_name = $4)');
+    expect(params).toEqual(['your-org/tapcash', 'https://github.com/your-org/tapcash/pull/99', 99, 'sentinel/batch-1-tasks-1-5']);
+  });
+
   test('rejected PR: requeues only matching tasks with status = queued and clears pr_url/pr_number', async () => {
     (query as jest.Mock).mockResolvedValue({ rows: [{ id: 1 }] });
 
@@ -154,8 +164,8 @@ describe('processPREvent', () => {
     expect(sql).toContain("status = 'queued'");
     expect(sql).toContain('pr_url = NULL');
     expect(sql).toContain('pr_number = NULL');
-    expect(sql).toContain('(pr_url = $2 OR (pr_url IS NULL AND pr_number = $3))');
-    expect(params).toEqual(['your-org/tapcash', 'https://github.com/your-org/tapcash/pull/99', 99]);
+    expect(sql).toContain('pr_url = $2 OR (pr_url IS NULL AND pr_number = $3)');
+    expect(params).toEqual(['your-org/tapcash', 'https://github.com/your-org/tapcash/pull/99', 99, 'sentinel/batch-1-tasks-1-5']);
   });
 
   test('D-027: clears the active task branch when it matches this PR branch (merged)', async () => {
