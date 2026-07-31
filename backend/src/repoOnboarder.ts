@@ -6,6 +6,7 @@ import { triggerAudit } from './auditOrchestrator';
 import { findNotionProject } from './notionClient';
 import { repoFullName, getGithubOrg } from './repoResolver';
 import { getDefaultBranch } from './repoDiscovery';
+import { createNotionProject } from './notionClient';
 
 function getWatchedRepos(): string[] {
   return (process.env['WATCHED_REPOS'] || '').split(',').map((r: string) => r.trim()).filter(Boolean);
@@ -14,18 +15,12 @@ function getWatchedRepos(): string[] {
 async function onboardRepo(repoName: string): Promise<void> {
   logger.info({ repoName }, 'New repo detected — onboarding');
 
-  const notionClient = require('./notionClient') as any;
-  let notionPageId: string | null = null;
-  if (typeof notionClient.createNotionProject === 'function') {
-    notionPageId = await notionClient.createNotionProject({
-      repoName, priority: 'medium', builderAgent: 'qwen_coder',
-    }).catch((err: any) => {
-      logger.warn({ err: err.message, repoName }, 'Notion row creation failed');
-      return null;
-    });
-  } else {
-    logger.warn({ repoName }, 'createNotionProject not available — add repo row to Notion manually');
-  }
+  const notionPageId: string | null = await createNotionProject({
+    repoName, priority: 'medium', builderAgent: 'qwen_coder',
+  }).catch((err) => {
+    logger.warn({ err: err.message, repoName }, 'Notion row creation failed');
+    return null;
+  });
 
   const webhookRegistered = await registerWebhook(repoName).then(() => true).catch((err: any) => {
     logger.warn({ err: err.message, repoName }, 'Webhook registration failed — register manually in GitHub');
@@ -51,7 +46,7 @@ async function onboardRepo(repoName: string): Promise<void> {
     authorName:    'Sentinel',
     authorEmail:   '',
     topicId:       null,
-  }).then((result: any) => {
+  }).then((result) => {
     if (!result.started) {
       logger.warn({ repoName, reason: result.reason }, 'First audit did not start');
     }

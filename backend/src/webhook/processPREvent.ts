@@ -9,16 +9,28 @@ import projectDb from '../projectDb';
 
 const { query } = dbClient;
 
-export async function processPREvent(payload: any): Promise<void> {
+interface GitHubPREventPayload {
+  action?: string;
+  pull_request?: {
+    head?: { ref?: string };
+    html_url?: string;
+    number?: number;
+    merged?: boolean;
+    merge_commit_sha?: string;
+  };
+  repository?: { full_name?: string; name?: string };
+}
+
+export async function processPREvent(payload: GitHubPREventPayload): Promise<void> {
   const { action, pull_request: pr, repository } = payload;
   if (!pr || !repository) return;
 
-  const repoFullName = repository.full_name;
+  const repoFullName = repository.full_name || '';
   const branchName   = pr.head?.ref || '';
-  const prUrl        = pr.html_url;
+  const prUrl        = pr.html_url || '';
   const prNumber     = pr.number;
   const merged       = pr.merged;
-  const repoName     = repository.name;
+  const repoName     = repository.name || '';
 
   if (!branchName.startsWith('sentinel/')) return;
   if (action !== 'closed') return;
@@ -55,7 +67,7 @@ export async function processPREvent(payload: any): Promise<void> {
       }
     }
 
-    const updated = await query(`
+    const updated = await query<{ id: number }>(`
       UPDATE audit_tasks
       SET status = 'done', updated_at = NOW()
       WHERE repo_full_name = $1

@@ -6,6 +6,7 @@ import { getSpendSummary } from './costpilotClient';
 import { getLatestMetrics } from './businessDb';
 import { getVelocityReport } from './velocityTracker';
 import { getCorrelationSummary } from './correlationEngine';
+import type { PortfolioMetricRow } from './types/portfolioRow';
 
 const REVENUE_REPOS: string[] = ['tapcash', 'acc', 'costpilot'];
 
@@ -29,15 +30,17 @@ async function generateWeeklyReport(): Promise<void> {
       const metrics = await getLatestMetrics(repoName).catch(() => []);
       if (metrics.length === 0) continue;
 
-      const revenue = metrics.find((m: any) => m.metric_name === 'revenue_today');
-      const dau     = metrics.find((m: any) => m.metric_name === 'daily_active_users');
+      const revenue = metrics.find((m) => m.metric_name === 'revenue_today');
+      const dau     = metrics.find((m) => m.metric_name === 'daily_active_users');
       const corr    = await getCorrelationSummary(repoName).catch(() => null);
 
       const parts: string[] = [];
-      if (revenue) parts.push(`Revenue: $${parseFloat(revenue.metric_value).toFixed(0)}/day`);
-      if (dau)     parts.push(`DAU: ${parseInt(dau.metric_value).toLocaleString()}`);
-      if (corr && corr.pr_count > 0) {
-        parts.push(`PR impact: ${parseFloat(corr.avg_impact).toFixed(1)} avg score`);
+      // metric_value can be a genuine NULL (not yet recorded) — only report
+      // revenue/DAU when there's an actual value, not a false "$0"/"0".
+      if (revenue?.metric_value != null) parts.push(`Revenue: $${parseFloat(revenue.metric_value).toFixed(0)}/day`);
+      if (dau?.metric_value != null)     parts.push(`DAU: ${parseInt(dau.metric_value).toLocaleString()}`);
+      if (corr && corr.pr_count && corr.pr_count !== '0') {
+        parts.push(`PR impact: ${parseFloat(corr.avg_impact || '0').toFixed(1)} avg score`);
       }
 
       if (parts.length > 0) {
@@ -50,7 +53,7 @@ async function generateWeeklyReport(): Promise<void> {
       `   Month to date: $${(spend.monthly || 0).toFixed(2)}`,
     ] : [];
 
-    const sorted     = [...summary.metrics].sort((a: any, b: any) => parseFloat(b.health_score) - parseFloat(a.health_score));
+    const sorted     = [...summary.metrics].sort((a: PortfolioMetricRow, b: PortfolioMetricRow) => parseFloat(b.health_score || '0') - parseFloat(a.health_score || '0'));
     const topRepo    = sorted[0];
     const bottomRepo = sorted[sorted.length - 1];
 

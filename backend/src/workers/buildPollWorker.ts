@@ -1,4 +1,5 @@
-import { Worker } from 'bullmq';
+import { Worker, Job } from 'bullmq';
+import type { BuildCheckJobData } from '../types/queueJobs';
 import { getRedisConnection, enqueueBuildCheck, enqueueScheduledJob } from '../queueClient';
 import { CODERABBIT_FALLBACK_JOB } from './scheduledJobsWorker';
 import { releaseExpiredLocks } from '../agentDb';
@@ -40,10 +41,10 @@ export function startBuildPollWorker(): Worker | null {
     return null;
   }
 
-  const worker = new Worker('build-poll', async (job: any) => {
+  const worker = new Worker('build-poll', async (job: Job<BuildCheckJobData>) => {
     const data = job.data;
     const { repoFullName, commitSha, repoName, projectName,
-            topicId, attemptNumber = 0 } = data;
+            topicId = null, attemptNumber = 0 } = data;
 
     logger.info(
       { repoFullName, commitSha: commitSha?.slice(0, 7), pollAttempt: attemptNumber },
@@ -124,7 +125,7 @@ export function startBuildPollWorker(): Worker | null {
           repoFullName,
           data.repoName,
           data.branchName,
-          data.topicId
+          topicId
         ).catch((err: any) =>
           logger.error({ err: err.stack ?? err.message }, 'handleBuildPassedAfterSentinelMerge failed')
         );
@@ -145,7 +146,7 @@ export function startBuildPollWorker(): Worker | null {
           branchName:    data.branchName,
           authorName:    data.authorName,
           authorEmail:   data.authorEmail,
-          topicId:       data.topicId,
+          topicId,
         };
         const fallbackDelayMin = parseInt(process.env['CODERABBIT_FALLBACK_DELAY_MIN'] || '45');
         await enqueueScheduledJob(
@@ -261,7 +262,7 @@ export function startBuildPollWorker(): Worker | null {
     concurrency: 5,
   });
 
-  worker.on('failed', (job: any, err: Error) => {
+  worker.on('failed', (job: Job<BuildCheckJobData> | undefined, err: Error) => {
     logger.error({ jobId: job?.id, err: err.message }, 'Build poll job failed');
   });
 

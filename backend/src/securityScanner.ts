@@ -15,15 +15,14 @@ interface ScanData {
   repoFullName: string;
   repoName: string;
   commitSha: string;
-  branchName: string;
-  topicId?: any;
+  branchName?: string;
+  topicId?: number | null;
 }
 
 interface SecurityIssue {
   severity: string;
   issueType: string;
   title: string;
-  [key: string]: any;
 }
 
 interface ScanCounts {

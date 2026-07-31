@@ -3,6 +3,9 @@ import https from 'https';
 import { sendTelegramMessage } from './telegramClient';
 import { logAgentMessage, getConfig, setConfig } from './agentDb';
 import logger from './logger';
+import { callAnyProvider } from './ai/client';
+import type { AgentRow, AgentMessageRow } from './types/agentRow';
+import type { PortfolioMetricRow } from './types/portfolioRow';
 
 const AGENT_ROOM_TOPIC_ID = (): string | undefined => process.env['AGENT_ROOM_TOPIC_ID'];
 const BOT_TOKEN           = (): string | undefined => process.env['TELEGRAM_BOT_TOKEN'];
@@ -53,7 +56,13 @@ function getEmoji(agentId: string): string {
 
 // ── Low-level Telegram API ────────────────────────────────────────────────────
 
-function telegramApiPost(method: string, body: any): Promise<any> {
+interface TelegramApiResult {
+  ok?: boolean;
+  result?: { message_id?: number };
+  [key: string]: unknown;
+}
+
+function telegramApiPost(method: string, body: Record<string, unknown>): Promise<TelegramApiResult | null> {
   return new Promise((resolve, reject) => {
     if (!BOT_TOKEN()) { resolve(null); return; }
     const bodyJson = JSON.stringify(body);
@@ -90,45 +99,23 @@ async function answerCallback(queryId: string, text = ''): Promise<void> {
 
 async function generatePersonalityMessage(agentId: string, baseMessage: string): Promise<string> {
   const personality = AGENT_PERSONALITY[agentId];
-  if (!personality || !process.env['NVIDIA_API_KEY']) return baseMessage;
+  const hasProviderKey = process.env['NVIDIA_API_KEY'] || process.env['GEMINI_API_KEY']
+    || process.env['DASHSCOPE_API_KEY'] || process.env['DEEPSEEK_API_KEY'];
+  if (!personality || !hasProviderKey) return baseMessage;
 
   try {
-    const model    = process.env['CHAT_MODEL'] || 'meta/llama-3.1-70b-instruct';
-    const bodyJson = JSON.stringify({
-      model,
-      messages: [
-        {
-          role:    'system',
-          content: `You are ${agentId}, an AI coding agent. Your communication style is ${personality}. Rewrite the status update below in your voice. Under 3 sentences. No greeting. Output only the rewritten message.`,
-        },
-        { role: 'user', content: baseMessage },
-      ],
-      max_tokens:  100,
-      temperature: 0.7,
+    // D-005: shared provider fallback chain, NVIDIA model pinned to CHAT_MODEL
+    // (or its own default) to preserve this feature's prior behavior.
+    const content = await callAnyProvider({
+      systemPrompt: `You are ${agentId}, an AI coding agent. Your communication style is ${personality}. Rewrite the status update below in your voice. Under 3 sentences. No greeting. Output only the rewritten message.`,
+      userPrompt:   baseMessage,
+      maxTokens:    100,
+      temperature:  0.7,
+      timeoutMs:    8000,
+      models:       { nvidia: process.env['CHAT_MODEL'] || 'meta/llama-3.1-70b-instruct' },
     });
 
-    const result = await new Promise<any>((resolve, reject) => {
-      const req = https.request({
-        hostname: 'integrate.api.nvidia.com',
-        path:     '/v1/chat/completions',
-        method:   'POST',
-        headers:  {
-          'Content-Type':   'application/json',
-          'Content-Length': Buffer.byteLength(bodyJson),
-          'Authorization':  `Bearer ${process.env['NVIDIA_API_KEY']}`,
-        },
-      }, (res) => {
-        let data = '';
-        res.on('data', (chunk: string) => { data += chunk; });
-        res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
-      });
-      req.on('error', reject);
-      req.setTimeout(8000, () => { req.destroy(); reject(new Error('NIM timeout')); });
-      req.write(bodyJson);
-      req.end();
-    });
-
-    return result?.choices?.[0]?.message?.content?.trim() || baseMessage;
+    return content.trim() || baseMessage;
   } catch {
     return baseMessage;
   }
@@ -166,15 +153,23 @@ async function announceComplete(agentId: string, agentLabel: string, repoName: s
   await announce(agentId, agentLabel, message, 'success', repoName);
 }
 
-async function announceConflict(agentId: string, agentLabel: string, repoName: string, conflicts: any[]): Promise<void> {
-  const files = conflicts.map((c: any) => `${c.filePath} (locked by ${c.lockedBy})`).join(', ');
+async function announceConflict(agentId: string, agentLabel: string, repoName: string, conflicts: { filePath: string; lockedBy: string }[]): Promise<void> {
+  const files = conflicts.map((c) => `${c.filePath} (locked by ${c.lockedBy})`).join(', ');
   // Conflict messages stay factual — no personality rewrite
   await announce(agentId, agentLabel, `File conflict on ${repoName} — skipping: ${files}`, 'warning', repoName);
 }
 
 // Improvement 2 — rich handoff with completed work, ready tasks, high-risk files, next task
-async function announceHandoff(fromAgentId: string, fromLabel: string, toLabel: string, repoName: string, context: string, extras: any = {}): Promise<void> {
-  const { completedTitle, readyCount, affectedFiles, nextTask } = extras;
+interface HandoffExtras {
+  completedTitle?: string;
+  readyCount?: number;
+  affectedFiles?: string[];
+  nextTask?: string;
+  highRiskFiles?: string[];
+}
+
+async function announceHandoff(fromAgentId: string, fromLabel: string, toLabel: string, repoName: string, context: string, extras: HandoffExtras = {}): Promise<void> {
+  const { completedTitle, readyCount = 0, affectedFiles, nextTask } = extras;
 
   // Identify high-risk files from affected list
   let highRiskFiles: string[] = extras.highRiskFiles || [];
@@ -207,10 +202,10 @@ async function broadcastToAll(message: string): Promise<void> {
 
 // ── Improvement 4 — conflict resolution inline keyboard ──────────────────────
 
-async function sendConflictKeyboard(agentId: string, agentLabel: string, repoName: string, conflicts: any[], conflictId: string): Promise<void> {
+async function sendConflictKeyboard(agentId: string, agentLabel: string, repoName: string, conflicts: { filePath: string; lockedBy: string }[], conflictId: string): Promise<void> {
   if (!AGENT_ROOM_TOPIC_ID() || !BOT_TOKEN() || !CHAT_ID()) return;
 
-  const fileList = conflicts.map((c: any) => `  · ${c.filePath} (held by ${c.lockedBy})`).join('\n');
+  const fileList = conflicts.map((c) => `  · ${c.filePath} (held by ${c.lockedBy})`).join('\n');
   const text     = `⚠️ ${getEmoji(agentId)} ${agentLabel}: File conflict on ${repoName}\n\n${fileList}\n\nHow should this be resolved?`;
 
   const body = {
@@ -234,7 +229,8 @@ async function sendConflictKeyboard(agentId: string, agentLabel: string, repoNam
 // ── Improvement 1 — pinned status board ──────────────────────────────────────
 
 async function buildStatusBoardText(): Promise<string> {
-  const { getAllAgents, getRecentMessages } = require('./agentDb');
+  const { getAllAgents } = require('./agentDb') as { getAllAgents: () => Promise<AgentRow[]> };
+  const { getRecentMessages } = require('./agentDb') as { getRecentMessages: (limit?: number) => Promise<AgentMessageRow[]> };
   const { query }                           = require('./dbClient');
 
   const [agents, messages] = await Promise.all([
@@ -242,8 +238,8 @@ async function buildStatusBoardText(): Promise<string> {
     getRecentMessages(5),
   ]);
 
-  const working = agents.filter((a: any) => a.status === 'working');
-  const idle    = agents.filter((a: any) => a.status === 'idle');
+  const working = agents.filter((a) => a.status === 'working');
+  const idle    = agents.filter((a) => a.status === 'idle');
 
   const queueR = await query(
     `SELECT COUNT(*) as count FROM audit_tasks WHERE status IN ('queued','in_progress')`
@@ -265,7 +261,7 @@ async function buildStatusBoardText(): Promise<string> {
     logger.warn({ err: err.message }, 'Failed to build sprint status line — omitting from dashboard');
   }
 
-  const agentLines = agents.map((a: any) => {
+  const agentLines = agents.map((a) => {
     const emoji  = getEmoji(a.agent_id);
     const status = a.status === 'working'
       ? `⚡ ${a.repo_full_name?.split('/')[1]} — ${a.task_title?.substring(0, 35)}`
@@ -323,11 +319,11 @@ async function updatePinnedStatusBoard(): Promise<void> {
 async function sendMorningBriefing(): Promise<void> {
   if (!AGENT_ROOM_TOPIC_ID()) return;
 
-  const { getAllAgents } = require('./agentDb');
+  const { getAllAgents } = require('./agentDb') as { getAllAgents: () => Promise<AgentRow[]> };
   const { query }        = require('./dbClient');
 
   const [agents, queueRows, successRows] = await Promise.all([
-    getAllAgents().catch(() => []),
+    getAllAgents().catch((): AgentRow[] => []),
     query(`
       SELECT repo_full_name, COUNT(*) as count
       FROM audit_tasks
@@ -362,19 +358,19 @@ async function sendMorningBriefing(): Promise<void> {
   try {
     const { getPortfolioSummary } = require('./portfolioAnalytics');
     const summary = await getPortfolioSummary();
-    const focus   = summary?.metrics?.reduce((min: any, m: any) =>
-      (!min || m.health_score < min.health_score) ? m : min, null
-    );
+    const focus: PortfolioMetricRow | null = summary?.metrics?.reduce((min: PortfolioMetricRow | null, m: PortfolioMetricRow) =>
+      (!min || parseFloat(m.health_score || '0') < parseFloat(min.health_score || '0')) ? m : min, null
+    ) ?? null;
     if (focus) focusLine = `🎯 Focus: ${focus.repo_name} (health ${focus.health_score}/10)`;
   } catch (err: any) {
     logger.warn({ err: err.message }, 'Failed to build focus line — omitting from dashboard');
   }
 
-  const idle    = agents.filter((a: any) => a.status === 'idle').length;
-  const working = agents.filter((a: any) => a.status === 'working').length;
+  const idle    = agents.filter((a) => a.status === 'idle').length;
+  const working = agents.filter((a) => a.status === 'working').length;
   const done24h = successRows.rows[0]?.count || 0;
 
-  const queueLines = queueRows.rows.map((r: any) =>
+  const queueLines = queueRows.rows.map((r: { repo_full_name: string; count: number }) =>
     `  · ${r.repo_full_name.split('/')[1]}: ${r.count} tasks`
   ).join('\n');
 
@@ -398,17 +394,20 @@ async function sendMorningBriefing(): Promise<void> {
 // ── Summary for AI context ────────────────────────────────────────────────────
 
 async function getAgentRoomSummary(): Promise<string> {
-  const { getAllAgents, getRecentMessages } = require('./agentDb');
+  const { getAllAgents, getRecentMessages } = require('./agentDb') as {
+    getAllAgents: () => Promise<AgentRow[]>;
+    getRecentMessages: (limit?: number) => Promise<AgentMessageRow[]>;
+  };
   const [agents, messages] = await Promise.all([
     getAllAgents(),
     getRecentMessages(10),
   ]);
 
-  const working = agents.filter((a: any) => a.status === 'working');
-  const idle    = agents.filter((a: any) => a.status === 'idle');
-  const errored = agents.filter((a: any) => a.status === 'error');
+  const working = agents.filter((a) => a.status === 'working');
+  const idle    = agents.filter((a) => a.status === 'idle');
+  const errored = agents.filter((a) => a.status === 'error');
 
-  const agentLines = agents.map((a: any) => {
+  const agentLines = agents.map((a) => {
     const emoji  = getEmoji(a.agent_id);
     let status: string;
     if (a.status === 'working') {
@@ -421,7 +420,7 @@ async function getAgentRoomSummary(): Promise<string> {
     return `${emoji} ${a.agent_label}: ${status}`;
   }).join('\n');
 
-  const recentLines = messages.slice(-5).map((m: any) => {
+  const recentLines = messages.slice(-5).map((m) => {
     const emoji = getEmoji(m.agent_id);
     return `${emoji} ${m.agent_label}: ${m.message.substring(0, 80)}`;
   }).join('\n');

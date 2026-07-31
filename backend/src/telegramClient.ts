@@ -21,6 +21,13 @@ const TOPIC_MAP: Record<string, number> = {
   'obsidianmedia':           parseInt(process.env['TOPIC_OBSIDIANMEDIA'] || '0', 10),
 };
 
+interface TelegramApiResult {
+  ok: boolean;
+  error_code?: number;
+  description?: string;
+  result?: { message_id?: number };
+}
+
 function getTopicId(repoName: string | null): number | null {
   const key = (repoName || '').toLowerCase();
   const topicId = TOPIC_MAP[key];
@@ -55,7 +62,7 @@ async function sendTelegramMessage(
   repoName: string | null,
   explicitTopicId?: number | null,
   forceSend: boolean = false
-): Promise<any> {
+): Promise<TelegramApiResult | undefined> {
   const BOT_TOKEN = process.env['TELEGRAM_BOT_TOKEN'];
   const CHAT_ID   = process.env['TELEGRAM_CHAT_ID'];
 
@@ -72,8 +79,8 @@ async function sendTelegramMessage(
         logger.debug('Telegram alerts disabled in settings');
         return;
       }
-    } catch (err: any) {
-      logger.warn({ err: err.message }, 'Could not check telegram alerts setting, sending anyway');
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'Could not check telegram alerts setting, sending anyway');
     }
   }
 
@@ -90,13 +97,19 @@ async function sendTelegramMessage(
   // sites gets Slack delivery for free once those are configured, with zero
   // per-call-site changes. Deliberately not awaited — a Slack failure or
   // slowness must never delay or break the Telegram send.
-  sendSlackMessage(safeText, repoName, null).catch((err: any) => {
-    logger.warn({ err: err.message, repoName }, 'Slack fan-out failed (Telegram send unaffected)');
+  sendSlackMessage(safeText, repoName, null).catch((err) => {
+    logger.warn({ err: (err as Error).message, repoName }, 'Slack fan-out failed (Telegram send unaffected)');
   });
 
   const escapedText = escapeHtml(safeText);
 
-  const body: any = {
+  const body: {
+    chat_id: string;
+    text: string;
+    parse_mode: string;
+    disable_web_page_preview: boolean;
+    message_thread_id?: number;
+  } = {
     chat_id:                  CHAT_ID,
     text:                     escapedText,
     parse_mode:               'HTML',
@@ -115,7 +128,7 @@ async function sendTelegramMessage(
 
   // Retry up to 3 times with exponential backoff on transient failures
   return retryWithBackoff(
-    () => new Promise((resolve, reject) => {
+    () => new Promise<TelegramApiResult>((resolve, reject) => {
       const options = {
         hostname: 'api.telegram.org',
         path:     `/bot${BOT_TOKEN}/sendMessage`,
@@ -128,7 +141,7 @@ async function sendTelegramMessage(
 
       const req = https.request(options, (res) => {
         let data = '';
-        res.on('data',  (chunk: any) => { data += chunk; });
+        res.on('data',  (chunk: Buffer) => { data += chunk; });
         res.on('end', () => {
           try {
             const parsed = JSON.parse(data);
@@ -191,7 +204,7 @@ async function registerBotCommands(): Promise<void> {
 
       const req = https.request(options, (res) => {
         let data = '';
-        res.on('data', (chunk: any) => { data += chunk; });
+        res.on('data', (chunk: Buffer) => { data += chunk; });
         res.on('end', () => {
           try {
             const parsed = JSON.parse(data);
@@ -200,14 +213,14 @@ async function registerBotCommands(): Promise<void> {
             } else {
               logger.info('Telegram bot command menu registered');
             }
-          } catch (e: any) {
-            logger.warn({ err: e.message }, 'setMyCommands response parse failed');
+          } catch (e) {
+            logger.warn({ err: (e as Error).message }, 'setMyCommands response parse failed');
           }
           resolve();
         });
       });
 
-      req.on('error', (err: any) => {
+      req.on('error', (err) => {
         logger.warn({ err: err.message }, 'setMyCommands request failed');
         resolve();
       });

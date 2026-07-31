@@ -1,37 +1,43 @@
-function validateAuditOutput(parsed: any): any {
+import type { BrainDecision } from './types/brainDecision';
+import type { AuditResult } from './types/auditResult';
+import type { SprintProposal, SprintProposalTask } from './types/sprintRow';
+
+function validateAuditOutput(parsed: unknown): AuditResult {
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('Audit output must be a JSON object');
   }
-  if (!Array.isArray(parsed.tasks)) {
+  const p = parsed as Record<string, unknown>;
+  if (!Array.isArray(p['tasks'])) {
     throw new Error('Audit output missing required field: tasks (array)');
   }
-  if (parsed.tasks.length === 0) {
+  if (p['tasks'].length === 0) {
     throw new Error('Audit output tasks array is empty');
   }
-  for (let i = 0; i < parsed.tasks.length; i++) {
-    const t = parsed.tasks[i];
+  for (let i = 0; i < p['tasks'].length; i++) {
+    const t = p['tasks'][i] as Record<string, unknown>;
     if (!t || typeof t !== 'object') {
       throw new Error(`Task at index ${i} is not an object`);
     }
-    if (!t.title && !t.taskNumber) {
+    if (!t['title'] && !t['taskNumber']) {
       throw new Error(`Task at index ${i} missing required field: title`);
     }
   }
-  return parsed;
+  return p as unknown as AuditResult;
 }
 
-function validateSprintOutput(parsed: any): any {
+function validateSprintOutput(parsed: unknown): SprintProposal {
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('Sprint proposal must be a JSON object');
   }
-  if (!Array.isArray(parsed.tasks)) {
+  const p = parsed as Record<string, unknown>;
+  if (!Array.isArray(p['tasks'])) {
     throw new Error('Sprint proposal missing required field: tasks (array)');
   }
-  if (parsed.tasks.length === 0) {
+  if (p['tasks'].length === 0) {
     throw new Error('Sprint proposal returned no tasks');
   }
-  for (let i = 0; i < parsed.tasks.length; i++) {
-    const t = parsed.tasks[i];
+  for (let i = 0; i < p['tasks'].length; i++) {
+    const t = p['tasks'][i] as Partial<SprintProposalTask>;
     if (!t || typeof t !== 'object') {
       throw new Error(`Sprint task at index ${i} is not an object`);
     }
@@ -50,30 +56,44 @@ function validateSprintOutput(parsed: any): any {
       t.complexity = 'medium';
     }
   }
-  return parsed;
+  return p as unknown as SprintProposal;
 }
 
-function validateBrainOutput(parsed: any): any {
+function validateBrainOutput(parsed: unknown): BrainDecision {
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('Brain decision must be a JSON object');
   }
-  if (!Array.isArray(parsed.focus_repos)) {
+  const p = parsed as Record<string, unknown>;
+  if (!Array.isArray(p['focus_repos'])) {
     throw new Error('Brain decision missing required field: focus_repos (array)');
   }
   const validActions = ['execute', 'audit', 'monitor'];
-  if (!validActions.includes(parsed.action)) {
-    throw new Error(`Brain decision has invalid action: "${parsed.action}" — must be execute, audit, or monitor`);
+  if (!validActions.includes(p['action'] as string)) {
+    throw new Error(`Brain decision has invalid action: "${p['action']}" — must be execute, audit, or monitor`);
   }
-  if (typeof parsed.auto_execute !== 'boolean') {
+  if (typeof p['auto_execute'] !== 'boolean') {
     throw new Error('Brain decision missing required field: auto_execute (boolean)');
   }
-  if (!parsed.reasoning || typeof parsed.reasoning !== 'string') {
+  if (!p['reasoning'] || typeof p['reasoning'] !== 'string') {
     throw new Error('Brain decision missing required field: reasoning (string)');
   }
-  if (!parsed.daily_goal || typeof parsed.daily_goal !== 'string') {
+  if (!p['daily_goal'] || typeof p['daily_goal'] !== 'string') {
     throw new Error('Brain decision missing required field: daily_goal (string)');
   }
-  return parsed;
+  // alerts/skip_repos are optional, but a malformed value (e.g. a bare
+  // string instead of an array) would otherwise pass through untyped and
+  // break downstream .forEach()/iteration after auto-execution and DB
+  // persistence have already happened. Normalize rather than reject so a
+  // model that gets the shape slightly wrong doesn't abort an otherwise
+  // valid decision.
+  const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+  if (p['alerts'] !== undefined && !isStringArray(p['alerts'])) {
+    p['alerts'] = [];
+  }
+  if (p['skip_repos'] !== undefined && !isStringArray(p['skip_repos'])) {
+    p['skip_repos'] = [];
+  }
+  return p as unknown as BrainDecision;
 }
 
 export = { validateAuditOutput, validateSprintOutput, validateBrainOutput };

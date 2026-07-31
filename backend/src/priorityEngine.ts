@@ -11,8 +11,13 @@ const ESCALATION_RULES = [
   { metric: 'fraud_alerts',       riseAbs: 5,   newPriority: 'critical', reason: 'Fraud spike'         },
 ];
 
-async function getMetricPair(repoName: string, metricName: string): Promise<any[]> {
-  const r = await query(`
+interface MetricPairRow {
+  metric_value: string;
+  recorded_date: string;
+}
+
+async function getMetricPair(repoName: string, metricName: string): Promise<MetricPairRow[]> {
+  const r = await query<MetricPairRow>(`
     SELECT metric_value, recorded_date
     FROM business_metrics
     WHERE repo_name = $1 AND metric_name = $2
@@ -50,8 +55,8 @@ async function runPriorityEngine(): Promise<void> {
         const rows = await getMetricPair(repoName, rule.metric);
         if (rows.length < 2) continue;
 
-        const todayVal     = parseFloat(rows[0].metric_value);
-        const yesterdayVal = parseFloat(rows[1].metric_value);
+        const todayVal     = parseFloat(rows[0]?.metric_value || '');
+        const yesterdayVal = parseFloat(rows[1]?.metric_value || '');
         if (isNaN(todayVal) || isNaN(yesterdayVal)) continue;
 
         let triggered = false;

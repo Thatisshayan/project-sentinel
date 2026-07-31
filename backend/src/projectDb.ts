@@ -102,7 +102,26 @@ async function findProject(repoName: string): Promise<{
   };
 }
 
-async function updateProject(pageId: string, data: any): Promise<void> {
+interface ProjectUpdateData {
+  commitMessage?: string;
+  commitSha?: string;
+  commitUrl?: string;
+  branchName?: string;
+  authorName?: string;
+  commitTimestamp?: string;
+  changedFilesText?: string;
+  filesChangedCount?: number;
+  riskLevel?: string;
+  deploymentStatus?: string;
+  buildProvider?: string;
+  buildUrl?: string | null;
+  currentProjectState?: string;
+  lastBuildError?: string;
+  highRiskFlag?: string;
+  highRiskReason?: string;
+}
+
+async function updateProject(pageId: string, data: ProjectUpdateData): Promise<void> {
   const {
     commitMessage, commitSha, commitUrl,
     branchName, authorName, commitTimestamp,
@@ -141,7 +160,21 @@ async function updateProject(pageId: string, data: any): Promise<void> {
   logger.info({ pageId }, 'Project record updated');
 }
 
-async function appendProjectChangelog(pageId: string, data: any): Promise<void> {
+interface ChangelogData {
+  commitTimestamp?: string;
+  projectName?: string;
+  repoName?: string;
+  branchName?: string;
+  commitSha?: string;
+  authorName?: string;
+  commitMessage?: string;
+  filesChangedCount?: number;
+  isMarketingOnlyUpdate?: boolean;
+  commitUrl?: string;
+  riskLevel?: string;
+}
+
+async function appendProjectChangelog(pageId: string, data: ChangelogData): Promise<void> {
   const {
     commitTimestamp, projectName, repoName,
     branchName, commitSha, authorName,
@@ -149,7 +182,7 @@ async function appendProjectChangelog(pageId: string, data: any): Promise<void> 
     isMarketingOnlyUpdate, commitUrl, riskLevel,
   } = data;
 
-  const dateStr  = new Date(commitTimestamp).toUTCString();
+  const dateStr  = new Date(commitTimestamp || Date.now()).toUTCString();
   const shortSha = (commitSha || '').substring(0, 7);
 
   const entry =

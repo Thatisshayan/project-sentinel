@@ -1,11 +1,12 @@
 import logger from './logger';
 import { getSettings, updateSettings as updateSettingsDb } from './settingsDb';
+import type { Settings } from './types/settings';
 
-let settingsCache: any = null;
+let settingsCache: Settings | null = null;
 let cacheTime = 0;
 const CACHE_DURATION = 60000; // 60 seconds
 
-async function loadSettings(forceRefresh = false): Promise<any> {
+async function loadSettings(forceRefresh = false): Promise<Settings> {
   if (!forceRefresh && settingsCache && Date.now() - cacheTime < CACHE_DURATION) {
     return settingsCache;
   }
@@ -13,8 +14,8 @@ async function loadSettings(forceRefresh = false): Promise<any> {
   try {
     settingsCache = await getSettings();
     cacheTime = Date.now();
-  } catch (err: any) {
-    logger.warn({ err: err.message }, 'Failed to load settings from DB, using env fallbacks');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'Failed to load settings from DB, using env fallbacks');
     settingsCache = getEnvFallbacks();
     cacheTime = Date.now();
   }
@@ -22,7 +23,7 @@ async function loadSettings(forceRefresh = false): Promise<any> {
   return settingsCache;
 }
 
-function getEnvFallbacks(): any {
+function getEnvFallbacks(): Settings {
   return {
     auto_approve_tasks: process.env['AUTO_APPROVE_TASKS'] === 'true',
     audit_cooldown_h: parseInt(process.env['AUDIT_COOLDOWN_HOURS'] || '12'),
@@ -33,15 +34,19 @@ function getEnvFallbacks(): any {
     fallback_agent: process.env['FALLBACK_AGENT'] || 'gemini',
     telegram_alerts: process.env['TELEGRAM_ALERTS'] !== 'false',
     email_digest: process.env['EMAIL_DIGEST'] === 'true',
+    batch_size_override: null,
+    daily_limit_override: null,
+    sentinel_paused: false,
+    updated_at: new Date().toISOString(),
   };
 }
 
-async function updateSettings(updates: Record<string, any>): Promise<void> {
+async function updateSettings(updates: Record<string, unknown>): Promise<void> {
   try {
     await updateSettingsDb(updates);
     settingsCache = null; // invalidate cache
-  } catch (err: any) {
-    logger.warn({ err: err.message }, 'Failed to save settings to DB');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'Failed to save settings to DB');
   }
 }
 

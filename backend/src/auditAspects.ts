@@ -24,8 +24,8 @@ type Aspect = typeof ASPECTS[number];
 
 const SPRINTS_PER_ASPECT = 3;
 
-function isValidAspect(a: any): a is Aspect {
-  return ASPECTS.includes(a);
+function isValidAspect(a: unknown): a is Aspect {
+  return typeof a === 'string' && (ASPECTS as readonly string[]).includes(a);
 }
 
 function nextAspect(current: Aspect): Aspect {

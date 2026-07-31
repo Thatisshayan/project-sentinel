@@ -10,15 +10,15 @@ import projectDb from './projectDb';
  * auditOrchestrator.ts, parallelExecutor.ts) needed zero changes.
  */
 
-async function findNotionProject(repoName: string): Promise<any> {
+async function findNotionProject(repoName: string): ReturnType<typeof projectDb.findProject> {
   return projectDb.findProject(repoName);
 }
 
-async function updateNotionProject(pageId: string, data: any): Promise<void> {
+async function updateNotionProject(pageId: string, data: Parameters<typeof projectDb.updateProject>[1]): Promise<void> {
   return projectDb.updateProject(pageId, data);
 }
 
-async function appendChangelog(pageId: string, data: any): Promise<void> {
+async function appendChangelog(pageId: string, data: Parameters<typeof projectDb.appendProjectChangelog>[1]): Promise<void> {
   return projectDb.appendProjectChangelog(pageId, data);
 }
 

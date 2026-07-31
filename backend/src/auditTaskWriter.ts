@@ -1,5 +1,6 @@
 import logger from './logger';
 import { checkDuplicateTask, createAuditTask, updateAuditTask } from './auditDb';
+import type { AuditResult } from './types/auditResult';
 
 /**
  * D-025 (docs/governance/DEFERRED_WORK.md): decoupled from the real Notion
@@ -11,12 +12,27 @@ import { checkDuplicateTask, createAuditTask, updateAuditTask } from './auditDb'
  * (task.id) where they used to pass task.notion_page_id.
  */
 
-async function writeTasksToNotion(auditResult: any, auditCycleId: any, payload: any): Promise<any> {
+interface WrittenTask { taskNumber: number; title: string; taskId: number | null; }
+interface SkippedTask { taskNumber: number; title: string; }
+interface FailedTask { taskNumber: number; title: string; reason: string; }
+interface WriteTasksResult { written: WrittenTask[]; skipped: SkippedTask[]; failed: FailedTask[]; }
+
+interface WriteTasksPayload {
+  repoFullName: string;
+  repoName?: string;
+  projectName?: string;
+  commitSha?: string;
+  notionParentPageId?: string | null;
+  builderAgent?: string;
+  source?: string;
+}
+
+async function writeTasksToNotion(auditResult: AuditResult, auditCycleId: number, payload: WriteTasksPayload): Promise<WriteTasksResult> {
   const { repoFullName, builderAgent } = payload;
 
-  const written: any[] = [];
-  const skipped: any[] = [];
-  const failed: any[]  = [];
+  const written: WrittenTask[] = [];
+  const skipped: SkippedTask[] = [];
+  const failed: FailedTask[]  = [];
 
   const batchSize = parseInt(process.env['TASK_BATCH_SIZE'] || '5');
 
@@ -58,10 +74,16 @@ async function writeTasksToNotion(auditResult: any, auditCycleId: any, payload: 
   return { written, skipped, failed };
 }
 
-async function updateNotionTaskStatus(taskId: number | null, status: string, extra: any = {}): Promise<void> {
+interface UpdateTaskExtra {
+  prUrl?: string | null;
+  commitUrl?: string | null;
+  failureReason?: string;
+}
+
+async function updateNotionTaskStatus(taskId: number | null, status: string, extra: UpdateTaskExtra = {}): Promise<void> {
   if (!taskId) return;
   try {
-    const updates: Record<string, any> = { status };
+    const updates: Record<string, unknown> = { status };
     if (extra.prUrl)         updates['pr_url']         = extra.prUrl;
     if (extra.commitUrl)     updates['commit_url']     = extra.commitUrl;
     if (extra.failureReason) updates['failure_reason'] = extra.failureReason.substring(0, 500);

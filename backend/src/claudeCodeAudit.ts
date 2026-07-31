@@ -1,5 +1,4 @@
 import { spawn } from 'child_process';
-import axios from 'axios';
 import simpleGit from 'simple-git';
 import tmp from 'tmp';
 import fs from 'fs';
@@ -8,6 +7,8 @@ import logger from './logger';
 import { validateAuditOutput } from './aiOutputValidator';
 import { buildChildEnv } from './utils/childEnv';
 import projectMemory from './projectMemory';
+import { callAnyProvider } from './ai/client';
+import type { AuditResult, AuditTask } from './types/auditResult';
 
 const AUDIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const AUDIT_MODEL = process.env['AUDIT_MODEL'] || 'mistralai/mistral-nemotron';
@@ -249,37 +250,27 @@ async function runClaudeCodeAudit(repoPath: string, payload: AuditPayload, memor
   });
 }
 
-// NVIDIA NIM fallback — used when ANTHROPIC_API_KEY is absent but NVIDIA_API_KEY is set.
-// Sends the same audit prompt directly to the NVIDIA NIM chat completions endpoint.
-// Unlike the Claude Code CLI path, this model has no Read tool, so repoContext
+// D-005: OpenAI-compatible fallback chain — used when ANTHROPIC_API_KEY is
+// absent but at least one of NVIDIA/Gemini/DashScope/DeepSeek is configured.
+// Unlike the Claude Code CLI path, these models have no Read tool, so repoContext
 // (built from a real clone of the repo) is embedded directly in the prompt.
-async function runNvidiaAudit(payload: AuditPayload, repoContext: string, memoryText?: string): Promise<any> {
+async function runProviderAudit(payload: AuditPayload, repoContext: string, memoryText?: string): Promise<AuditResult> {
   const prompt = buildAuditPrompt(payload, repoContext, memoryText);
 
-  logger.info({ repo: payload.repoFullName, model: AUDIT_MODEL }, 'NVIDIA NIM audit starting');
+  logger.info({ repo: payload.repoFullName, model: AUDIT_MODEL }, 'Provider fallback audit starting');
 
-  const response = await axios.post(
-    'https://integrate.api.nvidia.com/v1/chat/completions',
-    {
-      model:       AUDIT_MODEL,
-      messages:    [{ role: 'user', content: prompt }],
-      max_tokens:  4096,
-      temperature: 0.1,
-    },
-    {
-      headers: {
-        Authorization:  `Bearer ${process.env['NVIDIA_API_KEY']}`,
-        'Content-Type': 'application/json',
-      },
-      timeout: AUDIT_TIMEOUT_MS,
-    }
-  );
+  const text = await callAnyProvider({
+    userPrompt:  prompt,
+    maxTokens:   4096,
+    temperature: 0.1,
+    timeoutMs:   AUDIT_TIMEOUT_MS,
+    models:      { nvidia: AUDIT_MODEL },
+  });
 
-  const text = response.data.choices[0]?.message?.content || '';
   return parseAuditOutput(text);
 }
 
-function parseAuditOutput(stdout: string): any {
+function parseAuditOutput(stdout: string): AuditResult {
   if (!stdout || stdout.trim() === '') {
     throw new Error('Claude Code returned empty audit output');
   }
@@ -294,26 +285,28 @@ function parseAuditOutput(stdout: string): any {
     throw new Error('No JSON object found in Claude Code audit output');
   }
 
-  let parsed: any;
+  let rawParsed: unknown;
   try {
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch (err: any) {
-    throw new Error(`Failed to parse audit JSON: ${err.message} — raw tail: ${stripped.slice(-200)}`);
+    rawParsed = JSON.parse(jsonMatch[0]);
+  } catch (err) {
+    throw new Error(`Failed to parse audit JSON: ${(err as Error).message} — raw tail: ${stripped.slice(-200)}`);
   }
 
-  validateAuditOutput(parsed);
+  const parsed = validateAuditOutput(rawParsed);
 
   // Aspect fields are additive/optional (older audits or a model that
   // ignores the instruction won't include them) — default rather than
   // reject, so a missing aspect score never fails the whole audit.
-  parsed.aspectHealthScore   = typeof parsed.aspectHealthScore === 'number'
-    ? Math.max(1, Math.min(10, Math.round(parsed.aspectHealthScore)))
+  const aspectHealthScoreRaw = (rawParsed as Record<string, unknown>)['aspectHealthScore'];
+  parsed.aspectHealthScore   = typeof aspectHealthScoreRaw === 'number'
+    ? Math.max(1, Math.min(10, Math.round(aspectHealthScoreRaw)))
     : parsed.overallHealthScore;
-  parsed.aspectEffectSummary = typeof parsed.aspectEffectSummary === 'string' && parsed.aspectEffectSummary.trim()
-    ? parsed.aspectEffectSummary.trim()
+  const aspectEffectSummaryRaw = (rawParsed as Record<string, unknown>)['aspectEffectSummary'];
+  parsed.aspectEffectSummary = typeof aspectEffectSummaryRaw === 'string' && aspectEffectSummaryRaw.trim()
+    ? aspectEffectSummaryRaw.trim()
     : '';
 
-  parsed.tasks = parsed.tasks.slice(0, 10).map((t: any, i: number) => ({
+  parsed.tasks = parsed.tasks.slice(0, 10).map((t, i): AuditTask => ({
     taskNumber:          t.taskNumber          || i + 1,
     priority:            t.priority            || 'medium',
     category:            t.category            || 'code-quality',
@@ -329,7 +322,7 @@ function parseAuditOutput(stdout: string): any {
   return parsed;
 }
 
-async function runAudit(payload: AuditPayload): Promise<any> {
+async function runAudit(payload: AuditPayload): Promise<AuditResult> {
   const { repoFullName } = payload;
 
   const tmpDir = tmp.dirSync({ unsafeCleanup: true, prefix: 'sentinel-audit-' });
@@ -349,15 +342,18 @@ async function runAudit(payload: AuditPayload): Promise<any> {
     // every audit cycle.
     const memoryText = await projectMemory.getMemoryForPrompt(repoFullName);
 
-    // NVIDIA NIM is the primary audit path — no ANTHROPIC_API_KEY required.
-    // It has no Read tool, so it gets a text snapshot of the cloned repo instead.
-    if (process.env['NVIDIA_API_KEY']) {
-      const auditResult = await runNvidiaAudit(payload, buildRepoContext(tmpDir.name), memoryText);
+    // Any OpenAI-compatible provider is the primary audit path — no
+    // ANTHROPIC_API_KEY required. These models have no Read tool, so they
+    // get a text snapshot of the cloned repo instead.
+    const hasProviderKey = process.env['NVIDIA_API_KEY'] || process.env['GEMINI_API_KEY']
+      || process.env['DASHSCOPE_API_KEY'] || process.env['DEEPSEEK_API_KEY'];
+    if (hasProviderKey) {
+      const auditResult = await runProviderAudit(payload, buildRepoContext(tmpDir.name), memoryText);
       logger.info({
         repoFullName,
         tasks: auditResult.tasks.length,
         score: auditResult.overallHealthScore,
-        safe:  auditResult.tasks.filter((t: any) => t.safeToAutoExecute).length,
+        safe:  auditResult.tasks.filter((t) => t.safeToAutoExecute).length,
       }, 'Audit complete');
       return auditResult;
     }
@@ -374,7 +370,7 @@ async function runAudit(payload: AuditPayload): Promise<any> {
       repoFullName,
       tasks: auditResult.tasks.length,
       score: auditResult.overallHealthScore,
-      safe:  auditResult.tasks.filter((t: any) => t.safeToAutoExecute).length,
+      safe:  auditResult.tasks.filter((t) => t.safeToAutoExecute).length,
     }, 'Audit complete');
 
     return auditResult;

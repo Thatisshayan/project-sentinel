@@ -1,5 +1,6 @@
 import { Pool, QueryResult, QueryResultRow } from 'pg';
 import logger from './logger';
+import type { DebugAttemptRow } from './types/debugAttemptRow';
 
 let pool: Pool | null = null;
 
@@ -153,8 +154,8 @@ async function initSchema(): Promise<void> {
 
 // ── Debug attempt helpers ────────────────────────────────────────────────────
 
-async function getDebugAttempt(repoFullName: string, commitSha: string): Promise<any | null> {
-  const r = await query(
+async function getDebugAttempt(repoFullName: string, commitSha: string): Promise<DebugAttemptRow | null> {
+  const r = await query<DebugAttemptRow>(
     'SELECT * FROM debug_attempts WHERE repo_full_name = $1 AND commit_sha = $2',
     [repoFullName, commitSha]
   );
@@ -165,12 +166,12 @@ interface DebugAttemptData {
   repoFullName: string;
   commitSha: string;
   buildProvider?: string;
-  buildUrl?: string;
+  buildUrl?: string | null;
   failureReason?: string;
 }
 
-async function createDebugAttempt(data: DebugAttemptData): Promise<any | null> {
-  const r = await query(`
+async function createDebugAttempt(data: DebugAttemptData): Promise<DebugAttemptRow | null> {
+  const r = await query<DebugAttemptRow>(`
     INSERT INTO debug_attempts
       (repo_full_name, commit_sha, attempt_number, build_provider, build_url, failure_reason)
     VALUES ($1, $2, 0, $3, $4, $5)
@@ -180,8 +181,8 @@ async function createDebugAttempt(data: DebugAttemptData): Promise<any | null> {
   return r.rows[0] || null;
 }
 
-async function incrementAttempt(repoFullName: string, commitSha: string, debuggerUsed: string): Promise<any | null> {
-  const r = await query(`
+async function incrementAttempt(repoFullName: string, commitSha: string, debuggerUsed: string): Promise<DebugAttemptRow | null> {
+  const r = await query<DebugAttemptRow>(`
     UPDATE debug_attempts
     SET attempt_number = attempt_number + 1,
         debugger_used  = $3,
@@ -207,11 +208,18 @@ const DEBUG_ATTEMPT_UPDATABLE_COLUMNS = new Set([
   'high_risk', 'high_risk_reason',
 ]);
 
+type DebugAttemptUpdate = Partial<Pick<DebugAttemptRow,
+  'attempt_number' | 'max_attempts' | 'status' | 'debugger_used' |
+  'fix_commit_sha' | 'fix_commit_url' | 'fix_branch' | 'fix_pr_url' |
+  'failure_reason' | 'build_provider' | 'build_url' |
+  'high_risk' | 'high_risk_reason'
+>>;
+
 async function updateDebugAttempt(
   repoFullName: string,
   commitSha: string,
-  updates: Record<string, any>
-): Promise<any | null> {
+  updates: DebugAttemptUpdate
+): Promise<DebugAttemptRow | null> {
   const keys = Object.keys(updates);
   const rejected = keys.filter(k => !DEBUG_ATTEMPT_UPDATABLE_COLUMNS.has(k));
   if (rejected.length > 0) {
@@ -225,9 +233,9 @@ async function updateDebugAttempt(
   const fields = allowedKeys
     .map((k, i) => `${k} = $${i + 3}`)
     .join(', ');
-  const values = allowedKeys.map(k => updates[k]);
+  const values = allowedKeys.map(k => updates[k as keyof DebugAttemptUpdate]);
 
-  const r = await query(
+  const r = await query<DebugAttemptRow>(
     `UPDATE debug_attempts
      SET ${fields}, updated_at = NOW()
      WHERE repo_full_name = $1 AND commit_sha = $2

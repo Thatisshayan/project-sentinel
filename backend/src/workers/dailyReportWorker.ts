@@ -1,4 +1,4 @@
-import { Worker, Queue } from 'bullmq';
+import { Worker, Queue, Job } from 'bullmq';
 import { getRedisConnection, enqueueBuildCheck } from '../queueClient';
 import { safeFire, fireAndForget } from '../utils/safeFire';
 import { updatePinnedStatusBoard, sendMorningBriefing } from '../agentRoom';
@@ -15,6 +15,10 @@ import { sendTelegramMessage } from '../telegramClient';
 import { triggerAudit } from '../auditOrchestrator';
 import logger from '../logger';
 import dbClient from '../dbClient';
+import type { REPO_LIST as REPO_LIST_TYPE } from '../portfolioAnalytics';
+import type { getDefaultBranch as getDefaultBranchType, discoverAndOnboardRepos as discoverAndOnboardReposType } from '../repoDiscovery';
+import type { probeAIProviders as probeAIProvidersType } from '../providerHealthCheck';
+import type { getDailyCost as getDailyCostType } from '../portfolioDb';
 
 const { query } = dbClient;
 
@@ -27,13 +31,13 @@ let runSelfScaler: (() => Promise<void>) | undefined;
 try { ({ runSelfScaler } = require('../selfScaler')); } catch (e: any) { logger.warn({ err: e.message }, 'selfScaler failed to load'); }
 let runPriorityEngine: (() => Promise<void>) | undefined;
 try { ({ runPriorityEngine } = require('../priorityEngine')); } catch (e: any) { logger.warn({ err: e.message }, 'priorityEngine failed to load'); }
-let generateCEOReport: ((arg: any) => Promise<void>) | undefined;
+let generateCEOReport: ((arg: number | null) => Promise<void>) | undefined;
 try { ({ generateCEOReport } = require('../ceoReport')); } catch (e: any) { logger.warn({ err: e.message }, 'ceoReport failed to load'); }
 let runAgentStandup: (() => Promise<void>) | undefined;
 try { ({ runAgentStandup } = require('../agentStandup')); } catch (e: any) { logger.warn({ err: e.message }, 'agentStandup failed to load'); }
 let postAgentLeaderboard: (() => Promise<void>) | undefined;
 try { ({ postAgentLeaderboard } = require('../agentLeaderboard')); } catch (e: any) { logger.warn({ err: e.message }, 'agentLeaderboard failed to load'); }
-let runStrategicBrain: ((arg: any) => Promise<void>) | undefined;
+let runStrategicBrain: ((arg: number | null) => Promise<void>) | undefined;
 let recordBrainOutcome: (() => Promise<void>) | undefined;
 try { ({ runStrategicBrain, recordBrainOutcome } = require('../sentinelBrain')); } catch (e: any) { logger.warn({ err: e.message }, 'sentinelBrain failed to load'); }
 
@@ -115,7 +119,7 @@ export function startDailyReportWorker(): Worker | null {
     repeat: { pattern: '0 7 * * *', tz: SENTINEL_TZ },
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule brain strategy cron'));
 
-  const worker = new Worker('daily-report', async (job: any) => {
+  const worker = new Worker('daily-report', async (job: Job) => {
     if (job.name === 'morning-briefing') {
       await sendMorningBriefing();
       return;
@@ -156,8 +160,8 @@ export function startDailyReportWorker(): Worker | null {
       return;
     }
     if (job.name === 'weekly-audit') {
-      const { REPO_LIST } = require('../portfolioAnalytics');
-      const { getDefaultBranch } = require('../repoDiscovery');
+      const { REPO_LIST } = require('../portfolioAnalytics') as { REPO_LIST: typeof REPO_LIST_TYPE };
+      const { getDefaultBranch } = require('../repoDiscovery') as { getDefaultBranch: typeof getDefaultBranchType };
       let audited = 0;
       for (const repo of REPO_LIST) {
         try {
@@ -185,7 +189,10 @@ export function startDailyReportWorker(): Worker | null {
       return;
     }
     if (job.name === 'stale-tasks') {
-      const result = await query(`
+      // COUNT(*) returns PostgreSQL bigint, which node-postgres returns as a
+      // string (no registered parser) — typed as string, not number, same as
+      // the aggregate-count pattern already used in sentinelBrain.ts.
+      const result = await query<{ repo_full_name: string; count: string }>(`
         SELECT repo_full_name, COUNT(*) AS count
         FROM audit_tasks
         WHERE status = 'queued'
@@ -198,8 +205,8 @@ export function startDailyReportWorker(): Worker | null {
         logger.info('Stale task check — no stale tasks found');
         return;
       }
-      const lines = rows.map((r: any) =>
-        `  · ${r.repo_full_name.split('/')[1]}: ${r.count} task(s)`
+      const lines = rows.map((r) =>
+        `  · ${r.repo_full_name.split('/')[1]}: ${Number.parseInt(r.count, 10)} task(s)`
       ).join('\n');
       await safeFire(sendTelegramMessage(
         `🕰️ Stale Task Report — tasks queued >7 days:\n\n${lines}\n\n` +
@@ -209,7 +216,7 @@ export function startDailyReportWorker(): Worker | null {
       return;
     }
     if (job.name === 'provider-health') {
-      const { probeAIProviders } = require('../providerHealthCheck');
+      const { probeAIProviders } = require('../providerHealthCheck') as { probeAIProviders: typeof probeAIProvidersType };
       await probeAIProviders().catch((e: any) => logger.warn({ err: e.message }, 'Daily provider health probe failed'));
       return;
     }
@@ -218,7 +225,7 @@ export function startDailyReportWorker(): Worker | null {
       return;
     }
     if (job.name === 'repo-discovery') {
-      const { discoverAndOnboardRepos } = require('../repoDiscovery');
+      const { discoverAndOnboardRepos } = require('../repoDiscovery') as { discoverAndOnboardRepos: typeof discoverAndOnboardReposType };
       await discoverAndOnboardRepos().catch((e: any) => logger.warn({ err: e.message }, 'Repo discovery failed'));
       return;
     }
@@ -234,7 +241,7 @@ export function startDailyReportWorker(): Worker | null {
     }
     await refreshAllMetrics();
     try {
-      const { getDailyCost } = require('../portfolioDb');
+      const { getDailyCost } = require('../portfolioDb') as { getDailyCost: typeof getDailyCostType };
       const dailyCost      = await getDailyCost();
       const alertThreshold = parseFloat(process.env['DAILY_COST_ALERT_USD'] || '5');
       if (dailyCost > alertThreshold) {
@@ -250,7 +257,7 @@ export function startDailyReportWorker(): Worker | null {
     await updateDashboard();
   }, { connection: conn });
 
-  worker.on('failed', (job: any, err: Error) => {
+  worker.on('failed', (job: Job | undefined, err: Error) => {
     logger.error({ err: err.stack ?? err.message }, 'Daily report worker failed');
   });
 

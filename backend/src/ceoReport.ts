@@ -1,79 +1,20 @@
 import logger from './logger';
-import axios from 'axios';
+import { callAnyProvider } from './ai/client';
 import { sendTelegramMessage } from './telegramClient';
 import { getPortfolioSummary } from './portfolioAnalytics';
 import { getSprintStatus } from './sprintOrchestrator';
 import { getVelocityReport } from './velocityTracker';
 import { getPortfolioSecuritySummary } from './securityDb';
 import { getLatestMetrics } from './businessDb';
+import type { SecurityScoreSummaryRow } from './types/securityRow';
+import type { BusinessMetricRow } from './types/businessMetricRow';
 
 async function callAI(prompt: string): Promise<string | null> {
-  if (process.env['NVIDIA_API_KEY']) {
-    const res = await axios.post(
-      'https://integrate.api.nvidia.com/v1/chat/completions',
-      {
-        model:       'mistralai/mistral-nemotron',
-        messages:    [{ role: 'user', content: prompt }],
-        max_tokens:  600,
-        temperature: 0.4,
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env['NVIDIA_API_KEY']}`, 'Content-Type': 'application/json' },
-        timeout: 60000,
-      }
-    );
-    return res.data.choices[0]?.message?.content || null;
+  try {
+    return await callAnyProvider({ userPrompt: prompt, maxTokens: 600, temperature: 0.4, timeoutMs: 60000 });
+  } catch {
+    return null;
   }
-
-  if (process.env['GEMINI_API_KEY']) {
-    const res = await axios.post(
-      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-      {
-        model:      'gemini-2.0-flash',
-        messages:   [{ role: 'user', content: prompt }],
-        max_tokens: 600,
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env['GEMINI_API_KEY']}`, 'Content-Type': 'application/json' },
-        timeout: 60000,
-      }
-    );
-    return res.data.choices[0]?.message?.content || null;
-  }
-
-  if (process.env['DASHSCOPE_API_KEY']) {
-    const res = await axios.post(
-      `${process.env['DASHSCOPE_BASE_URL'] || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}/chat/completions`,
-      {
-        model:      'qwen-max',
-        messages:   [{ role: 'user', content: prompt }],
-        max_tokens: 600,
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env['DASHSCOPE_API_KEY']}`, 'Content-Type': 'application/json' },
-        timeout: 60000,
-      }
-    );
-    return res.data.choices[0]?.message?.content || null;
-  }
-
-  if (process.env['DEEPSEEK_API_KEY']) {
-    const res = await axios.post(
-      'https://api.deepseek.com/chat/completions',
-      {
-        model:      'deepseek-chat',
-        messages:   [{ role: 'user', content: prompt }],
-        max_tokens: 600,
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env['DEEPSEEK_API_KEY']}`, 'Content-Type': 'application/json' },
-        timeout: 60000,
-      }
-    );
-    return res.data.choices[0]?.message?.content || null;
-  }
-
-  return null;
 }
 
 async function generateCEOReport(topicId?: number | null): Promise<void> {
@@ -88,17 +29,17 @@ async function generateCEOReport(topicId?: number | null): Promise<void> {
     ]);
 
     const p = portfolioResult.status === 'fulfilled' ? portfolioResult.value : null;
-    const s = securityResult.status  === 'fulfilled' ? securityResult.value  : [];
+    const s: SecurityScoreSummaryRow[] = securityResult.status  === 'fulfilled' ? securityResult.value  : [];
 
     const avgHealth   = p?.avgHealth || 'N/A';
     const healthy     = p?.healthy?.length || 0;
     const broken      = p?.broken?.length  || 0;
     const avgSecurity = s.length > 0
-      ? (s.reduce((sum: number, r: any) => sum + parseFloat(r.score || 0), 0) / s.length).toFixed(1)
+      ? (s.reduce((sum: number, r) => sum + parseFloat(r.score || '0'), 0) / s.length).toFixed(1)
       : 'N/A';
 
-    const tapcashRows  = tapcashResult.status === 'fulfilled' ? (tapcashResult.value || []) : [];
-    const bizMap       = Object.fromEntries(tapcashRows.map((r: any) => [r.metric_name, parseFloat(r.metric_value)]));
+    const tapcashRows: BusinessMetricRow[] = tapcashResult.status === 'fulfilled' ? (tapcashResult.value || []) : [];
+    const bizMap       = Object.fromEntries(tapcashRows.map((r) => [r.metric_name, parseFloat(r.metric_value || '0')]));
     const velocityText = velocityResult.status === 'fulfilled' ? String(velocityResult.value || '') : '';
 
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
@@ -107,9 +48,9 @@ async function generateCEOReport(topicId?: number | null): Promise<void> {
       `Date: ${todayStr}`,
       `Portfolio health: ${avgHealth}/10 (${healthy} healthy, ${broken} broken)`,
       `Portfolio security: ${avgSecurity}/10`,
-      bizMap.daily_active_users != null ? `TapCash DAU: ${bizMap.daily_active_users}` : '',
-      bizMap.revenue_total       != null ? `TapCash revenue: $${bizMap.revenue_total}` : '',
-      bizMap.conversion_rate     != null ? `TapCash conversion: ${bizMap.conversion_rate}%` : '',
+      bizMap['daily_active_users'] != null ? `TapCash DAU: ${bizMap['daily_active_users']}` : '',
+      bizMap['revenue_total']       != null ? `TapCash revenue: $${bizMap['revenue_total']}` : '',
+      bizMap['conversion_rate']     != null ? `TapCash conversion: ${bizMap['conversion_rate']}%` : '',
       velocityText ? `Velocity: ${velocityText}` : '',
     ].filter(Boolean).join('\n');
 
@@ -136,8 +77,8 @@ Max 200 words. Start with "📊 Weekly Update —" and today's date (${todayStr}
       ``,
       `Portfolio Health: ${avgHealth}/10  Security: ${avgSecurity}/10`,
       `Repos: ${healthy} healthy, ${broken} broken`,
-      bizMap.daily_active_users != null ? `TapCash — DAU: ${bizMap.daily_active_users}` : '',
-      bizMap.revenue_total      != null ? `Revenue: $${bizMap.revenue_total}` : '',
+      bizMap['daily_active_users'] != null ? `TapCash — DAU: ${bizMap['daily_active_users']}` : '',
+      bizMap['revenue_total']      != null ? `Revenue: $${bizMap['revenue_total']}` : '',
       ``,
       `See /sentinel dashboard for full breakdown.`,
     ].filter(Boolean).join('\n');

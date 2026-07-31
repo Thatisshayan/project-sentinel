@@ -3,6 +3,7 @@ import logger from './logger';
 import { getLatestMetrics, upsertTaskROI } from './businessDb';
 import { getAllLatestMetrics } from './portfolioDb';
 import dbClient from './dbClient';
+import type { AuditTaskRow } from './types/auditTaskRow';
 
 const PRIORITY_BONUS: Record<string, number> = { critical: 4, high: 3, medium: 1, low: 0 };
 
@@ -19,12 +20,12 @@ const CATEGORY_BONUS: Record<string, number> = {
   'dead-code':       0,
 };
 
-async function scoreTask(task: any, repoName: string, repoPriority: string): Promise<number> {
+async function scoreTask(task: AuditTaskRow, repoName: string, repoPriority: string): Promise<number> {
   const baseScore     = 5.0;
   let   priorityBonus = PRIORITY_BONUS[task.priority] || 0;
   const healthBonus   = 0;
   let   revenueBonus  = 0;
-  const categoryBonus = CATEGORY_BONUS[task.category] || 0;
+  const categoryBonus = CATEGORY_BONUS[task.category || ''] || 0;
   const reasons: string[]       = [];
 
   const bizBonus = BUSINESS_PRIORITY_BONUS[repoPriority] || 0;
@@ -37,10 +38,10 @@ async function scoreTask(task: any, repoName: string, repoPriority: string): Pro
   }
 
   const metrics = await getLatestMetrics(repoName).catch(() => []);
-  const revenue = metrics.find((m: any) => m.metric_name === 'revenue_today');
-  if (revenue && parseFloat(revenue.metric_value) > 0) {
+  const revenue = metrics.find((m) => m.metric_name === 'revenue_today');
+  if (revenue && parseFloat(revenue.metric_value || '0') > 0) {
     revenueBonus = 2;
-    reasons.push(`active revenue ($${parseFloat(revenue.metric_value).toFixed(0)}/day) (+2)`);
+    reasons.push(`active revenue ($${parseFloat(revenue.metric_value || '0').toFixed(0)}/day) (+2)`);
   }
 
   const finalScore = Math.min(10, baseScore + priorityBonus + healthBonus + revenueBonus);
@@ -62,7 +63,7 @@ async function scoreTask(task: any, repoName: string, repoPriority: string): Pro
 async function scoreAllQueuedTasks(): Promise<void> {
   const { query } = dbClient;
 
-  const tasks = await query(`
+  const tasks = await query<AuditTaskRow>(`
     SELECT at.*, ac.repo_full_name
     FROM audit_tasks at
     JOIN audit_cycles ac ON ac.id = at.audit_cycle_id
@@ -75,11 +76,11 @@ async function scoreAllQueuedTasks(): Promise<void> {
 
   const allMetrics = await getAllLatestMetrics().catch(() => []);
   const priorityMap: Record<string, string> = Object.fromEntries(
-    allMetrics.map((m: any) => [m.repo_name, m.priority])
+    allMetrics.map((m) => [m.repo_name, m.priority])
   );
 
   for (const task of tasks.rows) {
-    const repoName = task.repo_full_name?.split('/')[1];
+    const repoName = task.repo_full_name?.split('/')[1] || '';
     const priority = priorityMap[repoName] || 'medium';
     await safeFire(scoreTask(task, repoName, priority), { label: 'roiScorer' })
   }

@@ -4,6 +4,7 @@ import logger from './logger';
 import {
   logApiCost, getDailyCost, getWeeklyCost, getMonthlyCost, getCostByRepo,
 } from './portfolioDb';
+import type { RepoCostRow } from './types/portfolioRow';
 
 const COSTPILOT_API_URL = (): string | undefined => process.env['COSTPILOT_API_URL'];
 const COSTPILOT_API_KEY = (): string | undefined => process.env['COSTPILOT_API_KEY'];
@@ -12,7 +13,24 @@ function isConfigured(): boolean {
   return !!(COSTPILOT_API_URL() && COSTPILOT_API_KEY());
 }
 
-async function logCost(data: any): Promise<void> {
+interface CostData {
+  repoFullName?: string;
+  operation: string;
+  model: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  estimatedCost?: number;
+}
+
+interface SpendSummary {
+  daily: number;
+  weekly: number;
+  monthly: number;
+  source: 'local' | 'costpilot' | 'error';
+  [key: string]: unknown;
+}
+
+async function logCost(data: CostData): Promise<void> {
   if (!isConfigured()) {
     await safeFire(logApiCost(data), { label: 'costpilotClient' })
     return;
@@ -42,13 +60,13 @@ async function logCost(data: any): Promise<void> {
         timeout: 5000,
       }
     );
-  } catch (err: any) {
-    logger.warn({ err: err.message }, 'CostPilot unavailable — using local tracker');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'CostPilot unavailable — using local tracker');
     await safeFire(logApiCost(data), { label: 'costpilotClient' })
   }
 }
 
-async function getSpendSummary(period = 'today'): Promise<any> {
+async function getSpendSummary(period = 'today'): Promise<SpendSummary> {
   if (!isConfigured()) {
     const [daily, weekly, monthly] = await Promise.all([getDailyCost(), getWeeklyCost(), getMonthlyCost()]);
     return { daily, weekly, monthly, source: 'local' };
@@ -63,13 +81,13 @@ async function getSpendSummary(period = 'today'): Promise<any> {
       }
     );
     return { ...r.data, source: 'costpilot' };
-  } catch (err: any) {
-    logger.warn({ err: err.message }, 'CostPilot summary unavailable');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'CostPilot summary unavailable');
     return { daily: 0, weekly: 0, monthly: 0, source: 'error' };
   }
 }
 
-async function getRepoBreakdown(days = 7): Promise<any[]> {
+async function getRepoBreakdown(days = 7): Promise<RepoCostRow[]> {
   if (!isConfigured()) {
     return getCostByRepo(days).catch(() => []);
   }
@@ -83,8 +101,8 @@ async function getRepoBreakdown(days = 7): Promise<any[]> {
       }
     );
     return r.data.items || [];
-  } catch (err: any) {
-    logger.warn({ err: err.message }, 'CostPilot breakdown unavailable');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'CostPilot breakdown unavailable');
     return [];
   }
 }

@@ -1,5 +1,7 @@
 import dbClient from './dbClient';
 import logger from './logger';
+import type { AuditTaskRow } from './types/auditTaskRow';
+import type { AuditCycleRow } from './types/auditCycleRow';
 
 const { query } = dbClient;
 
@@ -198,8 +200,8 @@ async function getPreviousAspectHealthScore(repoFullName: string, aspect: string
   return r.rows[0]?.aspect_health_score ?? null;
 }
 
-async function createAuditCycle(data: { repoFullName: string; commitSha: string; projectName?: string; aspect?: string }): Promise<any | null> {
-  const r = await query(`
+async function createAuditCycle(data: { repoFullName: string; commitSha: string; projectName?: string; aspect?: string }): Promise<AuditCycleRow | null> {
+  const r = await query<AuditCycleRow>(`
     INSERT INTO audit_cycles
       (repo_full_name, commit_sha, project_name, status, audit_agent, aspect)
     VALUES ($1,$2,$3,'auditing','claude-code',$4)
@@ -209,11 +211,11 @@ async function createAuditCycle(data: { repoFullName: string; commitSha: string;
   return r.rows[0] || null;
 }
 
-async function updateAuditCycle(id: number, updates: Record<string, any>): Promise<any | null> {
+async function updateAuditCycle(id: number, updates: Partial<AuditCycleRow>): Promise<AuditCycleRow | null> {
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
   const fields = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
-  const r = await query(
+  const r = await query<AuditCycleRow>(
     `UPDATE audit_cycles SET ${fields}, updated_at=NOW() WHERE id=$1 RETURNING *`,
     [id, ...values]
   );
@@ -261,7 +263,7 @@ async function createAuditTask(data: {
   affectedFiles?: string[]; complexity?: string; safeToAutoExecute?: boolean;
   safetyReason?: string; acceptanceCriteria?: string; batchNumber?: number;
   builderAgent?: string; source?: string;
-}): Promise<any | null> {
+}): Promise<AuditTaskRow | null> {
   const MAX_ATTEMPTS = 5;
   let taskNumber = data.taskNumber;
   let batchNumber = data.batchNumber;
@@ -278,11 +280,11 @@ async function createAuditTask(data: {
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'queued')
         RETURNING *
       `, [
-        data.auditCycleId,      data.repoFullName,       taskNumber,
-        data.title,             data.description,        data.priority,
-        data.category,          data.affectedFiles || [], data.complexity,
-        data.safeToAutoExecute, data.safetyReason,       data.acceptanceCriteria,
-        batchNumber,            data.builderAgent || 'nvidia',
+        data.auditCycleId,           data.repoFullName,        taskNumber,
+        data.title,                  data.description,         data.priority ?? 'medium',
+        data.category,               data.affectedFiles || [], data.complexity ?? 'medium',
+        data.safeToAutoExecute ?? false, data.safetyReason,    data.acceptanceCriteria,
+        batchNumber,                 data.builderAgent || 'nvidia',
         data.source || 'sentinel',
       ]);
       return r.rows[0] || null;
@@ -301,7 +303,7 @@ async function createAuditTask(data: {
   return null;
 }
 
-async function getNextBatch(repoFullName: string, batchSize: number): Promise<any[]> {
+async function getNextBatch(repoFullName: string, batchSize: number): Promise<AuditTaskRow[]> {
   // Eligibility is decided by the task's own status/safe flag, not by its
   // original parent cycle's status — executeApprovedTasks() always creates
   // or reuses the *current* cycle to drive execution, so gating on the
@@ -318,7 +320,7 @@ async function getNextBatch(repoFullName: string, batchSize: number): Promise<an
   return r.rows;
 }
 
-async function updateAuditTask(id: number, updates: Record<string, any>): Promise<any | null> {
+async function updateAuditTask(id: number, updates: Record<string, unknown>): Promise<AuditTaskRow | null> {
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
   const fields = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');

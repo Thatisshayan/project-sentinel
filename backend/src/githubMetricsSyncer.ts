@@ -19,7 +19,14 @@ const PRIORITIES: Record<string, string> = {
   'obsidian-media':      'low',
 };
 
-async function fetchRepoGitHubStats(repoFullName: string, repoName: string): Promise<any> {
+interface RepoGitHubStats {
+  latestCommitAt: Date | null;
+  buildStatus: string;
+  buildsPassed: number;
+  buildsFailed: number;
+}
+
+async function fetchRepoGitHubStats(repoFullName: string, repoName: string): Promise<RepoGitHubStats | null> {
   const token = process.env['GITHUB_TOKEN'];
   if (!token) return null;
 

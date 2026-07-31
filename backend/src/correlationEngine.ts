@@ -5,13 +5,14 @@ import { sendTelegramMessage } from './telegramClient';
 import dbClient from './dbClient';
 import { enqueueScheduledJob } from './queueClient';
 import { PR_IMPACT_CHECK_JOB } from './workers/scheduledJobsWorker';
+import type { ImpactSnapshot } from './types/businessMetricRow';
 
-async function snapshotBeforeMerge(repoFullName: string, prNumber: string | number, prUrl: string): Promise<any> {
+async function snapshotBeforeMerge(repoFullName: string, prNumber: string | number, prUrl: string): Promise<number | undefined> {
   const repoName = repoFullName.split('/')[1] || '';
   const metrics  = await getLatestMetrics(repoName);
 
-  const snapshot: Record<string, number> = {};
-  metrics.forEach((m: any) => { snapshot[m.metric_name] = parseFloat(m.metric_value); });
+  const snapshot: ImpactSnapshot = {};
+  metrics.forEach((m) => { snapshot[m.metric_name] = parseFloat(m.metric_value || '0'); });
 
   const impactId = await recordPRImpact({
     repoFullName,
@@ -35,11 +36,11 @@ async function snapshotBeforeMerge(repoFullName: string, prNumber: string | numb
   return impactId;
 }
 
-async function checkPostMergeImpact(impactId: any, repoName: string): Promise<void> {
+async function checkPostMergeImpact(impactId: number, repoName: string): Promise<void> {
   try {
     const metrics  = await getLatestMetrics(repoName);
-    const snapshot: Record<string, number> = {};
-    metrics.forEach((m: any) => { snapshot[m.metric_name] = parseFloat(m.metric_value); });
+    const snapshot: ImpactSnapshot = {};
+    metrics.forEach((m) => { snapshot[m.metric_name] = parseFloat(m.metric_value || '0'); });
 
     const { delta, score } = await updatePRImpact(impactId, snapshot);
     logger.info({ impactId, score }, 'PR impact analysis complete');
@@ -47,8 +48,8 @@ async function checkPostMergeImpact(impactId: any, repoName: string): Promise<vo
     if (Math.abs(parseFloat(String(score))) >= 5) {
       const direction = parseFloat(String(score)) > 0 ? 'positive ✅' : 'negative ⚠️';
 
-      const deltaLines = Object.entries(delta).map(([key, d]: [string, any]) =>
-        `  ${key}: ${d.before} → ${d.after} (${parseFloat(d.changePercent) > 0 ? '+' : ''}${d.changePercent}%)`
+      const deltaLines = Object.entries(delta).map(([key, d]) =>
+        `  ${key}: ${d.before} → ${d.after} (${parseFloat(d.changePercent || '0') > 0 ? '+' : ''}${d.changePercent}%)`
       ).join('\n');
 
       await safeFire(sendTelegramMessage([
@@ -59,15 +60,23 @@ async function checkPostMergeImpact(impactId: any, repoName: string): Promise<vo
         deltaLines,
       ].join('\n'), repoName, null), { label: 'correlationEngine' })
     }
-  } catch (err: any) {
-    logger.warn({ err: err.message, impactId }, 'Post-merge impact check failed');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, impactId }, 'Post-merge impact check failed');
   }
 }
 
-async function getCorrelationSummary(repoName: string): Promise<any> {
+interface CorrelationSummary {
+  avg_impact: string | null;
+  pr_count: string;
+  positive_prs: string;
+  best_impact: string | null;
+  worst_impact: string | null;
+}
+
+async function getCorrelationSummary(repoName: string): Promise<CorrelationSummary | null> {
   const { query } = dbClient;
 
-  const r = await query(`
+  const r = await query<CorrelationSummary>(`
     SELECT
       AVG(impact_score)                                         as avg_impact,
       COUNT(*)                                                  as pr_count,

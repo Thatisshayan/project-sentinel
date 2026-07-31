@@ -10,10 +10,10 @@ interface Task {
   task_number: number;
   title: string;
   priority: string;
-  category: string;
-  description: string;
-  affected_files?: string[];
-  acceptance_criteria?: string;
+  category?: string | null;
+  description: string | null;
+  affected_files?: string[] | null;
+  acceptance_criteria?: string | null;
 }
 
 interface TaskContext {
@@ -29,10 +29,10 @@ function buildTaskPrompt(task: Task, context: TaskContext): string {
 TASK ${task.task_number}/10:
 Title: ${task.title}
 Priority: ${task.priority}
-Category: ${task.category}
+Category: ${task.category ?? 'general'}
 
 Description:
-${task.description}
+${task.description ?? ''}
 
 Files likely involved:
 ${(task.affected_files || []).join('\n') || 'Determine from description'}

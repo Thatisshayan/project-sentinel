@@ -16,6 +16,15 @@ const MAX_ENTRIES_IN_PROMPT = 20;
 
 type MemoryType = 'dismissed_finding' | 'convention' | 'decision' | 'note';
 
+interface ProjectMemoryRow {
+  id: number;
+  repo_full_name: string;
+  type: string;
+  content: string;
+  added_by: string | null;
+  created_at: string;
+}
+
 async function initMemorySchema(): Promise<void> {
   await query(`
     CREATE TABLE IF NOT EXISTS project_memory (
@@ -34,7 +43,7 @@ async function initMemorySchema(): Promise<void> {
   logger.info('Project memory schema initialised');
 }
 
-async function addMemoryEntry(repoFullName: string, type: MemoryType, content: string, addedBy?: string): Promise<any | null> {
+async function addMemoryEntry(repoFullName: string, type: MemoryType, content: string, addedBy?: string): Promise<ProjectMemoryRow | null> {
   const r = await query(`
     INSERT INTO project_memory (repo_full_name, type, content, added_by)
     VALUES ($1, $2, $3, $4)
@@ -44,7 +53,7 @@ async function addMemoryEntry(repoFullName: string, type: MemoryType, content: s
   return r.rows[0] || null;
 }
 
-async function getMemoryEntries(repoFullName: string, limit: number = MAX_ENTRIES_IN_PROMPT): Promise<any[]> {
+async function getMemoryEntries(repoFullName: string, limit: number = MAX_ENTRIES_IN_PROMPT): Promise<ProjectMemoryRow[]> {
   const r = await query(`
     SELECT * FROM project_memory
     WHERE repo_full_name = $1
@@ -82,7 +91,7 @@ async function getMemoryForPrompt(repoFullName: string): Promise<string> {
   });
   if (entries.length === 0) return '';
 
-  const lines = entries.map((e: any) => `- [${TYPE_LABELS[e.type as MemoryType] || e.type}] ${e.content}`);
+  const lines = entries.map((e) => `- [${TYPE_LABELS[e.type as MemoryType] || e.type}] ${e.content}`);
   return `PROJECT MEMORY (recorded context for this repo — respect these; don't re-raise dismissed findings or violate recorded conventions):\n${lines.join('\n')}`;
 }
 

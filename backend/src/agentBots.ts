@@ -18,8 +18,13 @@ const CHAT_ID  = (): string | undefined => process.env['TELEGRAM_CHAT_ID'];
 const TOPIC_ID = (): string | undefined => process.env['AGENT_ROOM_TOPIC_ID'];
 const MAX_LEN  = 4096;
 
+interface AgentSendResult {
+  messageId?: number;
+  agentId: string;
+}
+
 // Send a message from a specific agent's own bot token
-async function sendAsAgent(agentId: string, text: string, replyToMessageId: number | null = null): Promise<any> {
+async function sendAsAgent(agentId: string, text: string, replyToMessageId: number | null = null): Promise<AgentSendResult | null> {
   const tokens = AGENT_BOT_TOKENS();
   const token  = tokens[agentId];
 
@@ -45,7 +50,7 @@ async function sendAsAgent(agentId: string, text: string, replyToMessageId: numb
     reply_to_message_id:      replyToMessageId || undefined,
   });
 
-  return new Promise((resolve) => {
+  return new Promise<AgentSendResult | null>((resolve) => {
     const options = {
       hostname: 'api.telegram.org',
       path:     `/bot${token}/sendMessage`,
@@ -89,23 +94,24 @@ async function sendAsAgent(agentId: string, text: string, replyToMessageId: numb
 }
 
 // Fallback — send via main Sentinel bot with emoji prefix
-async function sendViaSentinel(agentId: string, text: string): Promise<any> {
-  const { sendTelegramMessage } = require('./telegramClient');
+async function sendViaSentinel(agentId: string, text: string): Promise<AgentSendResult | null> {
+  const { sendTelegramMessage } = require('./telegramClient') as { sendTelegramMessage: (text: string, repoName: string | null, topicId?: number | null) => Promise<unknown> };
   // Lazy require to avoid circular dependency with agentRoom
-  const agentRoom = require('./agentRoom');
+  const agentRoom = require('./agentRoom') as { AGENT_EMOJI?: Record<string, string> };
   const emoji = (agentRoom.AGENT_EMOJI || {})[agentId] || '🤖';
-  return sendTelegramMessage(`${emoji} ${text}`, null, TOPIC_ID()).catch(() => null);
+  const sent = await sendTelegramMessage(`${emoji} ${text}`, null, TOPIC_ID() ? parseInt(TOPIC_ID()!, 10) : null).catch(() => null);
+  return sent ? { agentId } : null;
 }
 
 // Reply to a specific message from an agent's own bot
-async function replyAsAgent(agentId: string, replyToMessageId: number, text: string): Promise<any> {
+async function replyAsAgent(agentId: string, replyToMessageId: number, text: string): Promise<AgentSendResult | null> {
   return sendAsAgent(agentId, text, replyToMessageId);
 }
 
 // Agent addresses another agent by @mention
-async function agentToAgent(fromAgentId: string, toAgentId: string, text: string): Promise<any> {
+async function agentToAgent(fromAgentId: string, toAgentId: string, text: string): Promise<AgentSendResult | null> {
   // Lazy require to avoid circular dependency with agentRoom
-  const agentRoom = require('./agentRoom');
+  const agentRoom = require('./agentRoom') as { AGENT_LABELS?: Record<string, string> };
   const labels    = agentRoom.AGENT_LABELS || {};
   const toLabel   = labels[toAgentId] || toAgentId;
   const fullText  = `@Sentinel${toLabel.replace(/\s+/g, '')}: ${text}`;

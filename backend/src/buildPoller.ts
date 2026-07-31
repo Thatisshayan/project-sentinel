@@ -7,6 +7,21 @@ const RAILWAY_TOKEN = (): string | undefined => process.env['RAILWAY_TOKEN'];
 
 // ── GitHub Actions ────────────────────────────────────────────────────────────
 
+interface WorkflowRun {
+  id: number;
+  status: string;
+  conclusion: string | null;
+  name: string;
+  html_url: string;
+  created_at: string;
+}
+
+interface GitHubActionsJob {
+  name: string;
+  conclusion: string | null;
+  logs_url: string;
+}
+
 interface GitHubRunResult {
   provider: string;
   status: string;
@@ -30,7 +45,7 @@ async function checkGitHubActions(repoFullName: string, commitSha: string): Prom
       { headers, params: { head_sha: commitSha, per_page: 10 } }
     );
 
-    let runs = runsRes.data.workflow_runs || [];
+    let runs: WorkflowRun[] = runsRes.data.workflow_runs || [];
 
     // Fix 1: SHA lookup may return empty if GitHub hasn't registered the run yet
     // (typically 20-40s after push). Fall back to the most recent run if it was
@@ -42,7 +57,7 @@ async function checkGitHubActions(repoFullName: string, commitSha: string): Prom
           { headers, params: { per_page: 5 } }
         );
         const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-        const latestRun = (recentRes.data.workflow_runs || []).find((r: any) =>
+        const latestRun: WorkflowRun | undefined = (recentRes.data.workflow_runs || []).find((r: WorkflowRun) =>
           new Date(r.created_at).getTime() > fiveMinutesAgo
         );
         if (latestRun) {
@@ -50,8 +65,8 @@ async function checkGitHubActions(repoFullName: string, commitSha: string): Prom
           logger.info({ repoFullName, runId: latestRun.id },
             'SHA lookup empty — using latest recent run as fallback');
         }
-      } catch (e: any) {
-        logger.warn({ err: e.message }, 'Branch fallback run lookup failed');
+      } catch (e) {
+        logger.warn({ err: (e as Error).message }, 'Branch fallback run lookup failed');
       }
     }
 
@@ -60,7 +75,8 @@ async function checkGitHubActions(repoFullName: string, commitSha: string): Prom
     if (runs.length === 0) return { provider: 'github_actions', status: 'pending' };
 
     // Find the most relevant run
-    const activeRun = runs.find((r: any) => r.status !== 'completed') || runs[0];
+    const activeRun = runs.find((r) => r.status !== 'completed') || runs[0];
+    if (!activeRun) return { provider: 'github_actions', status: 'pending' };
 
     let status = 'pending';
     if (activeRun.status === 'completed') {
@@ -77,13 +93,13 @@ async function checkGitHubActions(repoFullName: string, commitSha: string): Prom
           `https://api.github.com/repos/${repoFullName}/actions/runs/${activeRun.id}/jobs`,
           { headers }
         );
-        const failedJob = (jobsRes.data.jobs || []).find((j: any) => j.conclusion === 'failure');
+        const failedJob: GitHubActionsJob | undefined = (jobsRes.data.jobs || []).find((j: GitHubActionsJob) => j.conclusion === 'failure');
         if (failedJob) {
           failedJobName = failedJob.name;
           logsUrl       = failedJob.logs_url;
         }
-      } catch (e: any) {
-        logger.warn({ err: e.message }, 'Could not fetch GitHub Actions job details');
+      } catch (e) {
+        logger.warn({ err: (e as Error).message }, 'Could not fetch GitHub Actions job details');
       }
     }
 
@@ -96,13 +112,21 @@ async function checkGitHubActions(repoFullName: string, commitSha: string): Prom
       logsUrl,
       conclusion:   activeRun.conclusion,
     };
-  } catch (err: any) {
-    logger.warn({ err: err.message, repoFullName }, 'GitHub Actions check failed');
-    return { provider: 'github_actions', status: 'unknown', error: err.message };
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, repoFullName }, 'GitHub Actions check failed');
+    return { provider: 'github_actions', status: 'unknown', error: (err as Error).message };
   }
 }
 
 // ── Vercel ────────────────────────────────────────────────────────────────────
+
+interface VercelDeployment {
+  meta?: { githubCommitSha?: string };
+  state: string;
+  url?: string;
+  inspectorUrl?: string;
+  errorMessage?: string;
+}
 
 interface VercelResult {
   provider: string;
@@ -122,8 +146,8 @@ async function checkVercel(repoFullName: string, commitSha: string): Promise<Ver
       params:  { limit: 10 },
     });
 
-    const deployments = res.data.deployments || [];
-    const match = deployments.find((d: any) =>
+    const deployments: VercelDeployment[] = res.data.deployments || [];
+    const match = deployments.find((d) =>
       d.meta && d.meta.githubCommitSha === commitSha
     );
 
@@ -144,13 +168,25 @@ async function checkVercel(repoFullName: string, commitSha: string): Promise<Ver
       inspectUrl:    match.inspectorUrl || null,
       failureReason: match.errorMessage || null,
     };
-  } catch (err: any) {
-    logger.warn({ err: err.message }, 'Vercel check failed');
-    return { provider: 'vercel', status: 'unknown', error: err.message };
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'Vercel check failed');
+    return { provider: 'vercel', status: 'unknown', error: (err as Error).message };
   }
 }
 
 // ── Railway ───────────────────────────────────────────────────────────────────
+
+interface RailwayDeploymentNode {
+  id: string;
+  status: string;
+  staticUrl?: string;
+  meta?: { commitHash?: string };
+  createdAt: string;
+}
+
+interface RailwayDeploymentEdge {
+  node: RailwayDeploymentNode;
+}
 
 interface RailwayResult {
   provider: string;
@@ -193,10 +229,10 @@ async function checkRailway(repoFullName: string, commitSha: string): Promise<Ra
       }
     );
 
-    const edges = res.data?.data?.deployments?.edges || [];
+    const edges: RailwayDeploymentEdge[] = res.data?.data?.deployments?.edges || [];
 
     // Try exact SHA match first
-    let match = edges.find((e: any) =>
+    let match = edges.find((e) =>
       e.node.meta && e.node.meta.commitHash === commitSha
     );
 
@@ -204,7 +240,7 @@ async function checkRailway(repoFullName: string, commitSha: string): Promise<Ra
     // Use the most recent deployment created in the last 15 minutes.
     if (!match) {
       const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
-      match = edges.find((e: any) =>
+      match = edges.find((e) =>
         new Date(e.node.createdAt).getTime() > fifteenMinutesAgo &&
         ['SUCCESS', 'FAILED', 'CRASHED', 'BUILDING', 'DEPLOYING'].includes(e.node.status)
       );
@@ -235,9 +271,9 @@ async function checkRailway(repoFullName: string, commitSha: string): Promise<Ra
         ? `Railway deployment ${node.status.toLowerCase()} — check Railway dashboard`
         : null,
     };
-  } catch (err: any) {
-    logger.warn({ err: err.message }, 'Railway check failed');
-    return { provider: 'railway', status: 'unknown', error: err.message };
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'Railway check failed');
+    return { provider: 'railway', status: 'unknown', error: (err as Error).message };
   }
 }
 
@@ -285,8 +321,8 @@ async function checkAllProviders(repoFullName: string, commitSha: string): Promi
     primaryFailure: failedProvider || null,
     buildUrl:       (failedProvider as GitHubRunResult)?.runUrl || (failedProvider as VercelResult)?.deploymentUrl || null,
     logsUrl:        (failedProvider as GitHubRunResult)?.logsUrl || null,
-    failureReason:  (failedProvider as any)?.failureReason || (failedProvider as GitHubRunResult)?.conclusion || null,
-    buildProvider:  (failedProvider as any)?.provider || results[0]?.provider || 'unknown',
+    failureReason:  (failedProvider as VercelResult | RailwayResult)?.failureReason || (failedProvider as GitHubRunResult)?.conclusion || null,
+    buildProvider:  failedProvider?.provider || results[0]?.provider || 'unknown',
   };
 }
 

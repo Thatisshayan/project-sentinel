@@ -1,6 +1,7 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
 import { query } from './dbClient';
 import logger from './logger';
+import type { ConversationHistoryRow } from './types/conversationHistoryRow';
 
 async function initConversationSchema(): Promise<void> {
   await query(`
@@ -28,22 +29,22 @@ async function saveMessage(topicId: string | number, fromName: string, message: 
   `, [String(topicId || 'main'), fromName, message, response, agentId]), { label: 'conversationMemory' })
 }
 
-async function getHistory(topicId: string | number, limit = 15): Promise<any[]> {
-  const r = await query(`
+async function getHistory(topicId: string | number, limit = 15): Promise<ConversationHistoryRow[]> {
+  const r = await query<ConversationHistoryRow>(`
     SELECT from_name, message, response, agent_id, created_at
     FROM conversation_history
     WHERE topic_id = $1
       AND created_at > NOW() - INTERVAL '7 days'
     ORDER BY created_at DESC
     LIMIT $2
-  `, [String(topicId || 'main'), limit]).catch(() => ({ rows: [] }));
+  `, [String(topicId || 'main'), limit]).catch(() => ({ rows: [] as ConversationHistoryRow[] }));
 
   return r.rows.reverse();
 }
 
-function formatHistoryForPrompt(rows: any[]): string {
+function formatHistoryForPrompt(rows: ConversationHistoryRow[]): string {
   if (!rows || rows.length === 0) return '';
-  const lines = rows.map((r: any) => {
+  const lines = rows.map((r) => {
     const agent = r.agent_id ? ` [via ${r.agent_id}]` : '';
     const resp  = r.response ? `\nSentinel${agent}: ${r.response.slice(0, 200)}` : '';
     return `${r.from_name}: ${r.message.slice(0, 200)}${resp}`;

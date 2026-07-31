@@ -1,7 +1,17 @@
 import axios from 'axios';
 import logger from './logger';
 
-async function createPullRequest({ repoFullName, fixBranch, baseBranch, context }: { repoFullName: string; fixBranch: string; baseBranch?: string; context: any }): Promise<{ prUrl: string | null; prNumber: number | null }> {
+interface PRContext {
+  projectName?: string;
+  repoName?: string;
+  commitSha?: string | null;
+  attemptNumber?: number | null;
+  buildProvider?: string;
+  failureReason?: string | null;
+  kind?: 'task' | 'fix';
+}
+
+async function createPullRequest({ repoFullName, fixBranch, baseBranch, context }: { repoFullName: string; fixBranch: string; baseBranch?: string; context: PRContext }): Promise<{ prUrl: string | null; prNumber: number | null }> {
   const { projectName, repoName, commitSha, attemptNumber,
           buildProvider, failureReason, kind } = context;
 

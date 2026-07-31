@@ -1,5 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
+import type { PortfolioMetricRow, RepoPatternRow, RepoCostRow } from './types/portfolioRow';
 
 const { query } = dbClient;
 
@@ -104,7 +105,7 @@ async function upsertRepoMetrics(data: {
   repoFullName: string; repoName: string; healthScore?: number;
   buildStatus?: string; priority?: string; buildsPassedToday?: number;
   buildsFailedToday?: number; tasksDoneToday?: number; tasksQueued?: number;
-  debuggerRunsToday?: number; lastBuildAt?: string; lastCommitAt?: string | Date;
+  debuggerRunsToday?: number; lastBuildAt?: string | Date | null; lastCommitAt?: string | Date | null;
 }): Promise<void> {
   await query(`
     INSERT INTO portfolio_metrics
@@ -113,14 +114,18 @@ async function upsertRepoMetrics(data: {
        tasks_queued, debugger_runs, last_build_at, last_commit_at)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
   `, [
-    data.repoFullName,      data.repoName,         data.healthScore ?? null,
-    data.buildStatus ?? null, data.priority ?? null, data.buildsPassedToday ?? null,
-    data.buildsFailedToday ?? null, data.tasksDoneToday ?? null, data.tasksQueued ?? null,
-    data.debuggerRunsToday ?? null, data.lastBuildAt ?? null, data.lastCommitAt ?? null,
+    // priority/builds_*/tasks_*/debugger_runs default via ?? rather than
+    // relying on the DDL column defaults — an explicit NULL parameter
+    // overrides a column's DEFAULT, so passing `?? null` here previously
+    // persisted NULL instead of ever falling back to 'medium'/0.
+    data.repoFullName,      data.repoName,             data.healthScore ?? null,
+    data.buildStatus ?? null, data.priority ?? 'medium', data.buildsPassedToday ?? 0,
+    data.buildsFailedToday ?? 0, data.tasksDoneToday ?? 0, data.tasksQueued ?? 0,
+    data.debuggerRunsToday ?? 0, data.lastBuildAt ?? null, data.lastCommitAt ?? null,
   ]);
 }
 
-async function getLatestMetrics(repoFullName: string): Promise<any | null> {
+async function getLatestMetrics(repoFullName: string): Promise<PortfolioMetricRow | null> {
   const r = await query(`
     SELECT * FROM portfolio_metrics
     WHERE repo_full_name = $1
@@ -129,7 +134,7 @@ async function getLatestMetrics(repoFullName: string): Promise<any | null> {
   return r.rows[0] || null;
 }
 
-async function getAllLatestMetrics(): Promise<any[]> {
+async function getAllLatestMetrics(): Promise<PortfolioMetricRow[]> {
   const r = await query(`
     SELECT DISTINCT ON (repo_full_name) *
     FROM portfolio_metrics
@@ -182,8 +187,8 @@ async function getWeeklyCost(): Promise<number> {
   return parseFloat(r.rows[0]?.total || '0');
 }
 
-async function getCostByRepo(days = 7): Promise<any[]> {
-  const r = await query(`
+async function getCostByRepo(days = 7): Promise<RepoCostRow[]> {
+  const r = await query<RepoCostRow>(`
     SELECT repo_full_name,
            COALESCE(SUM(estimated_cost), 0) as total,
            COUNT(*) as operations
@@ -229,7 +234,7 @@ async function upsertPattern(data: {
   return r.rows[0].id;
 }
 
-async function getOpenPatterns(): Promise<any[]> {
+async function getOpenPatterns(): Promise<RepoPatternRow[]> {
   const r = await query(`
     SELECT * FROM repo_patterns
     WHERE status = 'open'
@@ -241,17 +246,17 @@ async function getOpenPatterns(): Promise<any[]> {
 // ── Discovered repos helpers ─────────────────────────────────────────────────
 
 async function getDiscoveredRepoNames(): Promise<string[]> {
-  const r = await query(`SELECT repo_name FROM discovered_repos`);
-  return r.rows.map((row: any) => row.repo_name);
+  const r = await query<{ repo_name: string }>(`SELECT repo_name FROM discovered_repos`);
+  return r.rows.map((row) => row.repo_name);
 }
 
 async function getOnboardedDiscoveredRepos(): Promise<{ repoName: string; repoFullName: string }[]> {
-  const r = await query(`
+  const r = await query<{ repo_name: string; repo_full_name: string }>(`
     SELECT repo_name, repo_full_name FROM discovered_repos
     WHERE onboarded_at IS NOT NULL
     ORDER BY discovered_at ASC
   `);
-  return r.rows.map((row: any) => ({ repoName: row.repo_name, repoFullName: row.repo_full_name }));
+  return r.rows.map((row) => ({ repoName: row.repo_name, repoFullName: row.repo_full_name }));
 }
 
 async function insertDiscoveredRepo({ repoName, repoFullName, githubId, isPrivate }: {

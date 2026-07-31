@@ -11,10 +11,40 @@ import { createPullRequest } from './prCreator';
 import { findNotionProject } from './notionClient';
 import { getBuilderConfig } from './builderRouter';
 import { isRepoLocked } from './repoLock';
+import type { BuildableTask } from './types/taskBuilder';
 
 const MAX_PARALLEL = (): number => parseInt(process.env['MAX_PARALLEL_AGENTS'] || '3');
 
-async function executeTaskParallel(task: any, context: any): Promise<any> {
+// executeTaskParallel forwards its task straight into taskBuilder's
+// executeBatch(), which requires the full BuildableTask shape — extended
+// here with the extra fields this file itself reads (task_title/task_type
+// are sprint_tasks-style aliases for title; complexity/builder_agent drive
+// agent selection).
+interface ParallelTask extends BuildableTask {
+  complexity?: string;
+  builder_agent?: string;
+  task_type?: string;
+  task_title?: string;
+  repo_full_name?: string;
+  repo_name?: string;
+  topicId?: number | null;
+}
+
+interface ExecutionContext {
+  repoFullName: string;
+  repoName: string;
+  topicId?: number | null;
+}
+
+interface ExecutionResult {
+  status: 'skipped' | 'deferred' | 'completed' | 'failed' | 'error';
+  reason?: string;
+  prUrl?: string | null;
+  agentId?: string;
+  builderUsed?: string;
+}
+
+async function executeTaskParallel(task: ParallelTask, context: ExecutionContext): Promise<ExecutionResult> {
   const { repoFullName, repoName } = context;
   const topicId = task.topicId || context.topicId || null;
 
@@ -49,14 +79,14 @@ async function executeTaskParallel(task: any, context: any): Promise<any> {
     repoFullName,
     taskType:  task.task_type || 'build',
     taskId:    task.id,
-    taskTitle: task.title || task.task_title,
+    taskTitle: task.title || task.task_title || 'task',
   });
 
   await announceStart(
     agentId, agentConfig.label,
     task.task_type || 'build',
     repoName,
-    task.title || task.task_title
+    task.title || task.task_title || 'task'
   );
 
   try {
@@ -85,7 +115,7 @@ async function executeTaskParallel(task: any, context: any): Promise<any> {
           commitSha:     batchResult.commitSha,
           attemptNumber: 1,
           buildProvider: 'parallel',
-          failureReason: task.title || task.task_title,
+          failureReason: task.title || task.task_title || 'task',
           kind: 'task',
         },
       });
@@ -104,15 +134,15 @@ async function executeTaskParallel(task: any, context: any): Promise<any> {
             params: { state: 'open', per_page: 20 },
           }
         );
-        const sentinelPR = (ghRes.data || []).find((pr: any) =>
+        const sentinelPR = (ghRes.data as { head?: { ref?: string }; html_url: string }[] || []).find((pr) =>
           pr.head?.ref?.startsWith('sentinel/')
         );
         if (sentinelPR) {
           verifiedPrUrl = sentinelPR.html_url;
           prVerified    = true;
         }
-      } catch (verifyErr: any) {
-        logger.warn({ err: verifyErr.message }, 'GitHub PR verification failed — proceeding without check');
+      } catch (verifyErr) {
+        logger.warn({ err: (verifyErr as Error).message }, 'GitHub PR verification failed — proceeding without check');
         verifiedPrUrl = prUrl;
         prVerified    = true;
       }
@@ -123,7 +153,7 @@ async function executeTaskParallel(task: any, context: any): Promise<any> {
           repoName, topicId
         ), { label: 'parallelExecutor' })
         await announceFailed(agentId, agentConfig.label, repoName,
-          task.title || task.task_title, 'Builder ran but no PR was created');
+          task.title || task.task_title || 'task', 'Builder ran but no PR was created');
         await freeAgent(agentId, false);
         await releaseAllLocks(repoFullName, agentId);
         return { status: 'failed', reason: 'Builder ran but no PR was created on GitHub' };
@@ -134,55 +164,59 @@ async function executeTaskParallel(task: any, context: any): Promise<any> {
         : `PR: https://github.com/${getGithubOrg()}/${repoName}/pulls`;
 
       await announceComplete(agentId, agentConfig.label, repoName,
-        `${task.title || task.task_title}\n${prLine}`, verifiedPrUrl ?? undefined);
+        `${task.title || task.task_title || 'task'}\n${prLine}`, verifiedPrUrl ?? undefined);
       await freeAgent(agentId, true);
       await releaseAllLocks(repoFullName, agentId);
 
       return { status: 'completed', prUrl: verifiedPrUrl, agentId, builderUsed: agentConfig.label };
     } else {
       await announceFailed(agentId, agentConfig.label, repoName,
-        task.title || task.task_title, batchResult.reason);
+        task.title || task.task_title || 'task', batchResult.reason);
       await freeAgent(agentId, false);
       await releaseAllLocks(repoFullName, agentId);
 
       return { status: 'failed', reason: batchResult.reason };
     }
 
-  } catch (err: any) {
+  } catch (err) {
     await announceFailed(agentId, agentConfig.label, repoName,
-      task.title || task.task_title, err.message);
+      task.title || task.task_title || 'task', (err as Error).message);
     await freeAgent(agentId, false);
     await releaseAllLocks(repoFullName, agentId);
-    return { status: 'error', reason: err.message };
+    return { status: 'error', reason: (err as Error).message };
   }
 }
 
-async function executePortfolioTasks(tasks: any[]): Promise<any[]> {
+interface PortfolioTaskResult {
+  task: ParallelTask;
+  result: ExecutionResult;
+}
+
+async function executePortfolioTasks(tasks: ParallelTask[]): Promise<PortfolioTaskResult[]> {
   const maxParallel = MAX_PARALLEL();
-  const results: any[]     = [];
+  const results: PortfolioTaskResult[] = [];
   const queue       = [...tasks];
-  const running: Promise<any>[]     = [];
+  const running: Promise<void>[] = [];
 
   while (queue.length > 0 || running.length > 0) {
     while (running.length < maxParallel && queue.length > 0) {
-      const task    = queue.shift();
-      const context = {
-        repoFullName: task.repo_full_name,
-        repoName:     task.repo_name || task.repo_full_name?.split('/')[1],
+      const task = queue.shift();
+      if (!task) break;
+      const context: ExecutionContext = {
+        repoFullName: task.repo_full_name || '',
+        repoName:     task.repo_name || task.repo_full_name?.split('/')[1] || '',
       };
 
-      const promise = executeTaskParallel(task, context);
-      running.push(promise);
-
-      promise
-        .then((result: any) => {
+      const promise: Promise<void> = executeTaskParallel(task, context)
+        .then((result) => {
           results.push({ task, result });
           running.splice(running.indexOf(promise), 1);
         })
-        .catch((err: any) => {
-          results.push({ task, result: { status: 'error', reason: err.message } });
+        .catch((err) => {
+          results.push({ task, result: { status: 'error', reason: (err as Error).message } });
           running.splice(running.indexOf(promise), 1);
         });
+      running.push(promise);
     }
 
     if (running.length > 0) {
@@ -191,8 +225,8 @@ async function executePortfolioTasks(tasks: any[]): Promise<any[]> {
   }
 
   const total        = tasks.length;
-  const successCount = results.filter((r: any) => r.result.status === 'completed').length;
-  const failCount    = results.filter((r: any) => ['failed', 'error'].includes(r.result.status)).length;
+  const successCount = results.filter((r) => r.result.status === 'completed').length;
+  const failCount    = results.filter((r) => ['failed', 'error'].includes(r.result.status)).length;
 
   let summaryMsg: string;
   if (successCount > 0 && failCount === 0) {

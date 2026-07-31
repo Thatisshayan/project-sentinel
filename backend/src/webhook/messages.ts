@@ -1,4 +1,6 @@
-export function buildSuccessMessage(data: any, changelogAppended: boolean): string {
+import type { WebhookPayload } from '../types/webhookPayload';
+
+export function buildSuccessMessage(data: WebhookPayload, changelogAppended: boolean): string {
   const {
     projectName, repoName, branchName, commitMessage,
     authorName, filesChangedCount, isMarketingOnlyUpdate,
@@ -25,7 +27,7 @@ export function buildSuccessMessage(data: any, changelogAppended: boolean): stri
   ].join('\n');
 }
 
-export function buildUnknownRepoMessage(data: any): string {
+export function buildUnknownRepoMessage(data: WebhookPayload): string {
   const { repoName, branchName, commitMessage } = data;
 
   return [
@@ -42,7 +44,7 @@ export function buildUnknownRepoMessage(data: any): string {
   ].join('\n');
 }
 
-export function buildErrorMessage(context: string, repoName: string, detail: any): string {
+export function buildErrorMessage(context: string, repoName: string, detail: unknown): string {
   return [
     `Project Sentinel error ❌`,
     ``,

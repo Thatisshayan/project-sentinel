@@ -8,6 +8,7 @@ import { runSelfAudit } from '../selfAuditor';
 import { executeApprovedTasks } from '../auditOrchestrator';
 import { dispatchToAgent, listExternalAgents } from '../agents/externalAgentRegistry';
 import { getRecentAuthorityLog, listAuthorityRules } from '../viktorAuthority';
+import type { ConversationHistoryRow } from '../types/conversationHistoryRow';
 
 async function handleAgentsCmd(subcommand: string, parts: string[], chatId: string | null, topicId: number | null): Promise<boolean> {
   switch (subcommand) {
@@ -52,7 +53,7 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
       return true;
     }
     case 'test-bots': {
-      const { getConfiguredBots, sendAsAgent } = require('../agentBots') as { getConfiguredBots: () => { configured: string[]; missing: string[] }; sendAsAgent: (id: string, msg: string) => Promise<any> };
+      const { getConfiguredBots, sendAsAgent } = require('../agentBots') as { getConfiguredBots: () => { configured: string[]; missing: string[] }; sendAsAgent: (id: string, msg: string) => Promise<unknown> };
       const { configured, missing } = getConfiguredBots();
       await sendTelegramMessage(
         `Testing ${configured.length} agent bots...`, null, topicId
@@ -73,7 +74,7 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
       return true;
     }
     case 'setup-bots': {
-      const { getConfiguredBots, configureBotProfile } = require('../agentBots') as { getConfiguredBots: () => { configured: string[] }; configureBotProfile: (id: string, name: string) => Promise<any> };
+      const { getConfiguredBots, configureBotProfile } = require('../agentBots') as { getConfiguredBots: () => { configured: string[] }; configureBotProfile: (id: string, name: string) => Promise<void> };
       const { configured } = getConfiguredBots();
       for (const agentId of configured) {
         await configureBotProfile(agentId, `Project Sentinel Agent — ${agentId}`);
@@ -96,13 +97,13 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
       return true;
     }
     case 'memory': {
-      const { getHistory } = require('../conversationMemory') as { getHistory: (topicId: string | number, limit?: number) => Promise<any[]> };
+      const { getHistory } = require('../conversationMemory') as { getHistory: (topicId: string | number, limit?: number) => Promise<ConversationHistoryRow[]> };
       const history = await getHistory(topicId ?? 0, 10).catch(() => []);
       if (history.length === 0) {
         await sendTelegramMessage('No conversation history for this topic yet.', null, topicId);
         return true;
       }
-      const lines = history.map((h: any) =>
+      const lines = history.map((h) =>
         `${h.from_name}: ${h.message.slice(0, 80)}\n→ ${(h.response || '').slice(0, 80)}`
       );
       await sendTelegramMessage(
@@ -150,7 +151,7 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
         await sendTelegramMessage('No Viktor authority-log entries yet.', repoFilter, topicId);
         return true;
       }
-      const lines = entries.map((e: any) =>
+      const lines = entries.map((e) =>
         `${new Date(e.created_at).toISOString()} — ${e.decision.toUpperCase()} — ${e.action}` +
         (e.target_repo ? ` (${e.target_repo})` : '') +
         (e.target_agent ? ` → ${e.target_agent}` : '') +
@@ -164,7 +165,7 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
         logger.error({ err: err.message }, 'viktor-rules query failed');
         return [];
       });
-      const lines = rules.map((r: any) =>
+      const lines = rules.map((r) =>
         `${r.enabled ? '✅' : '⬜'} ${r.actionType}` +
         (r.maxScope && Object.keys(r.maxScope).length ? ` — max_scope=${JSON.stringify(r.maxScope)}` : '') +
         (r.canDelegateTo && r.canDelegateTo.length ? ` — can_delegate_to=[${r.canDelegateTo.join(', ')}]` : '')

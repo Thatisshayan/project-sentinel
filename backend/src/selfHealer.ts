@@ -14,7 +14,7 @@ async function checkAndHeal(): Promise<void> {
   const shouldAlert = await tryClaimSelfHealerAlert(ALERT_COOLDOWN_MS);
   if (!shouldAlert) return;
 
-  const lines = degraded.map((c: any) =>
+  const lines = degraded.map((c) =>
     `· ${c.component_name}: ${c.failure_count} failures — ${(c.last_error || '').substring(0, 80)}`
   ).join('\n');
 
@@ -31,8 +31,9 @@ async function checkAndHeal(): Promise<void> {
   ].join('\n'), null, null), { label: 'selfHealer' })
 }
 
-async function reportFailure(componentName: string, error: any): Promise<void> {
-  await safeFire(recordComponentFailure(componentName, error?.message || String(error)), { label: 'selfHealer' })
+async function reportFailure(componentName: string, error: unknown): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+  await safeFire(recordComponentFailure(componentName, message), { label: 'selfHealer' })
   await safeFire(checkAndHeal(), { label: 'selfHealer' })
 }
 

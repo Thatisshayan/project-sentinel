@@ -149,9 +149,17 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
     }
 
     const freshSprint = await getSprintById(sprintId);
-    await updateSprint(sprintId, {
-      completed_tasks: (freshSprint.completed_tasks || 0) + 1,
-    });
+    if (!freshSprint) {
+      // Sprint row vanished between the top-of-function fetch and here —
+      // extremely unlikely (no code path deletes sprints mid-execution),
+      // but silently defaulting to 0 would understate completed_tasks
+      // instead of surfacing that something deleted the sprint underneath us.
+      logger.error({ sprintId, taskId: task.id }, 'Sprint row missing when recording task completion — skipping counter update');
+    } else {
+      await updateSprint(sprintId, {
+        completed_tasks: freshSprint.completed_tasks + 1,
+      });
+    }
 
     await safeFire(sendTelegramMessage([
       `Sprint Task ${task.execution_order}/${sprint.total_tasks} Done ✅`,
@@ -205,10 +213,15 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
     });
 
     const freshSprint = await getSprintById(sprintId);
-    await updateSprint(sprintId, {
-      status:       'paused',
-      failed_tasks: (freshSprint.failed_tasks || 0) + 1,
-    });
+    if (!freshSprint) {
+      logger.error({ sprintId, taskId: task.id }, 'Sprint row missing when recording task failure — pausing without a counter update');
+      await updateSprint(sprintId, { status: 'paused' });
+    } else {
+      await updateSprint(sprintId, {
+        status:       'paused',
+        failed_tasks: freshSprint.failed_tasks + 1,
+      });
+    }
 
     await safeFire(sendTelegramMessage([
       `Sprint Paused ⏸️`,
@@ -227,11 +240,18 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
 
 async function completeSprint(sprintId: number, topicId: number | null): Promise<void> {
   const sprint = await getSprintById(sprintId);
+  if (!sprint) {
+    // Same not-actually-happens-in-practice guard as executeNextSprintTask's
+    // freshSprint checks — log loudly and abort rather than send a
+    // "Sprint Complete" notification for a sprint that no longer exists.
+    logger.error({ sprintId }, 'Sprint row missing at completion — aborting completeSprint, no notification sent');
+    return;
+  }
   const tasks  = await getSprintTasks(sprintId);
 
-  const done    = tasks.filter((t: any) => t.status === 'done').length;
-  const failed  = tasks.filter((t: any) => t.status === 'failed').length;
-  const skipped = tasks.filter((t: any) => t.status === 'skipped').length;
+  const done    = tasks.filter((t) => t.status === 'done').length;
+  const failed  = tasks.filter((t) => t.status === 'failed').length;
+  const skipped = tasks.filter((t) => t.status === 'skipped').length;
 
   await updateSprint(sprintId, {
     status:          'complete',
@@ -274,12 +294,12 @@ async function getSprintStatus(topicId: number | null): Promise<void> {
   }
 
   const tasks   = await getSprintTasks(sprint.id);
-  const done    = tasks.filter((t: any) => t.status === 'done').length;
-  const pending = tasks.filter((t: any) => t.status === 'queued').length;
-  const inProg  = tasks.filter((t: any) => t.status === 'in_progress').length;
+  const done    = tasks.filter((t) => t.status === 'done').length;
+  const pending = tasks.filter((t) => t.status === 'queued').length;
+  const inProg  = tasks.filter((t) => t.status === 'in_progress').length;
 
   const STATUS_EMOJI: Record<string, string> = { done: '✅', in_progress: '🔄', queued: '⏳', failed: '❌', skipped: '⏭️' };
-  const taskLines = tasks.slice(0, 10).map((t: any) =>
+  const taskLines = tasks.slice(0, 10).map((t) =>
     `${STATUS_EMOJI[t.status] || '⚪'} ${t.repo_name}: ${t.task_title}`
   ).join('\n');
 
@@ -318,7 +338,7 @@ async function resumeSprint(topicId: number | null): Promise<void> {
 
   // Skip any failed task so we don't retry it
   const tasks  = await getSprintTasks(sprint.id);
-  const failed = tasks.find((t: any) => t.status === 'failed');
+  const failed = tasks.find((t) => t.status === 'failed');
   if (failed) {
     await updateSprintTask(failed.id, { status: 'skipped' });
   }

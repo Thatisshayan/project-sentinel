@@ -1,6 +1,7 @@
 import axios from 'axios';
 import logger from './logger';
 import { upsertMetric, getLatestMetrics } from './businessDb';
+import type { BusinessMetricRow } from './types/businessMetricRow';
 
 const today = (): string => new Date().toISOString().split('T')[0] || '';
 
@@ -77,12 +78,13 @@ async function getRepoBusinessSummary(repoName: string): Promise<string | null> 
   const metrics = await getLatestMetrics(repoName);
   if (metrics.length === 0) return null;
 
-  const formatted = metrics.map((m: any) => {
+  const formatted = metrics.map((m: BusinessMetricRow) => {
+    const numValue = parseFloat(m.metric_value || '0');
     const val = m.metric_unit === 'usd'
-      ? `$${parseFloat(m.metric_value).toFixed(2)}`
+      ? `$${numValue.toFixed(2)}`
       : m.metric_unit === 'ms'
-      ? `${Math.round(m.metric_value)}ms`
-      : parseFloat(m.metric_value).toLocaleString();
+      ? `${Math.round(numValue)}ms`
+      : numValue.toLocaleString();
     return `${m.metric_name.replace(/_/g, ' ')}: ${val}`;
   }).join('\n');
 

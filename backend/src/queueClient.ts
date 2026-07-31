@@ -1,8 +1,9 @@
-import { Queue, Worker, QueueEvents } from 'bullmq';
+import { Queue, Worker, QueueEvents, Job } from 'bullmq';
 import IORedis from 'ioredis';
 import logger from './logger';
 import { sendTelegramMessage } from './telegramClient';
 import dbClient from './dbClient';
+import type { BuildCheckJobData, DebugJobData } from './types/queueJobs';
 
 let connection: IORedis | null = null;
 let lastRedisAlertAt = 0;
@@ -21,8 +22,8 @@ function getRedisConnection(): IORedis | null {
         sendTelegramMessage(
           `Project Sentinel — Redis Error ⚠️\n\nBullMQ jobs (build-poll, debug) may not process until Redis recovers.\nError: ${err.message}`,
           null, null, true
-        ).catch((alertErr: any) =>
-          logger.error({ err: alertErr.message }, 'Failed to send Redis error alert')
+        ).catch((alertErr) =>
+          logger.error({ err: (alertErr as Error).message }, 'Failed to send Redis error alert')
         );
       }
     });
@@ -104,7 +105,7 @@ function getDeadLetterQueue(): Queue | null {
  * configured — same pattern as the other queues here — so this never throws
  * back into the safeFire error path itself.
  */
-async function enqueueDeadLetter(task: string, payload: unknown): Promise<any> {
+async function enqueueDeadLetter(task: string, payload: unknown): Promise<Job | null> {
   const queue = getDeadLetterQueue();
   if (!queue) {
     logger.warn({ task }, 'REDIS_URL not configured — dead-letter job dropped, not queued');
@@ -155,7 +156,7 @@ function sanitizeJobId(jobId: string): string {
   return jobId.replace(/:/g, '-');
 }
 
-async function enqueueScheduledJob(jobType: string, data: any, delayMs: number, jobId?: string): Promise<any> {
+async function enqueueScheduledJob(jobType: string, data: Record<string, unknown>, delayMs: number, jobId?: string): Promise<Job | null> {
   const queue = getScheduledJobsQueue();
   if (!queue) {
     logger.warn({ jobType }, 'REDIS_URL not configured — scheduled job dropped, not queued');
@@ -173,7 +174,7 @@ async function cancelScheduledJob(jobId: string): Promise<boolean> {
   return true;
 }
 
-async function enqueueBuildCheck(data: any): Promise<any> {
+async function enqueueBuildCheck(data: BuildCheckJobData): Promise<Job | null> {
   const jobId = sanitizeJobId(`build-check:${data.repoFullName}:${data.commitSha}`);
 
   try {
@@ -183,8 +184,8 @@ async function enqueueBuildCheck(data: any): Promise<any> {
       VALUES ($1, $2, $3, 'pending')
       ON CONFLICT (job_id) DO NOTHING
     `, [jobId, data.repoFullName, data.commitSha]);
-  } catch (err: any) {
-    logger.warn({ err: err.message, jobId }, 'Failed to record build_poll_jobs row — non-blocking');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, jobId }, 'Failed to record build_poll_jobs row — non-blocking');
   }
 
   const queue = getBuildPollQueue();
@@ -205,7 +206,7 @@ async function enqueueBuildCheck(data: any): Promise<any> {
   });
 }
 
-async function enqueueDebug(data: any): Promise<any> {
+async function enqueueDebug(data: DebugJobData): Promise<Job | null> {
   const queue = getDebugQueue();
   if (!queue) {
     logger.warn('REDIS_URL not configured — skipping debug queue');

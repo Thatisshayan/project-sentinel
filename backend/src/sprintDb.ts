@@ -1,5 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
+import type { SprintRow, SprintTaskRow, VelocityMetricRow } from './types/sprintRow';
 
 const { query } = dbClient;
 
@@ -75,7 +76,7 @@ async function initSprintSchema(): Promise<void> {
 
 // ── Sprint helpers ────────────────────────────────────────────────────────────
 
-async function getCurrentSprint(): Promise<any | null> {
+async function getCurrentSprint(): Promise<SprintRow | null> {
   const r = await query(`
     SELECT * FROM sprints
     WHERE status IN ('approved','executing','proposed','paused')
@@ -84,7 +85,7 @@ async function getCurrentSprint(): Promise<any | null> {
   return r.rows[0] || null;
 }
 
-async function getSprintById(id: number): Promise<any | null> {
+async function getSprintById(id: number): Promise<SprintRow | null> {
   const r = await query('SELECT * FROM sprints WHERE id=$1', [id]);
   return r.rows[0] || null;
 }
@@ -92,7 +93,7 @@ async function getSprintById(id: number): Promise<any | null> {
 async function createSprint(data: {
   weekStart: string; weekEnd: string; totalTasks: number;
   estimatedCost: number; healthStart: number; proposalSummary: string;
-}): Promise<any> {
+}): Promise<SprintRow> {
   const r = await query(`
     INSERT INTO sprints
       (week_start, week_end, total_tasks, estimated_cost,
@@ -106,7 +107,7 @@ async function createSprint(data: {
   return r.rows[0];
 }
 
-async function updateSprint(id: number, updates: Record<string, any>): Promise<any | null> {
+async function updateSprint(id: number, updates: Record<string, unknown>): Promise<SprintRow | null> {
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
   const fields = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
@@ -122,7 +123,7 @@ async function createSprintTask(data: {
   repoName: string; taskTitle: string; taskDescription?: string;
   priority?: string; complexity?: string; builderAgent?: string;
   estimatedCost?: number; executionOrder: number;
-}): Promise<any> {
+}): Promise<SprintTaskRow> {
   const r = await query(`
     INSERT INTO sprint_tasks
       (sprint_id, audit_task_id, repo_full_name, repo_name,
@@ -139,7 +140,7 @@ async function createSprintTask(data: {
   return r.rows[0];
 }
 
-async function getNextSprintTask(sprintId: number): Promise<any | null> {
+async function getNextSprintTask(sprintId: number): Promise<SprintTaskRow | null> {
   const r = await query(`
     SELECT * FROM sprint_tasks
     WHERE sprint_id = $1 AND status = 'queued'
@@ -149,7 +150,7 @@ async function getNextSprintTask(sprintId: number): Promise<any | null> {
   return r.rows[0] || null;
 }
 
-async function updateSprintTask(id: number, updates: Record<string, any>): Promise<any | null> {
+async function updateSprintTask(id: number, updates: Record<string, unknown>): Promise<SprintTaskRow | null> {
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
   const fields = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
@@ -160,7 +161,7 @@ async function updateSprintTask(id: number, updates: Record<string, any>): Promi
   return r.rows[0] || null;
 }
 
-async function getSprintTasks(sprintId: number): Promise<any[]> {
+async function getSprintTasks(sprintId: number): Promise<SprintTaskRow[]> {
   const r = await query(`
     SELECT * FROM sprint_tasks
     WHERE sprint_id = $1
@@ -193,7 +194,7 @@ async function recordVelocity(data: {
   ]);
 }
 
-async function getVelocityTrend(weeks = 4): Promise<any[]> {
+async function getVelocityTrend(weeks = 4): Promise<VelocityMetricRow[]> {
   const r = await query(`
     SELECT * FROM velocity_metrics
     ORDER BY week_start DESC

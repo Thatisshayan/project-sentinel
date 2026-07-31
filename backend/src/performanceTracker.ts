@@ -42,9 +42,9 @@ async function getPerformanceReport(): Promise<string> {
     if (scores.length === 0) continue;
 
     report.push(`\n${taskType.toUpperCase()}:`);
-    scores.forEach((s: any) => {
+    scores.forEach((s) => {
       report.push(
-        `  ${s.model_id}: ${s.success_rate}% success (${s.total} samples, avg ${Math.round(s.avg_duration_ms / 1000)}s)`
+        `  ${s.model_id}: ${s.success_rate}% success (${s.total} samples, avg ${Math.round(Number(s.avg_duration_ms || 0) / 1000)}s)`
       );
     });
   }

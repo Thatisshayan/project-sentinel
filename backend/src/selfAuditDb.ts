@@ -1,5 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
+import type { ModelScoreRow, ComponentHealthRow, SelfAuditCycleRow } from './types/selfAuditRow';
 
 const { query } = dbClient;
 
@@ -103,8 +104,8 @@ async function recordModelOutcome(data: {
   ]);
 }
 
-async function getModelScores(taskType: string): Promise<any[]> {
-  const r = await query(`
+async function getModelScores(taskType: string): Promise<ModelScoreRow[]> {
+  const r = await query<ModelScoreRow>(`
     SELECT
       model_id,
       COUNT(*) as total,
@@ -124,7 +125,7 @@ async function getModelScores(taskType: string): Promise<any[]> {
 async function getBestModelForTask(taskType: string): Promise<string | null> {
   const scores = await getModelScores(taskType);
   if (scores.length === 0) return null;
-  return scores[0].model_id;
+  return scores[0]?.model_id ?? null;
 }
 
 // ── Component health helpers ──────────────────────────────────────────────────
@@ -179,8 +180,8 @@ async function tryClaimSelfHealerAlert(cooldownMs: number): Promise<boolean> {
   return r.rows.length > 0;
 }
 
-async function getDegradedComponents(): Promise<any[]> {
-  const r = await query(`
+async function getDegradedComponents(): Promise<ComponentHealthRow[]> {
+  const r = await query<ComponentHealthRow>(`
     SELECT * FROM component_health
     WHERE status IN ('degraded','failed')
       AND failure_count >= 3
@@ -191,20 +192,20 @@ async function getDegradedComponents(): Promise<any[]> {
 
 // ── Self-audit cycle helpers ──────────────────────────────────────────────────
 
-async function createSelfAuditCycle(): Promise<any> {
-  const r = await query(`
+async function createSelfAuditCycle(): Promise<SelfAuditCycleRow> {
+  const r = await query<SelfAuditCycleRow>(`
     INSERT INTO self_audit_cycles (status)
     VALUES ('running')
     RETURNING *
   `);
-  return r.rows[0];
+  return r.rows[0]!;
 }
 
-async function updateSelfAuditCycle(id: number, updates: Record<string, any>): Promise<any | null> {
+async function updateSelfAuditCycle(id: number, updates: Record<string, unknown>): Promise<SelfAuditCycleRow | null> {
   const keys   = Object.keys(updates);
   const values = Object.values(updates);
   const fields = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
-  const r = await query(
+  const r = await query<SelfAuditCycleRow>(
     `UPDATE self_audit_cycles SET ${fields} WHERE id = $1 RETURNING *`,
     [id, ...values]
   );

@@ -5,7 +5,7 @@ import { safeFire, fireAndForget } from './utils/safeFire';
  * All routes prefixed /api when mounted in index.js
  */
 
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import dbClient from './dbClient';
 const { query } = dbClient;
 import logger from './logger';
@@ -29,7 +29,7 @@ router.use(apiLimiter);
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
-router.use((req: any, res: any, next: any) => {
+router.use((req: Request, res: Response, next: NextFunction) => {
   const key = process.env['SENTINEL_UI_KEY'];
   const headerKey = req.headers['x-sentinel-key'];
   if (key && (typeof headerKey !== 'string' || !timingSafeEqual(headerKey, key))) {
@@ -41,7 +41,7 @@ router.use((req: any, res: any, next: any) => {
 
 // ── Portfolio overview ────────────────────────────────────────────────────────
 
-router.get('/portfolio', async (req: any, res: any) => {
+router.get('/portfolio', async (req: Request, res: Response) => {
   try {
     // Latest snapshot per repo. health_score is picked from the most recent
     // row where it is non-null — a null row written at webhook-receipt time
@@ -114,11 +114,11 @@ router.get('/portfolio', async (req: any, res: any) => {
 
 // ── Single repo ───────────────────────────────────────────────────────────────
 
-router.get('/repo/:name', async (req: any, res: any) => {
+router.get('/repo/:name', async (req: Request, res: Response) => {
   try {
-    const name = req.params.name;
+    const name = req.params['name'];
 
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
+    if (typeof name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
       res.status(400).json({ error: 'Invalid repo name' });
       return;
     }
@@ -156,11 +156,11 @@ router.get('/repo/:name', async (req: any, res: any) => {
   }
 });
 
-router.get('/repo/:name/tasks', async (req: any, res: any) => {
+router.get('/repo/:name/tasks', async (req: Request, res: Response) => {
   try {
-    const name = req.params.name;
+    const name = req.params['name'];
 
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
+    if (typeof name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
       res.status(400).json({ error: 'Invalid repo name' });
       return;
     }
@@ -179,7 +179,7 @@ router.get('/repo/:name/tasks', async (req: any, res: any) => {
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 
-router.get('/agents', async (req: any, res: any) => {
+router.get('/agents', async (req: Request, res: Response) => {
   try {
     const r = await query(`
       SELECT agent_id, agent_label, repo_full_name, task_id, task_title,
@@ -193,7 +193,7 @@ router.get('/agents', async (req: any, res: any) => {
   }
 });
 
-router.post('/agents/:id/toggle', async (req: any, res: any) => {
+router.post('/agents/:id/toggle', async (req: Request, res: Response) => {
   try {
     const r = await query(`
       UPDATE agent_registry
@@ -201,7 +201,7 @@ router.post('/agents/:id/toggle', async (req: any, res: any) => {
           last_active_at = NOW()
       WHERE agent_id = $1
       RETURNING *
-    `, [req.params.id]);
+    `, [req.params['id']]);
     if (!r.rows[0]) { res.status(404).json({ error: 'Agent not found' }); return; }
     res.json(r.rows[0]);
   } catch (err: any) {
@@ -211,7 +211,7 @@ router.post('/agents/:id/toggle', async (req: any, res: any) => {
 
 // ── Dashboard command — routes text from UI chat into Sentinel brain ──────────
 
-router.post('/command', async (req: any, res: any) => {
+router.post('/command', async (req: Request, res: Response) => {
   const { text, fromName = 'Dashboard' } = req.body || {};
   if (!text || typeof text !== 'string') {
     res.status(400).json({ error: 'text required' });
@@ -243,10 +243,11 @@ router.post('/command', async (req: any, res: any) => {
 
 // ── Agent room messages ───────────────────────────────────────────────────────
 
-router.get('/agent-room/messages', async (req: any, res: any) => {
+router.get('/agent-room/messages', async (req: Request, res: Response) => {
   try {
-    const parsedLimit = parseInt(req.query.limit || '50', 10);
-    const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
+    const rawLimit = req.query['limit'];
+    const parsedLimit = Number(typeof rawLimit === 'string' ? rawLimit : '50');
+    const safeLimit = Number.isFinite(parsedLimit) && Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
     const limit = Math.min(safeLimit, 200);
     const r = await query(`
       SELECT id, agent_id, agent_label, message, message_type, repo_name, created_at
@@ -262,7 +263,7 @@ router.get('/agent-room/messages', async (req: any, res: any) => {
 
 // ── Sprints ───────────────────────────────────────────────────────────────────
 
-router.get('/sprints/current', async (req: any, res: any) => {
+router.get('/sprints/current', async (req: Request, res: Response) => {
   try {
     const sprint = await query(`
       SELECT * FROM sprints
@@ -293,7 +294,7 @@ router.get('/sprints/current', async (req: any, res: any) => {
   }
 });
 
-router.post('/sprint/approve', async (req: any, res: any) => {
+router.post('/sprint/approve', async (req: Request, res: Response) => {
   try {
     const { sprintId } = req.body;
     const r = await query(`
@@ -307,7 +308,7 @@ router.post('/sprint/approve', async (req: any, res: any) => {
   }
 });
 
-router.post('/sprint/skip', async (req: any, res: any) => {
+router.post('/sprint/skip', async (req: Request, res: Response) => {
   try {
     const { sprintId } = req.body;
     const r = await query(`
@@ -321,7 +322,7 @@ router.post('/sprint/skip', async (req: any, res: any) => {
 
 // ── Security ──────────────────────────────────────────────────────────────────
 
-router.get('/security/portfolio', async (req: any, res: any) => {
+router.get('/security/portfolio', async (req: Request, res: Response) => {
   try {
     const scores = await query(`
       SELECT DISTINCT ON (repo_name)
@@ -351,7 +352,7 @@ router.get('/security/portfolio', async (req: any, res: any) => {
 
 // ── Builder management ────────────────────────────────────────────────────────
 
-router.post('/system/set-builder', async (req: any, res: any) => {
+router.post('/system/set-builder', async (req: Request, res: Response) => {
   try {
     const { repoName, builder } = req.body;
     const { getBuilderConfig } = require('./builderRouter');
@@ -372,13 +373,18 @@ router.post('/system/set-builder', async (req: any, res: any) => {
 
 // ── Repo actions ──────────────────────────────────────────────────────────────
 
-router.post('/repo/:name/audit', async (req: any, res: any) => {
+router.post('/repo/:name/audit', async (req: Request, res: Response) => {
+  const name = req.params['name'];
+  if (typeof name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
+    res.status(400).json({ error: 'Invalid repository name' });
+    return;
+  }
+
   // Respond immediately; audit runs async in background
-  res.json({ ok: true, message: `Audit queued for ${req.params.name}` });
+  res.json({ ok: true, message: `Audit queued for ${name}` });
   try {
     const { triggerAudit } = require('./auditOrchestrator');
     const { getDefaultBranch } = require('./repoDiscovery');
-    const name = req.params.name;
     const fullName = repoFullName(name);
     const branchName = await getDefaultBranch(fullName);
     triggerAudit({
@@ -397,7 +403,7 @@ router.post('/repo/:name/audit', async (req: any, res: any) => {
   }
 });
 
-router.post('/system/audit-all', (req: any, res: any) => {
+router.post('/system/audit-all', (req: Request, res: Response) => {
   const { REPO_LIST }   = require('./portfolioAnalytics');
   const { triggerAudit } = require('./auditOrchestrator');
   const { getDefaultBranch } = require('./repoDiscovery');
@@ -420,7 +426,7 @@ router.post('/system/audit-all', (req: any, res: any) => {
   }
 });
 
-router.post('/system/security-scan', (req: any, res: any) => {
+router.post('/system/security-scan', (req: Request, res: Response) => {
   const { REPO_LIST }     = require('./portfolioAnalytics');
   const { runSecurityScan } = require('./securityScanner');
   res.json({ ok: true, queued: REPO_LIST.length });
@@ -434,13 +440,13 @@ router.post('/system/security-scan', (req: any, res: any) => {
   }
 });
 
-router.post('/security/issue/:id/patch', (req: any, res: any) => {
+router.post('/security/issue/:id/patch', (req: Request, res: Response) => {
   res.status(501).json({
     error: 'Not implemented — use Telegram command /sentinel security-patch <repo> to patch issues',
   });
 });
 
-router.post('/system/pause', async (req: any, res: any) => {
+router.post('/system/pause', async (req: Request, res: Response) => {
   try {
     await query(`
       UPDATE agent_registry SET status='paused' WHERE status='idle'
@@ -451,7 +457,7 @@ router.post('/system/pause', async (req: any, res: any) => {
   }
 });
 
-router.post('/system/resume', async (req: any, res: any) => {
+router.post('/system/resume', async (req: Request, res: Response) => {
   try {
     await query(`
       UPDATE agent_registry SET status='idle' WHERE status='paused'
@@ -464,7 +470,7 @@ router.post('/system/resume', async (req: any, res: any) => {
 
 // ── Cost data ─────────────────────────────────────────────────────────────────
 
-router.get('/costs', async (req: any, res: any) => {
+router.get('/costs', async (req: Request, res: Response) => {
   try {
     const monthly = await query(`
       SELECT COALESCE(SUM(estimated_cost), 0) AS total
@@ -488,7 +494,7 @@ router.get('/costs', async (req: any, res: any) => {
   }
 });
 
-router.get('/integrations/status', async (req: any, res: any) => {
+router.get('/integrations/status', async (req: Request, res: Response) => {
   try {
     const { getIntegrationsStatus } = require('./integrationsStatus');
     const status = await getIntegrationsStatus();
@@ -501,7 +507,7 @@ router.get('/integrations/status', async (req: any, res: any) => {
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 
-router.get('/settings', async (req: any, res: any) => {
+router.get('/settings', async (req: Request, res: Response) => {
   try {
     const { getSettings } = require('./settingsDb');
     const settings = await getSettings();
@@ -512,7 +518,7 @@ router.get('/settings', async (req: any, res: any) => {
   }
 });
 
-router.post('/settings/update', async (req: any, res: any) => {
+router.post('/settings/update', async (req: Request, res: Response) => {
   try {
     const { updateSettings } = require('./settingsDb');
     const updated = await updateSettings(req.body);

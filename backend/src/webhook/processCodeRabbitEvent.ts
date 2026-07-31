@@ -62,11 +62,26 @@ interface NormalizedPayload {
   findings: NormalizedFinding[];
 }
 
+// Unverified against a real delivery (see file header) — every alternate
+// key here is a guess at which convention CodeRabbit actually uses.
+interface RawCodeRabbitPayload {
+  repository?: { full_name?: string };
+  repo?: { full_name?: string };
+  pull_request?: { head?: { sha?: string }; html_url?: string; number?: number };
+  commit_sha?: string;
+  sha?: string;
+  pr_url?: string;
+  pr_number?: number;
+  review?: { comments?: RawFinding[] };
+  findings?: RawFinding[];
+  comments?: RawFinding[];
+}
+
 /**
  * Best-effort normalization of a CodeRabbit review-complete webhook payload.
  * See file header — verify this against a real payload before trusting it.
  */
-function normalizePayload(payload: any): NormalizedPayload | null {
+function normalizePayload(payload: RawCodeRabbitPayload): NormalizedPayload | null {
   const repoFullName = payload?.repository?.full_name || payload?.repo?.full_name;
   if (!repoFullName) return null;
 
@@ -111,7 +126,7 @@ function buildSummaryText(repoName: string, findings: NormalizedFinding[], prUrl
   ].filter(Boolean).join('\n');
 }
 
-async function processCodeRabbitEvent(payload: any): Promise<void> {
+async function processCodeRabbitEvent(payload: RawCodeRabbitPayload): Promise<void> {
   const normalized = normalizePayload(payload);
   if (!normalized) {
     logger.warn({ payload }, 'processCodeRabbitEvent: could not normalize payload, dropping');

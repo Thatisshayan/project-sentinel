@@ -1,6 +1,29 @@
 import { assessRisk, isMarketingOnly } from './riskAssessor';
+import type { WebhookPayload } from './types/webhookPayload';
 
-function extractPayload(payload: any): any {
+export interface GitHubPushCommit {
+  id?: string;
+  url?: string;
+  timestamp?: string;
+  message?: string;
+  author?: { name?: string; email?: string };
+  added?: string[];
+  modified?: string[];
+  removed?: string[];
+}
+
+// GitHub's push webhook payload, narrowed to the fields this file actually
+// reads — deliberately loose/optional throughout since this is untrusted
+// external input, not a shape we control.
+export interface GitHubPushPayload {
+  repository?: { name?: string; full_name?: string; html_url?: string };
+  ref?: string;
+  commits?: GitHubPushCommit[];
+  head_commit?: GitHubPushCommit;
+  pusher?: { name?: string };
+}
+
+function extractPayload(payload: GitHubPushPayload): WebhookPayload {
   if (!payload || typeof payload !== 'object') {
     throw new Error('Payload is null or not an object');
   }
@@ -28,7 +51,7 @@ function extractPayload(payload: any): any {
   const commitSha       = commit.id        || '';
   const commitUrl       = commit.url       || '';
   const commitTimestamp = commit.timestamp || new Date().toISOString();
-  const commitMessage   = ((commit.message || '').split('\n')[0]).substring(0, 200);
+  const commitMessage   = ((commit.message || '').split('\n')[0] || '').substring(0, 200);
 
   const authorName  = (commit.author  && commit.author.name)  || (payload.pusher && payload.pusher.name) || 'Unknown';
   const authorEmail = (commit.author  && commit.author.email) || '';

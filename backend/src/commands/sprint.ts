@@ -2,6 +2,7 @@ import { safeFire, fireAndForget } from '../utils/safeFire';
 import logger from '../logger';
 import { sendTelegramMessage } from '../telegramClient';
 import { approveSprint, getSprintStatus, pauseSprint, resumeSprint } from '../sprintOrchestrator';
+import type { SprintRow, SprintProposal } from '../types/sprintRow';
 
 async function handleSprintCmd(subcommand: string, parts: string[], chatId: string | null, topicId: number | null): Promise<boolean> {
   switch (subcommand) {
@@ -11,7 +12,10 @@ async function handleSprintCmd(subcommand: string, parts: string[], chatId: stri
       return true;
     }
     case 'skip-sprint': {
-      const { getCurrentSprint, updateSprint } = require('../sprintDb') as { getCurrentSprint: () => Promise<any>; updateSprint: (id: any, data: any) => Promise<any> };
+      const { getCurrentSprint, updateSprint } = require('../sprintDb') as {
+        getCurrentSprint: () => Promise<SprintRow | null>;
+        updateSprint: (id: number, data: Partial<SprintRow>) => Promise<SprintRow | null>;
+      };
       const sprint = await getCurrentSprint();
       if (sprint) {
         await updateSprint(sprint.id, { status: 'skipped' });
@@ -34,15 +38,17 @@ async function handleSprintCmd(subcommand: string, parts: string[], chatId: stri
       return true;
     }
     case 'propose-sprint': {
-      const { generateSprintProposal } = require('../sprintPlanner') as { generateSprintProposal: () => Promise<any> };
+      const { generateSprintProposal } = require('../sprintPlanner') as {
+        generateSprintProposal: () => Promise<{ sprint: SprintRow; proposal: SprintProposal }>;
+      };
       await sendTelegramMessage('Generating sprint proposal...', null, topicId);
-      generateSprintProposal().catch((err: any) =>
+      generateSprintProposal().catch((err) =>
         logger.error({ err: err.stack ?? err.message }, 'Manual sprint proposal failed')
       );
       return true;
     }
     case 'run-sprint': {
-      const { getCurrentSprint } = require('../sprintDb') as { getCurrentSprint: () => Promise<any> };
+      const { getCurrentSprint } = require('../sprintDb') as { getCurrentSprint: () => Promise<SprintRow | null> };
       const sprint = await getCurrentSprint().catch(() => null);
       if (!sprint) {
         await sendTelegramMessage('No active sprint. Propose one: /sentinel propose-sprint', null, topicId);
@@ -56,7 +62,7 @@ async function handleSprintCmd(subcommand: string, parts: string[], chatId: stri
         return true;
       }
       if (sprint.status === 'executing') {
-        const { executeNextSprintTask } = require('../sprintOrchestrator') as { executeNextSprintTask: (...args: any[]) => Promise<any> };
+        const { executeNextSprintTask } = require('../sprintOrchestrator') as { executeNextSprintTask: (sprintId: number, topicId: number | null) => Promise<void> };
         await sendTelegramMessage(`Resuming sprint execution (${sprint.total_tasks} tasks)...`, null, topicId);
         fireAndForget(executeNextSprintTask(sprint.id, topicId), { label: 'sprint' })
         return true;

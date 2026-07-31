@@ -7,12 +7,31 @@ import { sendTelegramMessage } from './telegramClient';
 const PATTERN_THRESHOLD = (): number =>
   parseInt(process.env['PATTERN_DETECTION_THRESHOLD'] || '3');
 
-async function detectPatterns(): Promise<any[]> {
+interface DetectedPattern {
+  type: 'error' | 'task';
+  repos: string[];
+  description: string;
+}
+
+interface FailurePatternRow {
+  pattern: string;
+  repos: string[];
+  repo_count: string;
+}
+
+interface TaskPatternRow {
+  category: string;
+  priority: string;
+  repos: string[];
+  repo_count: string;
+}
+
+async function detectPatterns(): Promise<DetectedPattern[]> {
   logger.info('Running cross-repo pattern detection');
 
-  const detected: any[] = [];
+  const detected: DetectedPattern[] = [];
 
-  const failurePatterns = await query(`
+  const failurePatterns = await query<FailurePatternRow>(`
     SELECT
       LOWER(SUBSTRING(failure_reason, 1, 100)) as pattern,
       ARRAY_AGG(DISTINCT repo_full_name) as repos,
@@ -34,12 +53,12 @@ async function detectPatterns(): Promise<any[]> {
       patternKey:    `error:${row.pattern}`,
       description:   `Build failure: "${row.pattern.substring(0, 80)}"`,
       affectedRepos: row.repos,
-      severity:      row.repo_count >= 5 ? 'high' : 'medium',
+      severity:      parseInt(row.repo_count, 10) >= 5 ? 'high' : 'medium',
     });
     detected.push({ type: 'error', repos: row.repos, description: row.pattern });
   }
 
-  const taskPatterns = await query(`
+  const taskPatterns = await query<TaskPatternRow>(`
     SELECT
       category,
       priority,
@@ -66,11 +85,11 @@ async function detectPatterns(): Promise<any[]> {
       description: `${row.priority} ${row.category}` });
   }
 
-  const notable = detected.filter((d: any) => d.repos.length >= PATTERN_THRESHOLD());
+  const notable = detected.filter((d) => d.repos.length >= PATTERN_THRESHOLD());
 
   if (notable.length > 0) {
-    const lines = notable.slice(0, 3).map((p: any) =>
-      `· ${p.description} (${p.repos.length} repos: ${p.repos.map((r: string) => r.split('/')[1]).join(', ')})`
+    const lines = notable.slice(0, 3).map((p) =>
+      `· ${p.description} (${p.repos.length} repos: ${p.repos.map((r) => r.split('/')[1]).join(', ')})`
     ).join('\n');
 
     await safeFire(sendTelegramMessage(

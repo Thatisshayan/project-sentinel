@@ -26,10 +26,10 @@ import logger from './logger';
 
 const { query } = dbClient;
 
-interface ViktorAuthorityRule {
+export interface ViktorAuthorityRule {
   id: number;
   actionType: string;
-  maxScope: Record<string, any> | null;
+  maxScope: Record<string, number> | null;
   canDelegateTo: string[] | null;
   enabled: boolean;
 }
@@ -41,6 +41,25 @@ interface AuthorityLogEntry {
   targetAgent: string | null;
   decision: 'approved' | 'denied' | 'executed' | 'execution_failed';
   reasoning: string;
+}
+
+interface ViktorAuthorityRuleRow {
+  id: number;
+  action_type: string;
+  max_scope: Record<string, number> | null;
+  can_delegate_to: string[] | null;
+  enabled: boolean;
+}
+
+export interface AgentAuthorityLogRow {
+  id: number;
+  actor: string;
+  action: string;
+  target_repo: string | null;
+  target_agent: string | null;
+  decision: string;
+  reasoning: string | null;
+  created_at: string;
 }
 
 async function initViktorAuthoritySchema(): Promise<void> {
@@ -77,7 +96,7 @@ async function initViktorAuthoritySchema(): Promise<void> {
   // (not DO UPDATE, unlike external_agents' seed) because these rows are
   // meant to be hand-tuned by the owner once enabled; a redeploy should
   // never silently reset a scope/can_delegate_to change back to the seed.
-  const seed: Array<[string, Record<string, any> | null, string[] | null]> = [
+  const seed: Array<[string, Record<string, number> | null, string[] | null]> = [
     ['sprint_approve', { max_tasks: 5 }, null],
     ['security_patch', {}, null],
     ['delegate', {}, []],
@@ -93,7 +112,7 @@ async function initViktorAuthoritySchema(): Promise<void> {
 }
 
 async function getAuthorityRule(actionType: string): Promise<ViktorAuthorityRule | null> {
-  const r = await query(`SELECT * FROM viktor_authority WHERE action_type = $1`, [actionType]);
+  const r = await query<ViktorAuthorityRuleRow>(`SELECT * FROM viktor_authority WHERE action_type = $1`, [actionType]);
   const row = r.rows[0];
   if (!row) return null;
   return {
@@ -156,19 +175,19 @@ async function logAuthorityAction(entry: AuthorityLogEntry): Promise<void> {
   });
 }
 
-async function getRecentAuthorityLog(limit = 20, repoName?: string | null): Promise<any[]> {
+async function getRecentAuthorityLog(limit = 20, repoName?: string | null): Promise<AgentAuthorityLogRow[]> {
   const r = repoName
-    ? await query(
+    ? await query<AgentAuthorityLogRow>(
         `SELECT * FROM agent_authority_log WHERE target_repo = $1 ORDER BY created_at DESC LIMIT $2`,
         [repoName, limit]
       )
-    : await query(`SELECT * FROM agent_authority_log ORDER BY created_at DESC LIMIT $1`, [limit]);
+    : await query<AgentAuthorityLogRow>(`SELECT * FROM agent_authority_log ORDER BY created_at DESC LIMIT $1`, [limit]);
   return r.rows;
 }
 
 async function listAuthorityRules(): Promise<ViktorAuthorityRule[]> {
-  const r = await query(`SELECT * FROM viktor_authority ORDER BY action_type`);
-  return r.rows.map((row: any) => ({
+  const r = await query<ViktorAuthorityRuleRow>(`SELECT * FROM viktor_authority ORDER BY action_type`);
+  return r.rows.map((row) => ({
     id: row.id,
     actionType: row.action_type,
     maxScope: row.max_scope,

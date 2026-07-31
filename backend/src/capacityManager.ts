@@ -1,11 +1,12 @@
 import { getMonthlyCost } from './portfolioDb';
 import logger from './logger';
+import type { CapacityStatus } from './types/capacityStatus';
 
 const MONTHLY_BUDGET         = (): number => parseFloat(process.env['SPRINT_MONTHLY_BUDGET'] || '30');
 const CLAUDE_COST_PER_AUDIT  = 0.08;
 const CLAUDE_COST_PER_TASK   = 0.05;
 
-async function getCapacityStatus(): Promise<any> {
+async function getCapacityStatus(): Promise<CapacityStatus> {
   const monthlySpend  = await getMonthlyCost();
   const budget        = MONTHLY_BUDGET();
   const remaining     = budget - monthlySpend;
@@ -52,7 +53,7 @@ function estimateTaskCost(builderAgent: string, count: number = 1): number {
   return (costMap[builderAgent] || CLAUDE_COST_PER_TASK) * count;
 }
 
-function selectBuilder(repoName: string, capacity: any, notionBuilder: string): string {
+function selectBuilder(repoName: string, capacity: CapacityStatus, notionBuilder: string): string {
   if (capacity.usagePercent >= 75) {
     // Route to first available free builder
     if (process.env['NVIDIA_API_KEY'])     { logger.info({ repoName, reason: capacity.reason }, 'Budget routing to NVIDIA'); return 'nvidia'; }

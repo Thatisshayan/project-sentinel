@@ -45,13 +45,12 @@ async function runSelfAudit(): Promise<void> {
     ].join('\n'), null, null), { label: 'selfAuditor' })
 
     const auditResult = await runAudit({
-      repoFullName:  SENTINEL_REPO,
-      repoName:      SENTINEL_NAME,
-      projectName:   'Project Sentinel',
+      repoFullName: SENTINEL_REPO,
+      repoName:     SENTINEL_NAME,
+      projectName:  'Project Sentinel',
       commitSha,
-      commitMessage: 'Self-audit',
       branchName,
-    } as any);
+    });
 
     const cycleSha = `${commitSha}-self-${Date.now()}`;
     const auditCycle = await createAuditCycle({
@@ -60,10 +59,20 @@ async function runSelfAudit(): Promise<void> {
       projectName:  'Project Sentinel',
     });
     if (!auditCycle) {
-      logger.warn({ cycleSha }, 'Could not create self-audit cycle — tasks will be written to Notion only');
+      // audit_tasks.audit_cycle_id is NOT NULL — without a cycle row there is
+      // nowhere to attach tasks (Postgres is the source of truth since D-025,
+      // not Notion), so every task write below would fail individually with
+      // the same DB error. Fail loud once instead of 10 silent per-task ones.
+      logger.error({ cycleSha }, 'Could not create self-audit cycle — aborting self-audit, no tasks written');
+      await safeFire(updateSelfAuditCycle(selfCycle.id, { status: 'failed' }), { label: 'selfAuditor' })
+      await safeFire(sendTelegramMessage(
+        '🛡️ Sentinel Self-Audit — could not create an audit cycle. No tasks were written. Check logs.',
+        null, null
+      ), { label: 'selfAuditor' })
+      return;
     }
 
-    const writeResult = await writeTasksToNotion(auditResult, auditCycle?.id || null, {
+    const writeResult = await writeTasksToNotion(auditResult, auditCycle.id, {
       repoFullName:       SENTINEL_REPO,
       repoName:           SENTINEL_NAME,
       projectName:        'Project Sentinel',
@@ -74,7 +83,7 @@ async function runSelfAudit(): Promise<void> {
     });
 
     if (auditCycle) {
-      const safeCount = auditResult.tasks.filter((t: any) => t.safeToAutoExecute).length;
+      const safeCount = auditResult.tasks.filter((t) => t.safeToAutoExecute).length;
       await updateAuditCycle(auditCycle.id, {
         status:           'awaiting_approval',
         health_score:     auditResult.overallHealthScore,
@@ -93,8 +102,8 @@ async function runSelfAudit(): Promise<void> {
       completed_at:    new Date().toISOString(),
     });
 
-    const safeCount = auditResult.tasks.filter((t: any) => t.safeToAutoExecute).length;
-    const taskLines = auditResult.tasks.map((t: any, i: number) =>
+    const safeCount = auditResult.tasks.filter((t) => t.safeToAutoExecute).length;
+    const taskLines = auditResult.tasks.map((t, i) =>
       `${i + 1}. [${t.priority}] ${t.title}`
     ).join('\n');
 

@@ -34,8 +34,15 @@ async function recordPromptOutcome(promptType: string, success: boolean): Promis
   `, [promptType, success ? 100 : 0]);
 }
 
-async function getPromptStats(): Promise<any[]> {
-  const r = await query(`
+interface PromptStatsRow {
+  prompt_type: string;
+  version: number;
+  avg_success_rate: string | null;
+  sample_count: number;
+}
+
+async function getPromptStats(): Promise<PromptStatsRow[]> {
+  const r = await query<PromptStatsRow>(`
     SELECT prompt_type, version, avg_success_rate, sample_count
     FROM prompt_versions
     WHERE is_active = true
@@ -48,8 +55,8 @@ async function getPromptReport(): Promise<string> {
   const stats = await getPromptStats();
   if (stats.length === 0) return 'No prompt data yet.';
 
-  const lines = stats.map((p: any) =>
-    `· ${p.prompt_type} v${p.version}: ${parseFloat(p.avg_success_rate || 0).toFixed(1)}% success (${p.sample_count} samples)`
+  const lines = stats.map((p) =>
+    `· ${p.prompt_type} v${p.version}: ${parseFloat(p.avg_success_rate || '0').toFixed(1)}% success (${p.sample_count} samples)`
   ).join('\n');
 
   return `📝 Prompt Performance\n\n${lines}`;
