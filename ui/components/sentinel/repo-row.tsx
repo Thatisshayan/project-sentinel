@@ -103,8 +103,16 @@ export function RepoRow({ repo, agent, index, healthColor, secColor }: Props) {
         <span className="text-[10px] text-[#555555] font-mono truncate cursor-pointer">{repo.commit}</span>
       </Link>
 
-      {/* Actions — a sibling of the Link, not nested inside it */}
-      <div className="flex justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Actions — a sibling of the Link, not nested inside it. Visible on
+          hover, keyboard focus (group-focus-within — hover alone leaves
+          keyboard users with no visual confirmation the button is focused),
+          or while an audit is in flight (so the spinner doesn't vanish if
+          the pointer leaves the row mid-request). */}
+      <div className={cn(
+        "flex justify-center opacity-0 transition-opacity",
+        "group-hover:opacity-100 group-focus-within:opacity-100",
+        auditing && "opacity-100"
+      )}>
         <button
           onClick={audit}
           disabled={auditing}
