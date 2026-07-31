@@ -19,6 +19,17 @@ import dbClient from './dbClient';
 
 const { query } = dbClient;
 
+interface SlackApiResponse {
+  ok: boolean;
+  error?: string;
+  ts?: string;
+  channel?: string | { id?: string; name?: string };
+  channels?: { id: string; name: string }[];
+  [key: string]: unknown;
+}
+
+type SlackPayload = Record<string, unknown>;
+
 async function initSlackSchema(): Promise<void> {
   await query(`
     CREATE TABLE IF NOT EXISTS slack_channels (
@@ -46,10 +57,10 @@ async function upsertSlackChannel(repoName: string, channelId: string): Promise<
   );
 }
 
-function postToSlackApi(botToken: string, payload: Record<string, any>): Promise<any> {
+function postToSlackApi(botToken: string, payload: SlackPayload): Promise<SlackApiResponse> {
   const bodyJson = JSON.stringify(payload);
   return retryWithBackoff(
-    () => new Promise((resolve, reject) => {
+    () => new Promise<SlackApiResponse>((resolve, reject) => {
       const req = https.request({
         hostname: 'slack.com',
         path:     '/api/chat.postMessage',
@@ -61,7 +72,7 @@ function postToSlackApi(botToken: string, payload: Record<string, any>): Promise
         },
       }, (res) => {
         let data = '';
-        res.on('data', (chunk: any) => { data += chunk; });
+        res.on('data', (chunk: Buffer) => { data += chunk; });
         res.on('end', () => {
           try {
             const parsed = JSON.parse(data);
@@ -90,10 +101,10 @@ function postToSlackApi(botToken: string, payload: Record<string, any>): Promise
   );
 }
 
-function callSlackApi(botToken: string, method: string, payload: Record<string, any>): Promise<any> {
+function callSlackApi(botToken: string, method: string, payload: SlackPayload): Promise<SlackApiResponse> {
   const bodyJson = JSON.stringify(payload);
   return retryWithBackoff(
-    () => new Promise((resolve, reject) => {
+    () => new Promise<SlackApiResponse>((resolve, reject) => {
       const req = https.request({
         hostname: 'slack.com',
         path:     `/api/${method}`,
@@ -105,7 +116,7 @@ function callSlackApi(botToken: string, method: string, payload: Record<string, 
         },
       }, (res) => {
         let data = '';
-        res.on('data', (chunk: any) => { data += chunk; });
+        res.on('data', (chunk: Buffer) => { data += chunk; });
         res.on('end', () => {
           try {
             const parsed = JSON.parse(data);
@@ -154,7 +165,7 @@ async function createChannelForRepo(repoName: string): Promise<string | null> {
 
   try {
     const created = await callSlackApi(BOT_TOKEN, 'conversations.create', { name: channelName });
-    const channelId = created.channel?.id;
+    const channelId = typeof created.channel === 'string' ? created.channel : created.channel?.id;
     if (channelId) await upsertSlackChannel(repoName, channelId);
     return channelId || null;
   } catch (err: any) {
@@ -163,7 +174,7 @@ async function createChannelForRepo(repoName: string): Promise<string | null> {
     if (String(err.message).includes('name_taken')) {
       try {
         const list = await callSlackApi(BOT_TOKEN, 'conversations.list', { limit: 1000 });
-        const match = (list.channels || []).find((c: any) => c.name === channelName);
+        const match = (list.channels || []).find((c) => c.name === channelName);
         if (match?.id) {
           await upsertSlackChannel(repoName, match.id);
           return match.id;
@@ -189,7 +200,7 @@ async function sendSlackMessage(
   text: string,
   repoName: string | null,
   threadTs?: string | null
-): Promise<any> {
+): Promise<SlackApiResponse | null> {
   const BOT_TOKEN = process.env['SLACK_BOT_TOKEN'];
   if (!BOT_TOKEN) {
     logger.debug('Slack not configured (SLACK_BOT_TOKEN unset) — skipping Slack message');
@@ -205,7 +216,7 @@ async function sendSlackMessage(
     return null;
   }
 
-  const payload: Record<string, any> = { channel: channelId, text };
+  const payload: SlackPayload = { channel: channelId, text };
   if (threadTs) payload['thread_ts'] = threadTs;
 
   return postToSlackApi(BOT_TOKEN, payload);
@@ -223,13 +234,13 @@ async function sendSlackMessageToChannel(
   text: string,
   channelId: string,
   threadTs?: string | null
-): Promise<any> {
+): Promise<SlackApiResponse | null> {
   const BOT_TOKEN = process.env['SLACK_BOT_TOKEN'];
   if (!BOT_TOKEN) {
     logger.debug('Slack not configured (SLACK_BOT_TOKEN unset) — skipping direct-channel Slack message');
     return null;
   }
-  const payload: Record<string, any> = { channel: channelId, text };
+  const payload: SlackPayload = { channel: channelId, text };
   if (threadTs) payload['thread_ts'] = threadTs;
   return postToSlackApi(BOT_TOKEN, payload);
 }
@@ -251,7 +262,7 @@ async function sendSlackButtons(
   text: string,
   repoName: string | null,
   buttons: SlackButton[][]
-): Promise<any> {
+): Promise<SlackApiResponse | null> {
   const BOT_TOKEN = process.env['SLACK_BOT_TOKEN'];
   if (!BOT_TOKEN) {
     logger.debug('Slack not configured (SLACK_BOT_TOKEN unset) — skipping Slack buttons message');
@@ -267,7 +278,7 @@ async function sendSlackButtons(
     return null;
   }
 
-  const blocks: any[] = [
+  const blocks: Record<string, unknown>[] = [
     { type: 'section', text: { type: 'mrkdwn', text } },
     ...buttons.map(row => ({
       type: 'actions',
