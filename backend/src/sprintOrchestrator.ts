@@ -124,9 +124,71 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
       },
     });
 
+    if (!prUrl) {
+      // createPullRequest() swallows its own errors and returns prUrl: null
+      // on failure (rate limit, auth hiccup, transient GitHub 5xx) instead
+      // of throwing. Marking the task 'done' here would be worse than the
+      // equivalent auditOrchestrator.ts gap (fixed alongside this) — 'done'
+      // is terminal, so this sprint task would be silently counted as
+      // shipped forever even though nothing merge-able was ever produced.
+      // The commit is real and pushed to batchResult.taskBranch, so treat
+      // this the same way the batchResult.status !== 'completed' branch
+      // below treats any other task failure: mark failed, pause the sprint
+      // (not just skip ahead — /sentinel resume-sprint is the deliberate
+      // human checkpoint), and don't fall through to scheduling the next
+      // task automatically.
+      logger.error({ repoFullName: task.repo_full_name, taskBranch: batchResult.taskBranch, taskId: task.id },
+        'PR creation failed after a completed sprint task — branch pushed, no PR opened');
+      const failureReason = `Commit succeeded but PR creation failed — branch pushed: ${batchResult.taskBranch}. Open a PR manually.`;
+      await updateSprintTask(task.id, { status: 'failed', failure_reason: failureReason });
+
+      // Sync the linked audit task the same way the success path below
+      // does — without this, a sprint task created from an audit task
+      // would leave that audit task at 'queued' (or whatever it was
+      // before), eligible to be picked up and re-executed by audit
+      // execution even though a branch/commit was already pushed for it.
+      if (task.audit_task_id) {
+        await updateAuditTask(task.audit_task_id, {
+          status:         'failed',
+          branch_name:    batchResult.taskBranch,
+          commit_sha:     batchResult.commitSha,
+          commit_url:     batchResult.commitUrl,
+          failure_reason: failureReason,
+        }).catch((err: any) => {
+          logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task after PR-creation failure');
+          return null;
+        });
+      }
+
+      const freshSprintOnPrFailure = await getSprintById(sprintId);
+      if (!freshSprintOnPrFailure) {
+        logger.error({ sprintId, taskId: task.id }, 'Sprint row missing when recording PR-creation failure — pausing without a counter update');
+        await updateSprint(sprintId, { status: 'paused' });
+      } else {
+        await updateSprint(sprintId, {
+          status:       'paused',
+          failed_tasks: freshSprintOnPrFailure.failed_tasks + 1,
+        });
+      }
+
+      await safeFire(sendTelegramMessage([
+        `Sprint Paused ⏸️ — PR Creation Failed`,
+        ``,
+        `Task ${task.execution_order}/${sprint.total_tasks} — ${task.task_title}`,
+        `Repo: ${task.repo_name}`,
+        `Commit succeeded, but opening a PR failed — check GitHub API status/rate limits.`,
+        `Branch: ${batchResult.taskBranch}`,
+        ``,
+        `Open a PR manually from that branch, then:`,
+        `/sentinel resume-sprint  — skip this task and continue`,
+        `/sentinel skip-sprint    — abandon this sprint`,
+      ].join('\n'), task.repo_name, topicId), { label: 'sprintOrchestrator' })
+      return;
+    }
+
     await updateSprintTask(task.id, {
       status:       'done',
-      pr_url:       prUrl || null,
+      pr_url:       prUrl,
       completed_at: new Date().toISOString(),
     });
 
