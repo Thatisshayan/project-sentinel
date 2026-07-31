@@ -44,6 +44,29 @@ export interface SprintTaskRow {
   updated_at: string;
 }
 
+// Shape of sprintPlanner.ts's AI-generated weekly sprint proposal JSON
+// (see generateSprintProposal's prompt for the source-of-truth schema).
+export interface SprintProposalTask {
+  repoName: string;
+  repoFullName: string;
+  taskTitle: string;
+  taskDescription?: string;
+  priority: string;
+  complexity: string;
+  builderAgent: string;
+  estimatedCost?: number;
+  reason?: string;
+}
+
+export interface SprintProposal {
+  summary: string;
+  weekStart: string;
+  weekEnd: string;
+  totalTasks: number;
+  estimatedCost: number;
+  tasks: SprintProposalTask[];
+}
+
 export interface VelocityMetricRow {
   id: number;
   week_start: string;

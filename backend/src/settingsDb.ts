@@ -1,5 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
+import type { Settings } from './types/settings';
 
 const { query } = dbClient;
 
@@ -62,8 +63,8 @@ const SETTINGS_DEFAULTS = {
   sentinel_paused: false,
 };
 
-async function getSettings() {
-  const r = await query(`
+async function getSettings(): Promise<Settings> {
+  const r = await query<Record<string, unknown>>(`
     SELECT
       auto_approve_tasks,
       audit_cooldown_h,
@@ -90,16 +91,16 @@ async function getSettings() {
 
   // Guard against individual columns being null/undefined (stale rows,
   // schema drift, or a query result that doesn't carry every column).
-  const merged: Record<string, any> = { ...SETTINGS_DEFAULTS, updated_at: row.updated_at };
+  const merged: Record<string, unknown> = { ...SETTINGS_DEFAULTS, updated_at: row['updated_at'] };
   for (const key of Object.keys(SETTINGS_DEFAULTS)) {
     if (row[key] !== null && row[key] !== undefined) {
       merged[key] = row[key];
     }
   }
-  return merged;
+  return merged as unknown as Settings;
 }
 
-async function updateSettings(updates: Record<string, unknown>) {
+async function updateSettings(updates: Record<string, unknown>): Promise<Settings> {
   const allowed = [
     'auto_approve_tasks',
     'audit_cooldown_h',
@@ -146,7 +147,7 @@ async function updateSettings(updates: Record<string, unknown>) {
     RETURNING *
   `;
 
-  const r = await query(sql, values);
+  const r = await query<Settings>(sql, values);
   logger.info({ updated: Object.keys(updates) }, 'Settings updated');
   return r.rows[0] || await getSettings();
 }

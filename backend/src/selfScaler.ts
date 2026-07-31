@@ -9,7 +9,8 @@ let BATCH_SIZE_OVERRIDE: number | null  = null;
 let DAILY_LIMIT_OVERRIDE: number | null = null;
 
 async function initSelfScaler(): Promise<void> {
-  const settings = await loadSettings().catch(() => ({}));
+  const settings: { batch_size_override?: number | null; daily_limit_override?: number | null } =
+    await loadSettings().catch(() => ({}));
   BATCH_SIZE_OVERRIDE  = settings.batch_size_override ?? null;
   DAILY_LIMIT_OVERRIDE = settings.daily_limit_override ?? null;
   logger.info({ BATCH_SIZE_OVERRIDE, DAILY_LIMIT_OVERRIDE }, 'Self-scaler initialized from DB');
@@ -30,7 +31,14 @@ async function persistOverrides(): Promise<void> {
   }).catch((err: any) => logger.warn({ err: err.message }, 'Failed to persist scaler overrides'));
 }
 
-async function runSelfScaler(): Promise<any> {
+interface SelfScalerResult {
+  usagePct: number;
+  queuedSafe: number;
+  batchSize: number;
+  dailyLimit: number;
+}
+
+async function runSelfScaler(): Promise<SelfScalerResult | null> {
   try {
     const [capacity, queueResult] = await Promise.all([
       getCapacityStatus(),
