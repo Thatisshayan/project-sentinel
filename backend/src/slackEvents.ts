@@ -28,23 +28,31 @@
 // the plan doc as a follow-up, not attempted in this slice.
 
 import crypto from 'crypto';
+import type { Request, Response } from 'express';
 import logger from './logger';
 import { dispatchCommand } from './commandRegistry';
 import { recordAgentReply } from './agents/externalAgentRegistry';
 import { handleViktorMessage } from './agents/viktorWatcher';
 import { recordRoundtableReply } from './agents/roundtable';
+import type { SlackEventPayload } from './types/slackEvent';
+
+interface RawBodyRequest extends Request {
+  rawBody?: Buffer;
+}
 
 const MAX_TIMESTAMP_SKEW_SECONDS = 60 * 5; // Slack's own documented replay-attack window
 
-function verifySlackSignature(req: any): boolean {
+function verifySlackSignature(req: RawBodyRequest): boolean {
   const signingSecret = process.env['SLACK_SIGNING_SECRET'];
   if (!signingSecret) {
     logger.error('SLACK_SIGNING_SECRET not set — rejecting Slack event');
     return false;
   }
 
-  const timestamp = req.headers['x-slack-request-timestamp'];
-  const signature  = req.headers['x-slack-signature'];
+  const timestampHeader = req.headers['x-slack-request-timestamp'];
+  const signatureHeader = req.headers['x-slack-signature'];
+  const timestamp = Array.isArray(timestampHeader) ? timestampHeader[0] : timestampHeader;
+  const signature  = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
   if (!timestamp || !signature) {
     // Previously silent — meant a request from a misbehaving/misconfigured
     // sender (or Slack itself, if headers were ever stripped somewhere
@@ -105,8 +113,8 @@ function stripBotMention(text: string): string {
   return text.slice(lastEnd).trim();
 }
 
-async function handleSlackEvent(req: any, res: any): Promise<void> {
-  const body = req.body || {};
+async function handleSlackEvent(req: RawBodyRequest, res: Response): Promise<void> {
+  const body: SlackEventPayload = req.body || {};
 
   // Unconditional — logs BEFORE any signature/type check, specifically so
   // "did anything ever reach this endpoint at all" has a real answer

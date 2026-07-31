@@ -16,8 +16,17 @@ import logger from './logger';
 import { verifySlackSignature } from './slackEvents';
 import { repoFullName } from './repoResolver';
 import { sendSlackMessage } from './slackClient';
+import type { Request, Response } from 'express';
 
-async function handleSlackInteraction(req: any, res: any): Promise<void> {
+interface RawBodyRequest extends Request {
+  rawBody?: Buffer;
+}
+
+interface SlackInteractionPayload {
+  actions?: { action_id: string; value?: string }[];
+}
+
+async function handleSlackInteraction(req: RawBodyRequest, res: Response): Promise<void> {
   if (!verifySlackSignature(req)) {
     res.status(401).json({ error: 'Invalid signature' });
     return;
@@ -26,11 +35,11 @@ async function handleSlackInteraction(req: any, res: any): Promise<void> {
   // Ack immediately — same 3-second requirement as Events API.
   res.status(200).send('');
 
-  let payload: any;
+  let payload: SlackInteractionPayload;
   try {
     payload = JSON.parse(req.body?.payload || '{}');
-  } catch (err: any) {
-    logger.warn({ err: err.message }, 'Slack interaction payload was not valid JSON');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'Slack interaction payload was not valid JSON');
     return;
   }
 
@@ -45,9 +54,9 @@ async function handleSlackInteraction(req: any, res: any): Promise<void> {
   }
 
   if (actionId === 'execute') {
-    const { executeApprovedTasks } = require('./auditOrchestrator') as { executeApprovedTasks: (...args: any[]) => Promise<void> };
+    const { executeApprovedTasks } = require('./auditOrchestrator') as { executeApprovedTasks: (repoFullName: string, repoName: string, topicId: number | null) => Promise<void> };
     await sendSlackMessage(`Starting execution for ${repoName}...`, repoName, null);
-    executeApprovedTasks(repoFullName(repoName), repoName, null).catch((err: any) =>
+    executeApprovedTasks(repoFullName(repoName), repoName, null).catch((err) =>
       logger.error({ err: err.stack ?? err.message, repoName }, 'Slack-triggered execute failed')
     );
     return;

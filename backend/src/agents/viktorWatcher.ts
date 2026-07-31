@@ -30,12 +30,9 @@ import { checkAuthority, canDelegateTo, logAuthorityAction } from '../viktorAuth
 import { getSettings } from '../settingsDb';
 import { sendSlackMessageToChannel } from '../slackClient';
 import { dispatchToAgent } from './externalAgentRegistry';
-
-interface SlackMessageEvent {
-  user?: string;
-  text?: string;
-  channel?: string;
-}
+import type { SlackEvent } from '../types/slackEvent';
+import type { SprintRow } from '../types/sprintRow';
+import type { SecurityIssueRow } from '../types/securityRow';
 
 const APPROVE_SPRINT_RE = /^approve\s+sprint$/i;
 const APPROVE_SECURITY_RE = /^approve\s+security\s+(\S+)$/i;
@@ -55,7 +52,7 @@ async function reply(channel: string | undefined, text: string): Promise<void> {
  * Safe no-op if VIKTOR_SLACK_USER_ID is unconfigured or doesn't match, or
  * if the message isn't a recognized authority action.
  */
-async function handleViktorMessage(event: SlackMessageEvent): Promise<void> {
+async function handleViktorMessage(event: SlackEvent): Promise<void> {
   const viktorId = process.env['VIKTOR_SLACK_USER_ID'];
   if (!viktorId) {
     logger.debug('VIKTOR_SLACK_USER_ID not configured — viktorWatcher inert');
@@ -107,8 +104,8 @@ async function handleViktorMessage(event: SlackMessageEvent): Promise<void> {
 }
 
 async function handleApproveSprint(channel: string | undefined): Promise<void> {
-  const { getCurrentSprint } = require('../sprintDb') as { getCurrentSprint: () => Promise<any> };
-  const sprint = await getCurrentSprint().catch((err: any) => {
+  const { getCurrentSprint } = require('../sprintDb') as { getCurrentSprint: () => Promise<SprintRow | null> };
+  const sprint = await getCurrentSprint().catch((err) => {
     logger.error({ err: err.message }, 'viktorWatcher: getCurrentSprint failed');
     return null;
   });
@@ -161,7 +158,7 @@ const VIKTOR_AUTO_RESOLVABLE_SEVERITIES = new Set(['low', 'medium']);
 async function handleApproveSecurity(channel: string | undefined, repoArg: string): Promise<void> {
   const { repoFullName } = require('../repoResolver') as { repoFullName: (r: string) => string };
   const { getOpenIssues, resolveAllOpenIssues } = require('../securityDb') as {
-    getOpenIssues: (repo: string) => Promise<any[]>;
+    getOpenIssues: (repo: string) => Promise<SecurityIssueRow[]>;
     resolveAllOpenIssues: (repo: string) => Promise<number>;
   };
 
@@ -175,7 +172,7 @@ async function handleApproveSecurity(channel: string | undefined, repoArg: strin
       check.allowed = false;
       check.reason = 'Could not verify open issue severities — denying rather than assuming safe';
     } else {
-      const blocking = openIssues.find((i: any) => !VIKTOR_AUTO_RESOLVABLE_SEVERITIES.has(String(i.severity).toLowerCase()));
+      const blocking = openIssues.find((i) => !VIKTOR_AUTO_RESOLVABLE_SEVERITIES.has(String(i.severity).toLowerCase()));
       if (blocking) {
         check.allowed = false;
         check.reason = `${repoArg} has an open '${blocking.severity}' issue — above Viktor's low/medium auto-resolve ceiling`;
