@@ -174,6 +174,12 @@ async function orchestrateDebug(payload: DebugPayload): Promise<void> {
       logger.error({ repoFullName, fixBranch: fixResult.fixBranch, commitSha },
         'PR creation failed after a successful debug fix — branch pushed, no PR opened');
       await updateDebugAttempt(repoFullName, commitSha, {
+        // cloneAndFix() already pushed a real commit+branch before PR
+        // creation was attempted — persist those structured pointers
+        // (matching what the success path below stores) instead of
+        // dropping them, so manual recovery has something to work from.
+        fix_commit_sha: fixResult.commitSha,
+        fix_branch:     fixResult.fixBranch,
         status:         'failed',
         failure_reason: `Fix committed but PR creation failed — branch pushed: ${fixResult.fixBranch}. Open a PR manually.`,
       });
@@ -185,6 +191,14 @@ async function orchestrateDebug(payload: DebugPayload): Promise<void> {
         }),
         repoName, topicId
       );
+      // Mirror the sibling else-branch's exhausted-attempt handling below —
+      // without this, a PR-creation failure on the LAST allowed attempt
+      // would leave the Notion project state stuck at 'Debugging' forever,
+      // since no new debug event refires for the same commitSha once an
+      // unmerged fix branch already exists for it.
+      if (nextAttemptNum >= max) {
+        await updateNotionState(repoFullName, 'Broken — Human Required');
+      }
       return;
     }
 

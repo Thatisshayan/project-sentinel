@@ -142,6 +142,24 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
       const failureReason = `Commit succeeded but PR creation failed — branch pushed: ${batchResult.taskBranch}. Open a PR manually.`;
       await updateSprintTask(task.id, { status: 'failed', failure_reason: failureReason });
 
+      // Sync the linked audit task the same way the success path below
+      // does — without this, a sprint task created from an audit task
+      // would leave that audit task at 'queued' (or whatever it was
+      // before), eligible to be picked up and re-executed by audit
+      // execution even though a branch/commit was already pushed for it.
+      if (task.audit_task_id) {
+        await updateAuditTask(task.audit_task_id, {
+          status:         'failed',
+          branch_name:    batchResult.taskBranch,
+          commit_sha:     batchResult.commitSha,
+          commit_url:     batchResult.commitUrl,
+          failure_reason: failureReason,
+        }).catch((err: any) => {
+          logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task after PR-creation failure');
+          return null;
+        });
+      }
+
       const freshSprintOnPrFailure = await getSprintById(sprintId);
       if (!freshSprintOnPrFailure) {
         logger.error({ sprintId, taskId: task.id }, 'Sprint row missing when recording PR-creation failure — pausing without a counter update');
