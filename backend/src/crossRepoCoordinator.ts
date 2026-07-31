@@ -1,6 +1,7 @@
 import logger from './logger';
 import { getGithubOrg } from './repoResolver';
 import { getDefaultBranch } from './repoDiscovery';
+import type { TriggerAuditPayload, TriggerAuditResult } from './auditOrchestrator';
 
 const DEFAULT_DEPS: Record<string, string[]> = {
   'session-guard':      ['tapcash', 'AlphonsoEcosystem'],
@@ -39,7 +40,7 @@ async function notifyDependents(pushedRepo: string, pushedCommitSha: string, aut
 
   logger.info({ pushedRepo, dependents }, 'Cross-repo dependency triggered');
 
-  const { triggerAudit } = require('./auditOrchestrator') as { triggerAudit: (...args: any[]) => Promise<any> };
+  const { triggerAudit } = require('./auditOrchestrator') as { triggerAudit: (payload: TriggerAuditPayload) => Promise<TriggerAuditResult> };
   const { getDefaultBranch } = require('./repoDiscovery') as { getDefaultBranch: (r: string) => Promise<string> };
   const GITHUB_OWNER = getGithubOrg();
 

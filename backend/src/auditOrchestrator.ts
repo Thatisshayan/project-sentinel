@@ -154,12 +154,12 @@ async function checkAuditRules(data: AuditRuleCheckData): Promise<{ pass: boolea
 
 // ── MAIN AUDIT TRIGGER ────────────────────────────────────────────────────────
 
-interface TriggerAuditResult {
+export interface TriggerAuditResult {
   started: boolean;
   reason?: string;
 }
 
-interface TriggerAuditPayload {
+export interface TriggerAuditPayload {
   repoFullName: string;
   repoName: string;
   projectName?: string;

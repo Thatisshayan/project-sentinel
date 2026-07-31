@@ -295,26 +295,28 @@ function parseAuditOutput(stdout: string): AuditResult {
     throw new Error('No JSON object found in Claude Code audit output');
   }
 
-  let parsed: any;
+  let rawParsed: unknown;
   try {
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch (err: any) {
-    throw new Error(`Failed to parse audit JSON: ${err.message} — raw tail: ${stripped.slice(-200)}`);
+    rawParsed = JSON.parse(jsonMatch[0]);
+  } catch (err) {
+    throw new Error(`Failed to parse audit JSON: ${(err as Error).message} — raw tail: ${stripped.slice(-200)}`);
   }
 
-  validateAuditOutput(parsed);
+  const parsed = validateAuditOutput(rawParsed);
 
   // Aspect fields are additive/optional (older audits or a model that
   // ignores the instruction won't include them) — default rather than
   // reject, so a missing aspect score never fails the whole audit.
-  parsed.aspectHealthScore   = typeof parsed.aspectHealthScore === 'number'
-    ? Math.max(1, Math.min(10, Math.round(parsed.aspectHealthScore)))
+  const aspectHealthScoreRaw = (rawParsed as Record<string, unknown>)['aspectHealthScore'];
+  parsed.aspectHealthScore   = typeof aspectHealthScoreRaw === 'number'
+    ? Math.max(1, Math.min(10, Math.round(aspectHealthScoreRaw)))
     : parsed.overallHealthScore;
-  parsed.aspectEffectSummary = typeof parsed.aspectEffectSummary === 'string' && parsed.aspectEffectSummary.trim()
-    ? parsed.aspectEffectSummary.trim()
+  const aspectEffectSummaryRaw = (rawParsed as Record<string, unknown>)['aspectEffectSummary'];
+  parsed.aspectEffectSummary = typeof aspectEffectSummaryRaw === 'string' && aspectEffectSummaryRaw.trim()
+    ? aspectEffectSummaryRaw.trim()
     : '';
 
-  parsed.tasks = parsed.tasks.slice(0, 10).map((t: any, i: number): AuditTask => ({
+  parsed.tasks = parsed.tasks.slice(0, 10).map((t, i): AuditTask => ({
     taskNumber:          t.taskNumber          || i + 1,
     priority:            t.priority            || 'medium',
     category:            t.category            || 'code-quality',
