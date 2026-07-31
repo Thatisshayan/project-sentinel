@@ -600,6 +600,27 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
         'Could not record active task branch — next batch may open a new branch/PR instead of continuing this one');
     });
 
+    // createPullRequest() swallows its own errors and returns null/null on
+    // failure (rate limit, auth hiccup, transient GitHub 5xx) rather than
+    // throwing — previously that fell straight into the "Batch Ready" success
+    // path below with a blank PR line, silently marking real completed work
+    // as build_check with no PR for any webhook to ever advance. The commits
+    // are real and already pushed to batchResult.taskBranch, so this can't
+    // just be re-queued (that would risk redoing already-committed tasks) —
+    // surface it loudly so a human can open the PR manually from that branch.
+    if (!prUrl) {
+      logger.error({ repoFullName, taskBranch: batchResult.taskBranch },
+        'PR creation failed after a successful batch — branch pushed, no PR opened');
+      await safeFire(sendTelegramMessage([
+        `Project Sentinel — PR Creation Failed ⚠️`,
+        ``,
+        `Repo: ${repoName}`,
+        `Batch ${batchNum} committed successfully (tasks ${completedNums}), but opening a PR failed — check GitHub API status/rate limits.`,
+        `Branch: ${batchResult.taskBranch}`,
+        `Open a PR manually from that branch on GitHub — the tasks are already marked build_check and will pick up once one exists.`,
+      ].join('\n'), repoName, topicId), { label: 'auditOrchestrator' })
+    }
+
     // D-027 item 4 (self-review fallback) — if CodeRabbit hasn't found this
     // PR (not configured, or just hasn't gotten to it yet) within the same
     // delay window used for the human-commit audit fallback, Sentinel
