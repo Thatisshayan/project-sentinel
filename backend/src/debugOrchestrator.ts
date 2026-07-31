@@ -162,6 +162,32 @@ async function orchestrateDebug(payload: DebugPayload): Promise<void> {
       },
     });
 
+    if (!prUrl) {
+      // createPullRequest() swallows its own errors and returns prUrl: null
+      // on failure instead of throwing. Marking 'fix_pending' here (same
+      // class of gap as auditOrchestrator.ts/sprintOrchestrator.ts, fixed
+      // alongside this) would leave the attempt stuck forever — nothing
+      // resolves fix_pending except a merged PR, and there's no PR. The fix
+      // commit is real and pushed to fixResult.fixBranch, so treat this as
+      // a failed attempt (consumes a retry, matches the else-branch below)
+      // rather than a silent stall with a misleading "Fix Ready" message.
+      logger.error({ repoFullName, fixBranch: fixResult.fixBranch, commitSha },
+        'PR creation failed after a successful debug fix — branch pushed, no PR opened');
+      await updateDebugAttempt(repoFullName, commitSha, {
+        status:         'failed',
+        failure_reason: `Fix committed but PR creation failed — branch pushed: ${fixResult.fixBranch}. Open a PR manually.`,
+      });
+      await sendTelegramMessage(
+        buildCannotFixMessage({
+          projectName, repoName, attemptNumber: nextAttemptNum, agentLabel,
+          reason: `Fix committed successfully, but PR creation failed (check GitHub API status/rate limits). Branch: ${fixResult.fixBranch} — open a PR manually.`,
+          attemptsLeft: max - nextAttemptNum,
+        }),
+        repoName, topicId
+      );
+      return;
+    }
+
     await updateDebugAttempt(repoFullName, commitSha, {
       fix_commit_sha: fixResult.commitSha,
       fix_branch:     fixResult.fixBranch,
