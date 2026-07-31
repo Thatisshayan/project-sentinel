@@ -1,4 +1,5 @@
 import type { Agent } from "./types";
+import { scoreColor } from "./theme";
 
 export const AGENTS: Agent[] = [
   { id:"nem", name:"Nemotron",   model:"nvidia/nemotron-4-340b",   provider:"NVIDIA",  color:"#6366F1", status:"working", task:"Refactor auth middleware → JWT RS256",  repo:"sentinel-core",  elapsed:847,  done:34, prs:9,  fails:1 },
@@ -16,8 +17,6 @@ export const AGENTS: Agent[] = [
 // which is indistinguishable from real data and can paper over a genuine
 // outage. Show an honest error/empty state in the UI instead of mock data.
 
-export function healthColor(score: number) {
-  if (score >= 80) return "#22C55E";
-  if (score >= 60) return "#F59E0B";
-  return "#EF4444";
-}
+// Re-exported from lib/theme.ts (the single source for this threshold) so
+// existing call sites don't all need updating at once.
+export const healthColor = scoreColor;

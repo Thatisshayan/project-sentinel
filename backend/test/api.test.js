@@ -1,10 +1,25 @@
 process.env.SENTINEL_UI_KEY = '';
+process.env.GITHUB_ORG = 'your-org';
 
 jest.mock('../src/dbClient', () => ({
   query: jest.fn(),
 }));
 
+jest.mock('../src/projectMemory', () => ({
+  initMemorySchema: jest.fn(),
+  getMemoryEntries: jest.fn(),
+  addMemoryEntry: jest.fn(),
+  deleteMemoryEntry: jest.fn(),
+  getMemoryForPrompt: jest.fn(),
+}));
+
+jest.mock('../src/projectDb', () => ({
+  getAspectState: jest.fn(),
+}));
+
 const { query }  = require('../src/dbClient');
+const projectMemory = require('../src/projectMemory');
+const projectDb  = require('../src/projectDb');
 const request    = require('supertest');
 const express    = require('express');
 const apiRouter  = require('../src/api');
@@ -113,5 +128,109 @@ describe('API auth middleware', () => {
       .mockResolvedValueOnce({ rows: [] });
     const res = await request(protectedApp).get('/api/portfolio');
     expect(res.status).toBe(200);
+  });
+});
+
+describe('GET /api/repo/:name', () => {
+  it('includes the aspect field from projectDb.getAspectState', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ repo_name: 'tapcash', health_score: 8.0 }] }) // metrics
+      .mockResolvedValueOnce({ rows: [] })                                            // tasks
+      .mockResolvedValueOnce({ rows: [] });                                           // cycle
+    projectDb.getAspectState.mockResolvedValueOnce({ aspect: 'security', sprintCount: 2 });
+
+    const res = await request(app).get('/api/repo/tapcash');
+    expect(res.status).toBe(200);
+    expect(res.body.aspect).toEqual({ aspect: 'security', sprintCount: 2 });
+    expect(projectDb.getAspectState).toHaveBeenCalledWith('tapcash');
+  });
+
+  it('returns aspect: null when no aspect state exists yet', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ repo_name: 'tapcash', health_score: 8.0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+    projectDb.getAspectState.mockResolvedValueOnce(null);
+
+    const res = await request(app).get('/api/repo/tapcash');
+    expect(res.status).toBe(200);
+    expect(res.body.aspect).toBeNull();
+  });
+
+  it('returns 400 for an invalid repo name', async () => {
+    const res = await request(app).get('/api/repo/..%2Fetc');
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /api/repo/:name/memory', () => {
+  it('returns memory entries for a valid repo name', async () => {
+    const entries = [{ id: 1, repo_full_name: 'your-org/tapcash', type: 'note', content: 'x', added_by: null, created_at: '2026-01-01' }];
+    projectMemory.getMemoryEntries.mockResolvedValueOnce(entries);
+
+    const res = await request(app).get('/api/repo/tapcash/memory');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(entries);
+    expect(projectMemory.getMemoryEntries).toHaveBeenCalledWith('your-org/tapcash', 200);
+  });
+
+  it('returns 400 for an invalid repo name', async () => {
+    const res = await request(app).get('/api/repo/bad name/memory');
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /api/repo/:name/memory', () => {
+  it('adds a memory entry on the happy path', async () => {
+    const entry = { id: 5, repo_full_name: 'your-org/tapcash', type: 'convention', content: 'Use tabs', added_by: 'Dashboard', created_at: '2026-01-01' };
+    projectMemory.addMemoryEntry.mockResolvedValueOnce(entry);
+
+    const res = await request(app).post('/api/repo/tapcash/memory').send({ type: 'convention', content: 'Use tabs' });
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual(entry);
+    expect(projectMemory.addMemoryEntry).toHaveBeenCalledWith('your-org/tapcash', 'convention', 'Use tabs', 'Dashboard');
+  });
+
+  it('returns 400 for an invalid type', async () => {
+    const res = await request(app).post('/api/repo/tapcash/memory').send({ type: 'bogus', content: 'x' });
+    expect(res.status).toBe(400);
+    expect(projectMemory.addMemoryEntry).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for empty content', async () => {
+    const res = await request(app).post('/api/repo/tapcash/memory').send({ type: 'note', content: '   ' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for content over the length limit', async () => {
+    const res = await request(app).post('/api/repo/tapcash/memory').send({ type: 'note', content: 'x'.repeat(2001) });
+    expect(res.status).toBe(400);
+    expect(projectMemory.addMemoryEntry).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for an invalid repo name', async () => {
+    const res = await request(app).post('/api/repo/bad name/memory').send({ type: 'note', content: 'x' });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('DELETE /api/repo/:name/memory/:id', () => {
+  it('deletes an existing entry', async () => {
+    projectMemory.deleteMemoryEntry.mockResolvedValueOnce(true);
+    const res = await request(app).delete('/api/repo/tapcash/memory/5');
+    expect(res.status).toBe(200);
+    expect(projectMemory.deleteMemoryEntry).toHaveBeenCalledWith('your-org/tapcash', 5);
+  });
+
+  it('returns 404 when the entry does not exist', async () => {
+    projectMemory.deleteMemoryEntry.mockResolvedValueOnce(false);
+    const res = await request(app).delete('/api/repo/tapcash/memory/999');
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 400 for a non-integer id', async () => {
+    const res = await request(app).delete('/api/repo/tapcash/memory/not-a-number');
+    expect(res.status).toBe(400);
+    expect(projectMemory.deleteMemoryEntry).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import { SENTINEL_TOKENS, AGENT_PALETTE } from "./lib/theme";
 
 const config: Config = {
   darkMode: "class",
@@ -6,42 +7,47 @@ const config: Config = {
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
+    "./lib/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     extend: {
       colors: {
+        // Semantic shadcn/base-ui tokens — driven by the CSS vars in
+        // globals.css, which are themselves Sentinel-colored (not the
+        // stock shadcn oklch theme). This is what makes components/ui/*
+        // (Card, Badge, Button, Progress, Select, ScrollArea…) actually
+        // render on-brand instead of unstyled.
         background: "var(--background)",
         foreground: "var(--foreground)",
-        border:     "#222222",
-        input:      "#222222",
-        ring:       "#6366F1",
-        // Sentinel tokens
+        card: { DEFAULT: "var(--card)", foreground: "var(--card-foreground)" },
+        popover: { DEFAULT: "var(--popover)", foreground: "var(--popover-foreground)" },
+        primary: { DEFAULT: "var(--primary)", foreground: "var(--primary-foreground)" },
+        secondary: { DEFAULT: "var(--secondary)", foreground: "var(--secondary-foreground)" },
+        muted: { DEFAULT: "var(--muted)", foreground: "var(--muted-foreground)" },
+        accent: { DEFAULT: "var(--accent)", foreground: "var(--accent-foreground)" },
+        destructive: "var(--destructive)",
+        border: "var(--border)",
+        input: "var(--input)",
+        ring: "var(--ring)",
+        // Sentinel tokens — the app's real palette, used directly (incl.
+        // with Tailwind's opacity modifiers, e.g. bg-s-ind/10) throughout.
         s: {
-          bg:      "#0A0A0A",
-          surface: "#111111",
-          s2:      "#161B22",
-          border:  "#222222",
-          border2: "#2e2e2e",
-          text:    "#F5F5F5",
-          muted:   "#888888",
-          dim:     "#444444",
-          ind:     "#6366F1",
-          gold:    "#C8961C",
-          green:   "#22C55E",
-          amber:   "#F59E0B",
-          red:     "#EF4444",
-          cyan:    "#00D4FF",
+          bg: SENTINEL_TOKENS.bg,
+          surface: SENTINEL_TOKENS.surface,
+          s2: SENTINEL_TOKENS.s2,
+          border: SENTINEL_TOKENS.border,
+          border2: SENTINEL_TOKENS.border2,
+          text: SENTINEL_TOKENS.text,
+          muted: SENTINEL_TOKENS.muted,
+          dim: SENTINEL_TOKENS.dim,
+          ind: SENTINEL_TOKENS.ind,
+          gold: SENTINEL_TOKENS.gold,
+          green: SENTINEL_TOKENS.green,
+          amber: SENTINEL_TOKENS.amber,
+          red: SENTINEL_TOKENS.red,
+          cyan: SENTINEL_TOKENS.cyan,
         },
-        agent: {
-          nemotron:   "#6366F1",
-          "qwen-coder": "#F59E0B",
-          gemini:     "#22C55E",
-          llama:      "#3B82F6",
-          deepseek:   "#8B5CF6",
-          "qwen-max": "#EC4899",
-          "qwen-turbo": "#14B8A6",
-          "qwen-dash": "#F97316",
-        },
+        agent: { ...AGENT_PALETTE },
       },
       fontFamily: {
         mono: ["var(--font-geist-mono)", "JetBrains Mono", "monospace"],
@@ -62,30 +68,6 @@ const config: Config = {
         md: "6px",
         lg: "8px",
         xl: "10px",
-      },
-      keyframes: {
-        fadeUp: {
-          from: { opacity: "0", transform: "translateY(8px)" },
-          to:   { opacity: "1", transform: "translateY(0)" },
-        },
-        bootIn: {
-          from: { opacity: "0", transform: "translateY(4px)" },
-          to:   { opacity: "1", transform: "translateY(0)" },
-        },
-        slideIn: {
-          from: { opacity: "0", transform: "translateX(12px)" },
-          to:   { opacity: "1", transform: "translateX(0)" },
-        },
-        growBar: {
-          from: { width: "0%" },
-          to:   { width: "var(--bar-w, 0%)" },
-        },
-      },
-      animation: {
-        "fade-up":  "fadeUp 0.18s ease both",
-        "boot-in":  "bootIn 0.25s ease both",
-        "slide-in": "slideIn 0.2s ease both",
-        "grow-bar": "growBar 0.9s ease both",
       },
     },
   },

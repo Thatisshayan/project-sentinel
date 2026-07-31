@@ -1,6 +1,7 @@
 "use client";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { scoreColor } from "@/lib/theme";
 
 const PAGE_META: Record<string, { title: string; sub: string }> = {
   "/":           { title: "Overview",     sub: "Portfolio"       },
@@ -47,24 +48,22 @@ export function Topbar() {
   const limit   = stats?.budgetLimit ?? 30;
 
   return (
-    <header className="h-[52px] flex-shrink-0 flex items-center gap-3 px-5 bg-[#111111] border-b border-[#222222] relative overflow-hidden">
+    <header className="h-[52px] flex-shrink-0 flex items-center gap-3 px-5 bg-s-surface border-b border-s-border relative overflow-hidden">
       <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-px"
         style={{ background: "linear-gradient(to right, transparent, rgba(200,150,28,.18), transparent)" }} />
 
-      <span className="font-bold text-sm text-[#F5F5F5] tracking-tight">{meta.title}</span>
-      <span className="text-[#444444] text-xs">/</span>
-      <span className="text-[#888888] text-[11px] font-mono">{meta.sub}</span>
+      <span className="font-bold text-sm text-s-text tracking-tight">{meta.title}</span>
+      <span className="text-s-dim text-xs">/</span>
+      <span className="text-s-muted text-[11px] font-mono">{meta.sub}</span>
 
       <div className="ml-auto flex items-center gap-2.5">
         {/* Health avg */}
         <div className="flex items-center gap-1.5 text-[11px]">
-          <span className="text-[#888888]">Health</span>
+          <span className="text-s-muted">Health</span>
           {health !== null ? (
-            <span className="font-bold font-mono" style={{
-              color: health >= 80 ? "#22C55E" : health >= 60 ? "#F59E0B" : "#EF4444"
-            }}>{health}</span>
+            <span className="font-bold font-mono" style={{ color: scoreColor(health) }}>{health}</span>
           ) : (
-            <span className="font-bold font-mono text-[#444444]">—</span>
+            <span className="font-bold font-mono text-s-dim">—</span>
           )}
         </div>
 
@@ -73,34 +72,34 @@ export function Topbar() {
         {/* Agent pips */}
         {working !== null && total !== null ? (
           <div className="flex items-center gap-1.5 text-[11px]">
-            <span className="w-[7px] h-[7px] rounded-full bg-[#22C55E]" style={{ boxShadow: "0 0 5px #22C55E90" }} />
-            <span className="font-mono text-[9px] text-[#888888]">{working}/{total} active</span>
+            <span className="w-[7px] h-[7px] rounded-full bg-s-green" style={{ boxShadow: "0 0 5px #22C55E90" }} />
+            <span className="font-mono text-[9px] text-s-muted">{working}/{total} active</span>
           </div>
         ) : (
-          <span className="text-[9px] font-mono text-[#444444]">loading…</span>
+          <span className="text-[9px] font-mono text-s-dim">loading…</span>
         )}
 
         <Divider />
 
         {/* Cost */}
-        <button className="flex items-center gap-1.5 px-2 py-[5px] rounded border border-[#C8961C]/25 bg-[#C8961C]/6 hover:bg-[#C8961C]/12 transition-colors">
+        <button className="flex items-center gap-1.5 px-2 py-[5px] rounded border border-s-gold/25 bg-s-gold/[0.06] hover:bg-s-gold/[0.12] transition-colors">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#C8961C" strokeWidth="2.2" strokeLinecap="round">
             <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
           </svg>
           {cost !== null ? (
-            <span className="text-[11px] font-mono font-semibold text-[#C8961C]">${cost.toFixed(2)}</span>
+            <span className="text-[11px] font-mono font-semibold text-s-gold">${cost.toFixed(2)}</span>
           ) : (
-            <span className="text-[11px] font-mono font-semibold text-[#444444]">$—</span>
+            <span className="text-[11px] font-mono font-semibold text-s-dim">$—</span>
           )}
-          <span className="text-[9px] text-[#444444]">/ ${limit}</span>
-          <span className="text-[8px] font-mono text-[#444444] border-l border-[#222222] pl-1.5">CostPilot</span>
+          <span className="text-[9px] text-s-dim">/ ${limit}</span>
+          <span className="text-[8px] font-mono text-s-dim border-l border-s-border pl-1.5">CostPilot</span>
         </button>
 
         <Divider />
 
         {/* Clock */}
         <div className="flex items-center gap-1.5 text-[10px] font-mono text-[#666666]">
-          <span className="w-[6px] h-[6px] rounded-full bg-[#22C55E] live-dot" />
+          <span className="w-[6px] h-[6px] rounded-full bg-s-green live-dot" />
           <LiveClock />
         </div>
 
@@ -111,7 +110,7 @@ export function Topbar() {
 }
 
 function Divider() {
-  return <div className="w-px h-4 bg-[#222222]" />;
+  return <div className="w-px h-4 bg-s-border" />;
 }
 
 function LiveClock() {

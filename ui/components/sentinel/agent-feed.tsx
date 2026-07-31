@@ -1,16 +1,16 @@
 "use client";
 import { motion } from "framer-motion";
 import type { FeedEntry } from "@/lib/types";
+import { fadeInStagger, useSafeReducedMotion } from "@/lib/motion";
 
 export function AgentFeed({ entries }: { entries: FeedEntry[] }) {
+  const reduced = useSafeReducedMotion();
   return (
     <div className="flex-1 overflow-y-auto">
       {entries.map((e, i) => (
         <motion.div
           key={i}
-          initial={{ opacity: 0, x: 8 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: i * 0.05, duration: 0.2 }}
+          {...fadeInStagger(i, !!reduced, "x")}
           className="flex gap-2.5 px-3.5 py-2.5 border-b border-s-border hover:bg-white/[0.02] transition-colors"
         >
           <span

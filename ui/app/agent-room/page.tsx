@@ -4,21 +4,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentMessage, AgentRow } from "@/lib/api";
+import { agentColorForLabel } from "@/lib/theme";
+import { fadeInStagger, useSafeReducedMotion } from "@/lib/motion";
 
 const CHIPS = ["/sentinel report", "/sentinel status", "/sentinel audit tapcash", "/agents list", "/sprint status"];
-
-const PROVIDER_COLORS: Record<string, string> = {
-  nvidia: "#6366F1", nemotron: "#6366F1", hermes: "#6366F1",
-  qwen: "#F59E0B", gemini: "#22C55E", llama: "#3B82F6",
-  deepseek: "#8B5CF6", aider: "#14B8A6", dashboard: "#C8961C",
-};
-function agentColor(label: string) {
-  const l = label?.toLowerCase() ?? "";
-  for (const [key, color] of Object.entries(PROVIDER_COLORS)) {
-    if (l.includes(key)) return color;
-  }
-  return "#888888";
-}
 
 interface Msg { id: string; agent: string; color: string; text: string; ts: string; isMe?: boolean; }
 
@@ -34,7 +23,7 @@ function msgToMsg(m: AgentMessage): Msg {
   return {
     id:    String(m.id),
     agent: isMe ? "You" : m.agent_label,
-    color: isMe ? "#C8961C" : agentColor(m.agent_label),
+    color: isMe ? "#C8961C" : agentColorForLabel(m.agent_label),
     text:  m.message,
     ts:    relTime(m.created_at),
     isMe,
@@ -42,6 +31,7 @@ function msgToMsg(m: AgentMessage): Msg {
 }
 
 export default function AgentRoomPage() {
+  const reduced = useSafeReducedMotion();
   const [msgs, setMsgs]       = useState<Msg[]>([]);
   const [agents, setAgents]   = useState<AgentRow[]>([]);
   const [input, setInput]     = useState("");
@@ -114,9 +104,9 @@ export default function AgentRoomPage() {
               <span
                 className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                 style={{
-                  background: agentColor(a.agent_label),
+                  background: agentColorForLabel(a.agent_label),
                   opacity: a.status === "idle" ? 0.3 : 1,
-                  boxShadow: a.status === "working" ? `0 0 5px ${agentColor(a.agent_label)}` : undefined,
+                  boxShadow: a.status === "working" ? `0 0 5px ${agentColorForLabel(a.agent_label)}` : undefined,
                 }}
               />
               <div className="flex-1 min-w-0">
@@ -142,9 +132,7 @@ export default function AgentRoomPage() {
             {msgs.map((m) => (
               <motion.div
                 key={m.id}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.18 }}
+                {...fadeInStagger(0, !!reduced)}
                 className={cn("flex gap-2.5", m.isMe && "flex-row-reverse")}
               >
                 <span

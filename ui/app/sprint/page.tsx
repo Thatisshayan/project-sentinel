@@ -1,5 +1,6 @@
 import { getCurrentSprint } from "@/lib/api";
 import { SprintView } from "@/components/sentinel/sprint-view";
+import { mapTaskStatus } from "@/lib/format";
 
 export const revalidate = 60;
 
@@ -38,7 +39,7 @@ export default async function SprintPage() {
   const displayTasks = tasks.map(t => ({
     title:    'task_title' in t ? (t as any).task_title : (t as any).title,
     agent:    'builder_agent' in t ? (t as any).builder_agent : (t as any).agent,
-    status:   mapStatus((t as any).status),
+    status:   mapTaskStatus((t as any).status),
     priority: ((t as any).priority ?? 'P2').toUpperCase(),
     id:       (t as any).id,
   }));
@@ -51,13 +52,6 @@ export default async function SprintPage() {
       loadError={fetchFailed}
     />
   );
-}
-
-function mapStatus(s: string): "working" | "done" | "blocked" | "todo" {
-  if (s === 'completed' || s === 'done') return 'done';
-  if (s === 'in_progress' || s === 'working') return 'working';
-  if (s === 'failed' || s === 'blocked') return 'blocked';
-  return 'todo';
 }
 
 function fmtDate(iso: string) {

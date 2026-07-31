@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { MeterBar } from "./meter-bar";
+import { scoreColor } from "@/lib/theme";
 
 export function BudgetPanel() {
   const [used, setUsed]   = useState<number | null>(null);
@@ -19,6 +20,12 @@ export function BudgetPanel() {
   }, []);
 
   const pct = used != null ? Math.min(100, (used / limit) * 100) : 0;
+  // Budget bars invert the health-score palette: high usage is bad, so the
+  // >80% (red) / >60% (amber) thresholds read the same way scoreColor's
+  // >=80/>=60 thresholds do, just flipped for a "used up" rather than
+  // "score" quantity — gold below the amber threshold, matching CostPilot's
+  // brand accent.
+  const barColor = pct > 80 ? scoreColor(20) : pct > 60 ? scoreColor(70) : "#C8961C";
 
   return (
     <div className="flex-shrink-0 p-3.5 border-t border-s-border bg-white/[0.01]">
@@ -37,15 +44,7 @@ export function BudgetPanel() {
           )}
         </span>
       </div>
-      <div className="h-1 bg-s-border rounded-full overflow-hidden">
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
-          transition={{ delay: 0.3, duration: 0.8, ease: "easeOut" }}
-          className="h-full rounded-full"
-          style={{ background: pct > 80 ? "#EF4444" : pct > 60 ? "#F59E0B" : "#C8961C" }}
-        />
-      </div>
+      <MeterBar pct={pct} color={barColor} delay={0.3} height={4} />
       <div className="flex justify-between mt-1.5 text-[9px] font-mono text-s-dim">
         <span>{used != null ? `${pct.toFixed(0)}% used` : "—"}</span>
         <span>{used != null ? `$${(limit - used).toFixed(2)} remaining` : ""}</span>

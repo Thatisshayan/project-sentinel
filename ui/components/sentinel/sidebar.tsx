@@ -74,10 +74,14 @@ function buildNav(stats: SidebarStats | null) {
   ];
 }
 
+// Named s-* tokens (defined once, in lib/theme.ts / tailwind.config.ts)
+// rather than raw hex arbitrary values — Tailwind's JIT needs these class
+// names to appear literally in source, so this is as centralized as the
+// color definitions can get without losing static purging.
 const BADGE_STYLES: Record<string, string> = {
-  ind:  "text-[#6366F1] bg-[#6366F1]/10",
-  red:  "text-[#EF4444] bg-[#EF4444]/10",
-  live: "text-[#00D4FF] bg-[#00D4FF]/10 animate-[livePulse_2s_ease-in-out_infinite]",
+  ind:  "text-s-ind bg-s-ind/10",
+  red:  "text-s-red bg-s-red/10",
+  live: "text-s-cyan bg-s-cyan/10 animate-[livePulse_2s_ease-in-out_infinite]",
 };
 
 export function Sidebar() {
@@ -116,7 +120,7 @@ export function Sidebar() {
     <motion.nav
       animate={{ width: expanded ? 220 : 52 }}
       transition={{ type: "spring", stiffness: 300, damping: 30 }}
-      className="relative flex flex-col h-full bg-[#111111] border-r border-[#222222] overflow-hidden flex-shrink-0 z-10"
+      className="relative flex flex-col h-full bg-s-surface border-r border-s-border overflow-hidden flex-shrink-0 z-10"
     >
       {/* Brand edge line */}
       <div className="pointer-events-none absolute right-0 top-0 w-px h-full"
@@ -125,7 +129,7 @@ export function Sidebar() {
       {/* Logo */}
       <button
         onClick={toggle}
-        className="flex items-center gap-2.5 h-[52px] px-3 border-b border-[#222222] flex-shrink-0 overflow-hidden cursor-pointer w-full text-left"
+        className="flex items-center gap-2.5 h-[52px] px-3 border-b border-s-border flex-shrink-0 overflow-hidden cursor-pointer w-full text-left"
         aria-label={expanded ? "Collapse sidebar" : "Expand sidebar"}
       >
         <div className="flex-shrink-0 relative">
@@ -144,7 +148,7 @@ export function Sidebar() {
                 style={{ background: "linear-gradient(135deg, #F5F5F5 40%, #C8961C)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
                 SENTINEL
               </div>
-              <div className="text-[8px] text-[#444444] font-mono tracking-[0.12em] mt-[3px]">
+              <div className="text-[8px] text-s-dim font-mono tracking-[0.12em] mt-[3px]">
                 AUTONOMOUS · AI · OPS
               </div>
             </motion.div>
@@ -156,7 +160,7 @@ export function Sidebar() {
       <div className="flex-1 overflow-y-auto overflow-x-hidden py-2 px-1.5 space-y-px">
         {NAV.map((item, i) => {
           if (item === null) {
-            return <div key={`sep-${i}`} className="h-px bg-[#222222] my-2 mx-1" />;
+            return <div key={`sep-${i}`} className="h-px bg-s-border my-2 mx-1" />;
           }
           const Icon = item.icon;
           const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
@@ -167,20 +171,20 @@ export function Sidebar() {
               className={cn(
                 "group relative flex items-center gap-2.5 px-2 py-[7px] rounded min-h-[34px] text-xs font-medium transition-colors duration-100",
                 active
-                  ? "text-[#F5F5F5] bg-[#6366F1]/10"
-                  : "text-[#888888] hover:text-[#F5F5F5] hover:bg-white/5"
+                  ? "text-s-text bg-s-ind/10"
+                  : "text-s-muted hover:text-s-text hover:bg-white/5"
               )}
             >
               {active && (
                 <motion.div
                   layoutId="nav-pill"
-                  className="absolute left-0 top-[22%] bottom-[22%] w-[2px] rounded-full bg-[#C8961C]"
+                  className="absolute left-0 top-[22%] bottom-[22%] w-[2px] rounded-full bg-s-gold"
                   transition={{ type: "spring", stiffness: 400, damping: 28 }}
                 />
               )}
               <Icon
                 size={15}
-                className={cn("flex-shrink-0 transition-colors", active ? "text-[#6366F1]" : "opacity-50 group-hover:opacity-100")}
+                className={cn("flex-shrink-0 transition-colors", active ? "text-s-ind" : "opacity-50 group-hover:opacity-100")}
               />
               <AnimatePresence>
                 {expanded && (
@@ -211,13 +215,13 @@ export function Sidebar() {
       </div>
 
       {/* Footer */}
-      <div className="flex-shrink-0 p-1.5 border-t border-[#222222] space-y-1 overflow-hidden">
+      <div className="flex-shrink-0 p-1.5 border-t border-s-border space-y-1 overflow-hidden">
         {([
-          { label: "Pause All Agents", icon: PauseCircle, color: "text-[#888888]", action: "/api/system/pause", body: undefined },
+          { label: "Pause All Agents", icon: PauseCircle, color: "text-s-muted", action: "/api/system/pause", body: undefined },
           // No dedicated REST route for self-audit — route through the same
           // /api/command bridge the dashboard chat uses, which dispatches to
           // the real /sentinel self-audit handler in commands/agents.js.
-          { label: "Self-Audit",        icon: ShieldCheck,  color: "text-[#C8961C]", action: "/api/command", body: { text: "/sentinel self-audit", fromName: "Dashboard" } },
+          { label: "Self-Audit",        icon: ShieldCheck,  color: "text-s-gold", action: "/api/command", body: { text: "/sentinel self-audit", fromName: "Dashboard" } },
         ] as const).map(({ label, icon: Icon, color, action, body }) => (
           <SidebarAction key={label} label={label} icon={Icon} color={color} action={action} body={body} expanded={expanded} />
         ))}

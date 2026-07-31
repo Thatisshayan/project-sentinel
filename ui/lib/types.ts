@@ -35,7 +35,3 @@ export interface FeedEntry {
   msg:   string;
   time:  string;
 }
-
-export type NavPage =
-  | "home" | "repos" | "agents" | "agent-room"
-  | "security" | "sprint" | "connectors" | "settings";

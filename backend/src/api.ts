@@ -12,6 +12,15 @@ import logger from './logger';
 import { repoFullName } from './repoResolver';
 import { timingSafeEqual } from './utils/timingSafeCompare';
 import rateLimit from 'express-rate-limit';
+import projectMemory from './projectMemory';
+import projectDb from './projectDb';
+
+const MEMORY_TYPES = ['dismissed_finding', 'convention', 'decision', 'note'] as const;
+const MAX_MEMORY_CONTENT_LENGTH = 2000;
+// getMemoryEntries defaults to 20 (MAX_ENTRIES_IN_PROMPT), tuned for prompt
+// injection, not a management UI's full history view — pass an explicit,
+// UI-appropriate limit here instead of silently inheriting that cap.
+const MEMORY_LIST_LIMIT = 200;
 
 const router = express.Router();
 
@@ -123,10 +132,20 @@ router.get('/repo/:name', async (req: Request, res: Response) => {
       return;
     }
 
+    // portfolio_metrics has no security_score column of its own — it's a
+    // point-in-time score from security_scores, joined the same way the
+    // /portfolio list route does it. Without this join every single-repo
+    // response silently reported security_score as undefined/0.
     const metrics = await query(`
-      SELECT * FROM portfolio_metrics
-      WHERE repo_name = $1
-      ORDER BY recorded_at DESC LIMIT 1
+      SELECT pm.*, COALESCE(ss.score, 0) AS security_score
+      FROM portfolio_metrics pm
+      LEFT JOIN LATERAL (
+        SELECT score FROM security_scores
+        WHERE repo_name = pm.repo_name
+        ORDER BY recorded_date DESC LIMIT 1
+      ) ss ON true
+      WHERE pm.repo_name = $1
+      ORDER BY pm.recorded_at DESC LIMIT 1
     `, [name]);
 
     const tasks = await query(`
@@ -145,13 +164,86 @@ router.get('/repo/:name', async (req: Request, res: Response) => {
 
     if (!metrics.rows[0]) { res.status(404).json({ error: 'Repo not found' }); return; }
 
+    // getAspectState takes the short repo name (matching what this route
+    // already receives) and has no side effect on a miss — unlike
+    // auditAspects.getCurrentAspect(), which persists a default aspect
+    // state on first call and would be wrong to trigger from a GET.
+    const aspect = await projectDb.getAspectState(name);
+
     res.json({
       ...metrics.rows[0],
       tasks: tasks.rows,
       lastCycle: cycle.rows[0] || null,
+      aspect,
     });
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message }, 'GET /repo/:name error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Project memory ────────────────────────────────────────────────────────────
+
+function isValidRepoNameParam(name: unknown): name is string {
+  return typeof name === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name);
+}
+
+router.get('/repo/:name/memory', async (req: Request, res: Response) => {
+  const name = req.params['name'];
+  if (!isValidRepoNameParam(name)) {
+    res.status(400).json({ error: 'Invalid repo name' });
+    return;
+  }
+  try {
+    const entries = await projectMemory.getMemoryEntries(repoFullName(name), MEMORY_LIST_LIMIT);
+    res.json(entries);
+  } catch (err: any) {
+    logger.error({ err: err.stack ?? err.message }, 'GET /repo/:name/memory error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/repo/:name/memory', async (req: Request, res: Response) => {
+  const name = req.params['name'];
+  if (!isValidRepoNameParam(name)) {
+    res.status(400).json({ error: 'Invalid repo name' });
+    return;
+  }
+  const { type, content } = req.body ?? {};
+  if (typeof type !== 'string' || !(MEMORY_TYPES as readonly string[]).includes(type)) {
+    res.status(400).json({ error: `type must be one of: ${MEMORY_TYPES.join(', ')}` });
+    return;
+  }
+  if (typeof content !== 'string' || content.trim().length === 0 || content.length > MAX_MEMORY_CONTENT_LENGTH) {
+    res.status(400).json({ error: `content must be a non-empty string of at most ${MAX_MEMORY_CONTENT_LENGTH} characters` });
+    return;
+  }
+  try {
+    const entry = await projectMemory.addMemoryEntry(repoFullName(name), type as any, content, 'Dashboard');
+    res.status(201).json(entry);
+  } catch (err: any) {
+    logger.error({ err: err.stack ?? err.message }, 'POST /repo/:name/memory error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/repo/:name/memory/:id', async (req: Request, res: Response) => {
+  const name = req.params['name'];
+  if (!isValidRepoNameParam(name)) {
+    res.status(400).json({ error: 'Invalid repo name' });
+    return;
+  }
+  const id = Number(req.params['id']);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: 'Invalid memory entry id' });
+    return;
+  }
+  try {
+    const deleted = await projectMemory.deleteMemoryEntry(repoFullName(name), id);
+    if (!deleted) { res.status(404).json({ error: 'Memory entry not found' }); return; }
+    res.json({ ok: true });
+  } catch (err: any) {
+    logger.error({ err: err.stack ?? err.message }, 'DELETE /repo/:name/memory/:id error');
     res.status(500).json({ error: err.message });
   }
 });
