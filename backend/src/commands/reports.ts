@@ -2,6 +2,8 @@ import { safeFire, fireAndForget } from '../utils/safeFire';
 import logger from '../logger';
 import { sendTelegramMessage } from '../telegramClient';
 import { getAllAgents } from '../agentDb';
+import type { PortfolioMetricRow, RepoPatternRow } from '../types/portfolioRow';
+import type { CapacityStatus } from '../types/capacityStatus';
 
 async function handleReportsCmd(subcommand: string, parts: string[], chatId: string | null, topicId: number | null): Promise<boolean> {
   switch (subcommand) {
@@ -11,18 +13,18 @@ async function handleReportsCmd(subcommand: string, parts: string[], chatId: str
       return true;
     }
     case 'costs': {
-      const { getCostReport } = require('../costTracker') as { getCostReport: () => Promise<any> };
+      const { getCostReport } = require('../costTracker') as { getCostReport: () => Promise<{ formatted: string }> };
       const report = await getCostReport();
       await sendTelegramMessage(report.formatted, null, topicId);
       return true;
     }
     case 'patterns': {
-      const { getOpenPatterns } = require('../portfolioDb') as { getOpenPatterns: () => Promise<any[]> };
+      const { getOpenPatterns } = require('../portfolioDb') as { getOpenPatterns: () => Promise<RepoPatternRow[]> };
       const patterns = await getOpenPatterns();
       if (patterns.length === 0) {
         await sendTelegramMessage('No cross-repo patterns detected.', null, topicId);
       } else {
-        const lines = patterns.map((p: any) =>
+        const lines = patterns.map((p) =>
           `· ${p.description}\n  Repos: ${(p.affected_repos || []).join(', ')}`
         ).join('\n\n');
         await sendTelegramMessage(`Cross-Repo Patterns:\n\n${lines}`, null, topicId);
@@ -31,26 +33,26 @@ async function handleReportsCmd(subcommand: string, parts: string[], chatId: str
     }
     case 'dashboard': {
       const { updateDashboard }    = require('../notionDashboard') as { updateDashboard: () => Promise<void> };
-      const { getAllLatestMetrics } = require('../portfolioDb') as { getAllLatestMetrics: () => Promise<any[]> };
-      const { getCapacityStatus }  = require('../capacityManager') as { getCapacityStatus: () => Promise<any> };
+      const { getAllLatestMetrics } = require('../portfolioDb') as { getAllLatestMetrics: () => Promise<PortfolioMetricRow[]> };
+      const { getCapacityStatus }  = require('../capacityManager') as { getCapacityStatus: () => Promise<CapacityStatus> };
       const { getMonthlyCost, getDailyCost } = require('../portfolioDb') as { getMonthlyCost: () => Promise<number>; getDailyCost: () => Promise<number> };
-      const { query: dbq }         = require('../dbClient') as { query: (...args: any[]) => Promise<any> };
+      const { query: dbq }         = require('../dbClient') as { query: (sql: string) => Promise<{ rows: { c: string }[] }> };
 
       const [metrics, capacity, dailyCost, monthlyCost, activeAgents, queuedCount] =
         await Promise.all([
-          getAllLatestMetrics().catch(() => []),
-          getCapacityStatus().catch(() => ({})),
+          getAllLatestMetrics().catch(() => [] as PortfolioMetricRow[]),
+          getCapacityStatus().catch(() => ({} as Partial<CapacityStatus>)),
           getDailyCost().catch(() => 0),
           getMonthlyCost().catch(() => 0),
           getAllAgents().catch(() => []),
-          dbq(`SELECT COUNT(*) as c FROM audit_tasks WHERE status = 'queued' AND safe_to_auto_execute = true`).catch(() => ({ rows: [{ c: 0 }] })),
+          dbq(`SELECT COUNT(*) as c FROM audit_tasks WHERE status = 'queued' AND safe_to_auto_execute = true`).catch(() => ({ rows: [{ c: '0' }] })),
         ]);
 
       const avgHealth = metrics.length
-        ? (metrics.reduce((s: number, m: any) => s + parseFloat(m.health_score || 5), 0) / metrics.length).toFixed(1)
+        ? (metrics.reduce((s: number, m: PortfolioMetricRow) => s + parseFloat(m.health_score || '5'), 0) / metrics.length).toFixed(1)
         : 'N/A';
-      const brokenRepos = metrics.filter((m: any) => m.build_status === 'failed').map((m: any) => m.repo_name);
-      const working     = activeAgents.filter((a: any) => a.status === 'working');
+      const brokenRepos = metrics.filter((m) => m.build_status === 'failed').map((m) => m.repo_name);
+      const working     = activeAgents.filter((a) => a.status === 'working');
 
       const card = [
         `Project Sentinel — Live Dashboard`,
@@ -61,7 +63,7 @@ async function handleReportsCmd(subcommand: string, parts: string[], chatId: str
         `Queued tasks (safe): ${queuedCount.rows[0]?.c || 0}`,
         `Agents working now: ${working.length}/${activeAgents.length}`,
         working.length
-          ? working.map((a: any) => `  · ${a.agent_id}: ${(a.repo_full_name || '').split('/')[1] || '?'} — ${a.task_title || '?'}`).join('\n')
+          ? working.map((a) => `  · ${a.agent_id}: ${(a.repo_full_name || '').split('/')[1] || '?'} — ${a.task_title || '?'}`).join('\n')
           : '',
         ``,
         `Today's API spend: $${parseFloat(String(dailyCost)).toFixed(3)}`,
@@ -118,19 +120,24 @@ async function handleReportsCmd(subcommand: string, parts: string[], chatId: str
         await sendTelegramMessage('Usage: /sentinel impact <repo-name>', null, topicId);
         return true;
       }
-      const { getCorrelationSummary } = require('../correlationEngine') as { getCorrelationSummary: (repo: string) => Promise<any> };
+      const { getCorrelationSummary } = require('../correlationEngine') as {
+        getCorrelationSummary: (repo: string) => Promise<{
+          avg_impact: string | null; pr_count: string; positive_prs: string;
+          best_impact: string | null; worst_impact: string | null;
+        } | null>;
+      };
       const corr = await getCorrelationSummary(parts[2]);
-      if (!corr || !corr.pr_count) {
+      if (!corr || !corr.pr_count || corr.pr_count === '0') {
         await sendTelegramMessage(`No PR impact data for ${parts[2]} yet.`, parts[2], topicId);
         return true;
       }
       await sendTelegramMessage([
         `📊 PR Impact — ${parts[2]} (last 30 days)`,
         `PRs analysed: ${corr.pr_count}`,
-        `Avg impact score: ${parseFloat(corr.avg_impact).toFixed(1)}`,
+        `Avg impact score: ${parseFloat(corr.avg_impact || '0').toFixed(1)}`,
         `Positive PRs: ${corr.positive_prs}/${corr.pr_count}`,
-        `Best PR score: ${parseFloat(corr.best_impact).toFixed(1)}`,
-        `Worst PR score: ${parseFloat(corr.worst_impact).toFixed(1)}`,
+        `Best PR score: ${parseFloat(corr.best_impact || '0').toFixed(1)}`,
+        `Worst PR score: ${parseFloat(corr.worst_impact || '0').toFixed(1)}`,
       ].join('\n'), parts[2], topicId);
       return true;
     }

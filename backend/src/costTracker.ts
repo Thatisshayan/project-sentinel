@@ -1,5 +1,13 @@
 import { logApiCost, getCostByRepo, getDailyCost, getMonthlyCost } from './portfolioDb';
 import logger from './logger';
+import type { RepoCostRow } from './types/portfolioRow';
+
+interface CostReport {
+  daily: number;
+  monthly: number;
+  byRepo: RepoCostRow[];
+  formatted: string;
+}
 
 const COSTS_PER_1K: Record<string, { input: number; output: number }> = {
   'claude-sonnet-4-5': { input: 0.003,   output: 0.015   },
@@ -61,14 +69,14 @@ async function trackChatCost(promptLength: string | number, outputLength: string
   return cost;
 }
 
-async function getCostReport(): Promise<any> {
+async function getCostReport(): Promise<CostReport> {
   const [daily, monthly, byRepo] = await Promise.all([
     getDailyCost(),
     getMonthlyCost(),
     getCostByRepo(7),
   ]);
 
-  const repoLines = byRepo.slice(0, 8).map((r: any) =>
+  const repoLines = byRepo.slice(0, 8).map((r) =>
     `  ${r.repo_full_name?.split('/')[1] || 'unknown'}: $${parseFloat(r.total).toFixed(3)} (${r.operations} ops)`
   ).join('\n');
 

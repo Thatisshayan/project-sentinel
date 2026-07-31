@@ -1,8 +1,14 @@
 import dbClient from './dbClient';
 import logger from './logger';
-import type { BusinessMetricRow } from './types/businessMetricRow';
+import type { BusinessMetricRow, ImpactSnapshot, ImpactDelta } from './types/businessMetricRow';
 
 const { query } = dbClient;
+
+interface MetricTrendPoint {
+  recorded_date: string;
+  metric_value: string;
+  metric_unit: string | null;
+}
 
 async function initBusinessSchema(): Promise<void> {
   // Daily business metric snapshots per repo/service
@@ -98,8 +104,8 @@ async function upsertMetric(data: {
   ]);
 }
 
-async function getMetricTrend(repoName: string, metricName: string, days = 7): Promise<any[]> {
-  const r = await query(`
+async function getMetricTrend(repoName: string, metricName: string, days = 7): Promise<MetricTrendPoint[]> {
+  const r = await query<MetricTrendPoint>(`
     SELECT recorded_date, metric_value, metric_unit
     FROM business_metrics
     WHERE repo_name = $1 AND metric_name = $2
@@ -122,7 +128,7 @@ async function getLatestMetrics(repoName: string): Promise<BusinessMetricRow[]> 
 
 async function recordPRImpact(data: {
   repoFullName: string; prNumber: number; prUrl: string;
-  mergedAt: string; preSnapshot: any;
+  mergedAt: string; preSnapshot: ImpactSnapshot;
 }): Promise<number | undefined> {
   const r = await query(`
     INSERT INTO pr_impact
@@ -136,8 +142,8 @@ async function recordPRImpact(data: {
   return r.rows[0]?.id;
 }
 
-async function updatePRImpact(id: number, postSnapshot: any) {
-  const pre     = await query('SELECT pre_merge_snapshot FROM pr_impact WHERE id=$1', [id]);
+async function updatePRImpact(id: number, postSnapshot: ImpactSnapshot): Promise<{ delta: ImpactDelta; score: number | string }> {
+  const pre     = await query<{ pre_merge_snapshot: ImpactSnapshot }>('SELECT pre_merge_snapshot FROM pr_impact WHERE id=$1', [id]);
   const preData = pre.rows[0]?.pre_merge_snapshot || {};
   const delta   = calculateDelta(preData, postSnapshot);
   const score   = calculateImpactScore(delta);
@@ -154,16 +160,18 @@ async function updatePRImpact(id: number, postSnapshot: any) {
   return { delta, score };
 }
 
-function calculateDelta(pre: Record<string, any>, post: Record<string, any>) {
-  const delta: Record<string, any> = {};
+function calculateDelta(pre: ImpactSnapshot, post: ImpactSnapshot): ImpactDelta {
+  const delta: ImpactDelta = {};
   for (const key of Object.keys(post)) {
-    if (pre[key] !== undefined) {
+    const before = pre[key];
+    const after  = post[key];
+    if (before !== undefined && after !== undefined) {
       delta[key] = {
-        before:        pre[key],
-        after:         post[key],
-        change:        post[key] - pre[key],
-        changePercent: pre[key] !== 0
-          ? ((post[key] - pre[key]) / Math.abs(pre[key]) * 100).toFixed(1)
+        before,
+        after,
+        change:        after - before,
+        changePercent: before !== 0
+          ? ((after - before) / Math.abs(before) * 100).toFixed(1)
           : null,
       };
     }
@@ -171,7 +179,7 @@ function calculateDelta(pre: Record<string, any>, post: Record<string, any>) {
   return delta;
 }
 
-function calculateImpactScore(delta: Record<string, any>): number | string {
+function calculateImpactScore(delta: ImpactDelta): number | string {
   let score = 0;
   let count = 0;
   for (const metric of Object.values(delta)) {

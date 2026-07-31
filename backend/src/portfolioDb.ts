@@ -1,6 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
-import type { PortfolioMetricRow, RepoPatternRow } from './types/portfolioRow';
+import type { PortfolioMetricRow, RepoPatternRow, RepoCostRow } from './types/portfolioRow';
 
 const { query } = dbClient;
 
@@ -183,8 +183,8 @@ async function getWeeklyCost(): Promise<number> {
   return parseFloat(r.rows[0]?.total || '0');
 }
 
-async function getCostByRepo(days = 7): Promise<any[]> {
-  const r = await query(`
+async function getCostByRepo(days = 7): Promise<RepoCostRow[]> {
+  const r = await query<RepoCostRow>(`
     SELECT repo_full_name,
            COALESCE(SUM(estimated_cost), 0) as total,
            COUNT(*) as operations
@@ -242,17 +242,17 @@ async function getOpenPatterns(): Promise<RepoPatternRow[]> {
 // ── Discovered repos helpers ─────────────────────────────────────────────────
 
 async function getDiscoveredRepoNames(): Promise<string[]> {
-  const r = await query(`SELECT repo_name FROM discovered_repos`);
-  return r.rows.map((row: any) => row.repo_name);
+  const r = await query<{ repo_name: string }>(`SELECT repo_name FROM discovered_repos`);
+  return r.rows.map((row) => row.repo_name);
 }
 
 async function getOnboardedDiscoveredRepos(): Promise<{ repoName: string; repoFullName: string }[]> {
-  const r = await query(`
+  const r = await query<{ repo_name: string; repo_full_name: string }>(`
     SELECT repo_name, repo_full_name FROM discovered_repos
     WHERE onboarded_at IS NOT NULL
     ORDER BY discovered_at ASC
   `);
-  return r.rows.map((row: any) => ({ repoName: row.repo_name, repoFullName: row.repo_full_name }));
+  return r.rows.map((row) => ({ repoName: row.repo_name, repoFullName: row.repo_full_name }));
 }
 
 async function insertDiscoveredRepo({ repoName, repoFullName, githubId, isPrivate }: {
