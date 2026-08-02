@@ -27,6 +27,7 @@ import dbClient from './dbClient';
 import { ensureProject, recordEvent, upsertTask, upsertRisk, upsertKpi } from './boardroomDb';
 import { enqueueScheduledJob } from './queueClient';
 import { AUDIT_APPROVAL_TIMEOUT_JOB, SELF_REVIEW_FALLBACK_JOB } from './workers/scheduledJobsWorker';
+import { getErrorInfo } from './utils/error';
 import type { AuditResult, AuditTask } from './types/auditResult';
 
 const AUDIT_ENABLED      = (): boolean => process.env['AUDIT_AGENT_ENABLED']   !== 'false';
@@ -91,8 +92,9 @@ async function postAuditSummaryToGithub(repoFullName: string, branchName: string
       { headers, timeout: 10000 }
     );
     logger.info({ repoFullName, sha }, 'Posted audit result as a GitHub commit comment');
-  } catch (err: any) {
-    logger.warn({ err: err.message, repoFullName }, 'Failed to post audit result to GitHub — Telegram/Slack notification is unaffected');
+  } catch (err: unknown) {
+    const error = getErrorInfo(err);
+    logger.warn({ err: error.message, repoFullName }, 'Failed to post audit result to GitHub — Telegram/Slack notification is unaffected');
   }
 }
 
@@ -215,8 +217,9 @@ async function triggerAudit(payload: TriggerAuditPayload): Promise<TriggerAuditR
 
   // D-027 item 5 (multi-aspect audit + scoring + rotation) — which single
   // aspect this cycle's 10 tasks will focus on, per the repo's rotation state.
-  const aspectState = await auditAspects.getCurrentAspect(repoName).catch((err: any) => {
-    logger.warn({ err: err.message, repoName }, 'Could not resolve audit aspect — proceeding without aspect focus');
+  const aspectState = await auditAspects.getCurrentAspect(repoName).catch((err: unknown) => {
+    const error = getErrorInfo(err);
+    logger.warn({ err: error.message, repoName }, 'Could not resolve audit aspect — proceeding without aspect focus');
     return null;
   });
 
@@ -236,8 +239,9 @@ async function triggerAudit(payload: TriggerAuditPayload): Promise<TriggerAuditR
   try {
     const project = await findNotionProject(repoName);
     builderAgent = project?.builderAgent || 'nvidia';
-  } catch (e: any) {
-    logger.warn({ err: e.message }, 'Could not read builder assignment — using nvidia');
+  } catch (e: unknown) {
+    const error = getErrorInfo(e);
+    logger.warn({ err: error.message }, 'Could not read builder assignment — using nvidia');
   }
 
   const builderConfig = getBuilderConfig(builderAgent);
@@ -262,16 +266,17 @@ async function triggerAudit(payload: TriggerAuditPayload): Promise<TriggerAuditR
       })
     );
     await reportSuccess('auditOrchestrator');
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const error = getErrorInfo(err);
     await reportFailure('auditOrchestrator', err);
-    logger.error({ err: err.stack ?? err.message, repoFullName }, 'Audit failed');
+    logger.error({ err: error.stack ?? error.message, repoFullName }, 'Audit failed');
     await updateAuditCycle(cycle.id, { status: 'failed' });
     await safeFire(sendTelegramMessage(
-      `Project Sentinel — Audit Failed ❌\n\nRepo: ${repoName}\nError: ${err.message.substring(0, 300)}`,
+      `Project Sentinel — Audit Failed ❌\n\nRepo: ${repoName}\nError: ${error.message.substring(0, 300)}`,
       repoName,
       topicId
     ), { label: 'auditOrchestrator' })
-    await postAuditSummaryToGithub(repoFullName, branchName, `**Sentinel audit failed**\n\nError: ${err.message.substring(0, 500)}`);
+    await postAuditSummaryToGithub(repoFullName, branchName, `**Sentinel audit failed**\n\nError: ${error.message.substring(0, 500)}`);
     // A cycle WAS created (the process genuinely started) — it just failed
     // partway through, unlike the earlier early-returns where nothing began.
     return { started: true, reason: 'audit_run_failed' };
@@ -304,8 +309,9 @@ async function triggerAudit(payload: TriggerAuditPayload): Promise<TriggerAuditR
   // D-027 item 5 — this cycle's aspect-focused sprint is done; advance the
   // rotation counter (and rotate to the next aspect once 3 sprints are hit).
   const aspectRotation = aspectState
-    ? await auditAspects.recordSprintCompleted(repoName, aspectState.aspect).catch((err: any) => {
-        logger.warn({ err: err.message, repoName }, 'Could not record aspect sprint completion');
+    ? await auditAspects.recordSprintCompleted(repoName, aspectState.aspect).catch((err: unknown) => {
+        const error = getErrorInfo(err);
+        logger.warn({ err: error.message, repoName }, 'Could not record aspect sprint completion');
         return null;
       })
     : null;
@@ -432,8 +438,9 @@ async function triggerAudit(payload: TriggerAuditPayload): Promise<TriggerAuditR
       { text: `✅ Execute ${safeCount} safe tasks`, actionId: 'execute', value: repoName },
       { text: `⏭ Skip`,                            actionId: 'skip',    value: repoName },
     ],
-  ]).catch((err: any) => {
-    logger.warn({ err: err.message, repoName }, 'Slack buttons fan-out failed (Telegram send unaffected)');
+  ]).catch((err: unknown) => {
+    const error = getErrorInfo(err);
+    logger.warn({ err: error.message, repoName }, 'Slack buttons fan-out failed (Telegram send unaffected)');
   });
 
   scheduleApprovalTimeout(cycle.id, repoFullName, repoName, topicId);
@@ -551,8 +558,9 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
   // Sentinel branch if one is already active (set below once a batch lands),
   // instead of opening a fresh branch/PR every single batch. Cleared in
   // processPREvent.ts once a human merges or closes the PR.
-  const activeBranch = await projectDb.getActiveTaskBranch(repoName).catch((err: any) => {
-    logger.warn({ err: err.message, repoName }, 'Could not look up active task branch — starting a new one');
+  const activeBranch = await projectDb.getActiveTaskBranch(repoName).catch((err: unknown) => {
+    const error = getErrorInfo(err);
+    logger.warn({ err: error.message, repoName }, 'Could not look up active task branch — starting a new one');
     return null;
   });
 
@@ -599,8 +607,9 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
       },
     });
 
-    await projectDb.setActiveTaskBranch(repoName, batchResult.taskBranch, prUrl, prNumber).catch((err: any) => {
-      logger.warn({ err: err.message, repoName, taskBranch: batchResult.taskBranch },
+    await projectDb.setActiveTaskBranch(repoName, batchResult.taskBranch, prUrl, prNumber).catch((err: unknown) => {
+      const error = getErrorInfo(err);
+      logger.warn({ err: error.message, repoName, taskBranch: batchResult.taskBranch },
         'Could not record active task branch — next batch may open a new branch/PR instead of continuing this one');
     });
 
@@ -646,8 +655,9 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
         { repoFullName, repoName, prNumber, prUrl, topicId, pushedAt: new Date().toISOString() },
         fallbackDelayMin * 60 * 1000,
         `self-review-fallback:${repoFullName}:${prNumber}`
-      ).catch((err: any) => {
-        logger.warn({ err: err.message, repoFullName, prNumber },
+      ).catch((err: unknown) => {
+        const error = getErrorInfo(err);
+        logger.warn({ err: error.message, repoFullName, prNumber },
           'Failed to schedule self-review fallback — this PR will rely solely on CodeRabbit (if configured)');
       });
     }
@@ -773,14 +783,15 @@ function scheduleApprovalTimeout(cycleId: number, repoFullName: string, repoName
     { cycleId, repoFullName, repoName, topicId },
     APPROVAL_TIMEOUT_H() * 60 * 60 * 1000,
     `audit-approval-timeout:${cycleId}`
-  ).catch((err: any) => {
+  ).catch((err: unknown) => {
+    const error = getErrorInfo(err);
     // Unlike a job handler failing (which BullMQ retries automatically),
     // this call happens inline in triggerAudit — if it fails, no expiry
     // timer for this cycle exists at all, silently, with nothing left to
     // retry it. A full "recover and re-arm" workflow is out of scope here;
     // at minimum, make the failure visible instead of a debug-only log line
     // so a human knows this cycle has no automatic expiry.
-    logger.error({ err: err.message, cycleId }, 'Failed to schedule approval timeout — cycle has no automatic expiry');
+    logger.error({ err: error.message, cycleId }, 'Failed to schedule approval timeout — cycle has no automatic expiry');
     fireAndForget(sendTelegramMessage(
       `⚠️ Project Sentinel — could not schedule the approval timeout for ${repoName} (cycle ${cycleId}). This audit will not auto-expire; approve or skip it manually.`,
       repoName, topicId
