@@ -115,6 +115,19 @@ if [ -f pnpm-lock.yaml ]; then PM=pnpm
 elif [ -f yarn.lock ]; then PM=yarn
 elif [ -f package-lock.json ]; then PM=npm
 fi
+# Monorepo detection: root has no lockfile but subdirs do (e.g. backend/ + ui/).
+# Without this, a monorepo repo's `gate` required-check passes green while
+# build/test never actually run (M-7 from boardroom T009).
+SUBPROJ=""
+if [ -z "$PM" ]; then
+  for d in backend ui packages/* apps/* services/*; do
+    [ -d "$d" ] || continue
+    if [ -f "$d/pnpm-lock.yaml" ]; then SUBPROJ="$SUBPROJ $d:pnpm"
+    elif [ -f "$d/yarn.lock" ]; then SUBPROJ="$SUBPROJ $d:yarn"
+    elif [ -f "$d/package-lock.json" ]; then SUBPROJ="$SUBPROJ $d:npm"
+    fi
+  done
+fi
 run_with_timeout() { # $1=seconds $2=label $3..=cmd
   local t="$1"; shift; local label="$1"; shift
   local out; out=$(timeout "$t" "$@" 2>&1); local rc=$?
@@ -133,6 +146,21 @@ if [ -n "$PM" ]; then
     (npm run build --if-present || pnpm run build --if-present || yarn build) >/dev/null 2>&1 && notice build "build ok" || error build "build failed"
     (npm test --if-present || pnpm test --if-present || yarn test) >/dev/null 2>&1 && notice test "test ok" || error test "test failed"
   fi
+elif [ -n "$SUBPROJ" ]; then
+  for entry in $SUBPROJ; do
+    d="${entry%:*}"; spm="${entry#*:}"
+    echo "== build/test: $d ($spm) =="
+    ( cd "$d" && case "$spm" in
+        pnpm) run_with_timeout 300 "build:$d" pnpm install --frozen-lockfile ;;
+        yarn) run_with_timeout 300 "build:$d" yarn install --frozen-lockfile ;;
+        npm)  run_with_timeout 300 "build:$d" npm ci ;;
+      esac
+      if [ $FAIL -eq 0 ]; then
+        ( npm run build --if-present || pnpm run build --if-present || yarn build ) >/dev/null 2>&1 && notice "build:$d" "ok" || error "build:$d" "build failed"
+        ( npm test --if-present || pnpm test --if-present || yarn test ) >/dev/null 2>&1 && notice "test:$d" "ok" || error "test:$d" "test failed"
+      fi
+    )
+  done
 elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
   pip install -q -r requirements.txt 2>/dev/null || true
   pytest -q || error "test" "pytest failed"
