@@ -274,3 +274,12 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 - Lint for `.ts` files is temporarily disabled. Do not re-enable until `@typescript-eslint` releases a version compatible with TypeScript 7.
 - The `.eslintrc.json` ignores `**/*.ts` via `ignorePatterns` (added 2026-07-17 to match this register). When lint for TS is re-enabled, remove `**/*.ts` from `ignorePatterns`.
 - Phase 4 integration tests need Docker (D-002). Until then, raise coverage with mocked unit tests. The coverage gate in `jest.config.js` enforces no regression from the current baseline.
+
+### D-028: Medium TASK-018 follow-ups deferred from the August 2 audit batch
+**Scope**: Remaining low-risk medium items from `docs/AUDIT_REPORT_2026-08-02.md`: dependency-risk review, observability breakout, and Docker integration coverage beyond the new UI smoke check.
+**Reason deferred**: The repo already has a baseline secret scan and a new UI smoke-e2e path in CI; the remaining items need broader design/test coverage to do safely in one pass.
+**Proposed resolution**:
+- Split observability/reporting responsibilities further if the current startup and worker split still leaves hot modules too broad.
+- Run a dedicated dependency-risk review against the current lockfiles and surface any actionable package upgrades in a follow-up PR.
+- Add a true Docker-backed integration job when an environment with Docker is available.
+**Status**: Deferred — tracked for a follow-up batch.
