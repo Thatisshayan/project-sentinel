@@ -244,54 +244,110 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
       }
 
       if (action === 'ingest') {
-        const status = await runGit(['status', '--short']);
+        const status = await runGit(['status', '--short', '--branch']);
         const branch = await runGit(['branch', '--show-current']);
         const commit = await runGit(['rev-parse', '--short', 'HEAD']);
-        const worktree = status ? status.split(/\r?\n/).filter(Boolean).slice(0, 12) : [];
-        const hasChanges = worktree.length > 0;
+        const upstream = await runGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+        const divergence = upstream ? await runGit(['rev-list', '--left-right', '--count', upstream + '...HEAD']) : '';
+        const worktree = status ? status.split(/\r?\n/).filter(Boolean) : [];
+        const statusLines = worktree.filter((line) => !line.startsWith('##'));
+        const staged = statusLines.filter((line) => /^ [MDARCU!?]/.test(line)).length;
+        const unstaged = statusLines.filter((line) => /^[MDARCU!?][ MDARCU!?]/.test(line)).length;
+        const untracked = statusLines.filter((line) => line.includes('??')).length;
+        const hasChanges = statusLines.length > 0;
+        const packageJsonPath = path.join(repoPath, 'package.json');
+        const hasPackageJson = fs.existsSync(packageJsonPath);
+        const packageJson = hasPackageJson ? JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { scripts?: Record<string, string>, packageManager?: string } : null;
+        const scripts = packageJson?.scripts || {};
+        const packageManager = packageJson?.packageManager || (fs.existsSync(path.join(repoPath, 'pnpm-lock.yaml')) ? 'pnpm' : fs.existsSync(path.join(repoPath, 'yarn.lock')) ? 'yarn' : fs.existsSync(path.join(repoPath, 'package-lock.json')) ? 'npm' : 'unknown');
+        const hasBuildScript = Boolean(scripts['build']);
+        const hasTestScript = Boolean(scripts['test']);
+        const hasLintScript = Boolean(scripts['lint']);
+        const hasCoverageScript = Boolean(scripts['test:coverage']);
+        const hasIntegrationScript = Boolean(scripts['test:integration']);
+        const lockfile = fs.existsSync(path.join(repoPath, 'pnpm-lock.yaml')) ? 'pnpm-lock.yaml' : fs.existsSync(path.join(repoPath, 'yarn.lock')) ? 'yarn.lock' : fs.existsSync(path.join(repoPath, 'package-lock.json')) ? 'package-lock.json' : null;
 
         await recordEvent({
           projectId: repo,
           eventType: 'local_state',
           sourceSystem: 'hermes',
-          payload: { branch, commit, repoPath, workingTree: worktree, hasChanges },
+          payload: {
+            branch,
+            commit,
+            repoPath,
+            upstream: upstream || null,
+            divergence: divergence || null,
+            workingTree: statusLines,
+            hasChanges,
+            staged,
+            unstaged,
+            untracked,
+            packageManager,
+            lockfile,
+            hasBuildScript,
+            hasTestScript,
+            hasLintScript,
+            hasCoverageScript,
+            hasIntegrationScript,
+          },
         });
 
-        if (worktree.length > 0) {
+        if (hasChanges) {
           await upsertRisk({
             projectId: repo,
-            severity: worktree.length > 5 ? 'high' : 'medium',
+            severity: statusLines.length > 8 ? 'high' : 'medium',
             category: 'local_state',
-            title: 'Uncommitted work detected',
-            description: worktree.join('\n'),
+            title: 'Local workspace has pending changes',
+            description: statusLines.slice(0, 20).join('\n'),
             status: 'open',
             source: 'hermes',
-            sourceRef: 'git status --short',
+            sourceRef: 'git status --short --branch',
+          });
+        }
+        if (upstream && divergence) {
+          const parts = divergence.split(/\s+/).map((n) => Number(n || 0));
+          const behind = parts[0] || 0;
+          const ahead = parts[1] || 0;
+          if (behind > 0 || ahead > 0) {
+            await upsertRisk({
+              projectId: repo,
+              severity: behind > 0 ? 'high' : 'medium',
+              category: 'sync',
+              title: 'Branch diverged from upstream',
+              description: 'Behind: ' + behind + '; Ahead: ' + ahead + '; upstream: ' + upstream,
+              status: 'open',
+              source: 'hermes',
+              sourceRef: 'git rev-list --left-right --count',
+            });
+          }
+        }
+        if (!hasBuildScript || !hasTestScript || !hasLintScript) {
+          await upsertRisk({
+            projectId: repo,
+            severity: 'low',
+            category: 'tooling',
+            title: 'Missing common repo scripts',
+            description: [!hasBuildScript ? 'build' : null, !hasTestScript ? 'test' : null, !hasLintScript ? 'lint' : null].filter(Boolean).join(', '),
+            status: 'open',
+            source: 'hermes',
+            sourceRef: 'package.json',
           });
         }
 
-        await upsertKpi({
-          projectId: repo,
-          name: 'working_tree_dirty',
-          value: hasChanges ? 1 : 0,
-          unit: 'bool',
-          status: hasChanges ? 'attention' : 'ok',
-          source: 'hermes',
-          sourceRef: 'git status --short',
-        });
-        await upsertKpi({
-          projectId: repo,
-          name: 'commit_present',
-          value: commit ? 1 : 0,
-          unit: 'bool',
-          status: commit ? 'ok' : 'attention',
-          source: 'hermes',
-          sourceRef: 'git rev-parse --short HEAD',
-        });
+        await upsertKpi({ projectId: repo, name: 'working_tree_dirty', value: hasChanges ? 1 : 0, unit: 'bool', status: hasChanges ? 'attention' : 'ok', source: 'hermes', sourceRef: 'git status --short --branch' });
+        await upsertKpi({ projectId: repo, name: 'staged_files', value: staged, unit: 'files', status: staged > 0 ? 'attention' : 'ok', source: 'hermes', sourceRef: 'git status --short --branch' });
+        await upsertKpi({ projectId: repo, name: 'unstaged_files', value: unstaged, unit: 'files', status: unstaged > 0 ? 'attention' : 'ok', source: 'hermes', sourceRef: 'git status --short --branch' });
+        await upsertKpi({ projectId: repo, name: 'untracked_files', value: untracked, unit: 'files', status: untracked > 0 ? 'attention' : 'ok', source: 'hermes', sourceRef: 'git status --short --branch' });
+        await upsertKpi({ projectId: repo, name: 'commit_present', value: commit ? 1 : 0, unit: 'bool', status: commit ? 'ok' : 'attention', source: 'hermes', sourceRef: 'git rev-parse --short HEAD' });
+        await upsertKpi({ projectId: repo, name: 'has_build_script', value: hasBuildScript ? 1 : 0, unit: 'bool', status: hasBuildScript ? 'ok' : 'attention', source: 'hermes', sourceRef: 'package.json' });
+        await upsertKpi({ projectId: repo, name: 'has_test_script', value: hasTestScript ? 1 : 0, unit: 'bool', status: hasTestScript ? 'ok' : 'attention', source: 'hermes', sourceRef: 'package.json' });
+        await upsertKpi({ projectId: repo, name: 'has_lint_script', value: hasLintScript ? 1 : 0, unit: 'bool', status: hasLintScript ? 'ok' : 'attention', source: 'hermes', sourceRef: 'package.json' });
+        await upsertKpi({ projectId: repo, name: 'has_coverage_script', value: hasCoverageScript ? 1 : 0, unit: 'bool', status: hasCoverageScript ? 'ok' : 'attention', source: 'hermes', sourceRef: 'package.json' });
+        await upsertKpi({ projectId: repo, name: 'has_integration_script', value: hasIntegrationScript ? 1 : 0, unit: 'bool', status: hasIntegrationScript ? 'ok' : 'attention', source: 'hermes', sourceRef: 'package.json' });
         await upsertMilestone({
           projectId: repo,
           title: 'Hermes local-state review',
-          description: 'Branch: ' + (branch || 'unknown') + '; changes: ' + worktree.length,
+          description: 'Branch: ' + (branch || 'unknown') + '; changes: ' + statusLines.length + '; package manager: ' + packageManager,
           status: hasChanges ? 'active' : 'ready',
           progress: hasChanges ? 50 : 100,
           source: 'hermes',
@@ -301,51 +357,21 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
           projectId: repo,
           version: commit || branch || 'local-snapshot',
           status: 'observed',
-          releaseNotes: 'Hermes local ingest snapshot',
+          releaseNotes: 'Hermes local ingest snapshot (' + packageManager + ')',
         });
 
         await sendTelegramMessage([
           'Hermes ingest recorded for ' + repo + '.',
           'Branch: ' + (branch || 'unknown'),
           'Commit: ' + (commit || 'unknown'),
-          'Working tree: ' + (hasChanges ? worktree.length + ' changed paths' : 'clean'),
+          'Upstream: ' + (upstream || 'none'),
+          'Divergence: ' + (divergence || 'unknown'),
+          'Working tree: ' + (hasChanges ? statusLines.length + ' changed paths' : 'clean'),
+          'Package manager: ' + packageManager + (lockfile ? ' (' + lockfile + ')' : ''),
+          'Scripts: ' + [hasBuildScript ? 'build' : null, hasTestScript ? 'test' : null, hasLintScript ? 'lint' : null].filter(Boolean).join(', '),
         ].join('\n'), repo, topicId);
         return true;
       }
-
-      if (action === 'test') {
-        const result = await runPackageScript('test');
-        const passed = result.code === 0;
-        await upsertKpi({
-          projectId: repo,
-          name: 'test_status',
-          value: passed ? 1 : 0,
-          unit: 'bool',
-          status: passed ? 'ok' : 'attention',
-          source: 'hermes',
-          sourceRef: 'npm run test',
-        });
-        if (!passed) {
-          await upsertRisk({
-            projectId: repo,
-            severity: 'high',
-            category: 'test',
-            title: 'Test suite failed',
-            description: (result.stderr || result.stdout || 'tests failed').slice(0, 2000),
-            status: 'open',
-            source: 'hermes',
-            sourceRef: 'npm run test',
-          });
-        }
-        await sendTelegramMessage([
-          'Hermes test completed for ' + repo + '.',
-          'Status: ' + (passed ? 'passed' : 'failed'),
-          'Exit code: ' + result.code,
-          result.stderr ? ('Stderr: ' + result.stderr.slice(0, 400)) : null,
-        ].filter(Boolean).join('\n'), repo, topicId);
-        return true;
-      }
-
       if (!message && action !== 'status') {
         await sendTelegramMessage('Hermes needs a message for note, event, decision, milestone, release, risk, or kpi.', repo, topicId);
         return true;
