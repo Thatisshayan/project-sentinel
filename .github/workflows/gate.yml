@@ -26,6 +26,18 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Install UI dependencies
+        if: ${{ hashFiles('ui/package.json') != '' }}
+        run: npm install --prefix ui --no-fund --no-audit
+
+      - name: Build UI
+        if: ${{ hashFiles('ui/package.json') != '' }}
+        run: npm run build --prefix ui
+
+      - name: Run UI e2e smoke
+        if: ${{ hashFiles('ui/package.json') != '' }}
+        run: node ui/scripts/e2e-smoke.mjs
+
       - name: Setup Python
         if: ${{ hashFiles('requirements.txt', 'pyproject.toml') != '' }}
         uses: actions/setup-python@v7
