@@ -154,3 +154,8 @@ When a phase task is completed:
 - [Agent Configuration](AGENTS.md)
 - [Open Issues / TODO](TODO.md)
 - [Architecture Overview](docs/ARCHITECTURE.md)
+
+
+## Boardroom snapshot
+
+The dashboard command and Notion dashboard now share a single Boardroom snapshot builder in `backend/src/boardroomSnapshot.ts`. That keeps the live Boardroom feed, the dashboard summary, and the operating metrics aligned.
