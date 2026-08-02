@@ -12,6 +12,7 @@ import {
 import { updateAuditTask } from './auditDb';
 import { updateNotionTaskStatus } from './auditTaskWriter';
 import { enqueueScheduledJob } from './queueClient';
+import { ensureProject, recordEvent, upsertTask } from './boardroomDb';
 import { SPRINT_CONTINUE_JOB } from './workers/scheduledJobsWorker';
 
 const SPRINT_CONTINUE_DELAY_MS = 10000;
@@ -80,6 +81,9 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
     { taskId: task.id, repo: task.repo_name, title: task.task_title, order: task.execution_order },
     'Executing sprint task'
   );
+
+  await ensureProject({ repoFullName: task.repo_full_name, repoName: task.repo_name, displayName: task.repo_name, currentPhase: 'sprint', lastActivityAt: new Date().toISOString() }).catch(() => null);
+  await recordEvent({ projectId: task.repo_full_name, eventType: 'sprint_started', sourceSystem: 'sprintOrchestrator', sourceRef: String(sprintId), payload: { sprintId: sprint.id, taskId: task.id, title: task.task_title } }).catch(() => null);
 
   const notionProject = await findNotionProject(task.repo_name).catch(() => null);
 

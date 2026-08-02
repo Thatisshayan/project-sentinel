@@ -14,6 +14,7 @@
 import logger from '../logger';
 import dbClient from '../dbClient';
 import { sendSlackMessage } from '../slackClient';
+import { ensureProject, recordEvent, upsertTask } from '../boardroomDb';
 
 const { query } = dbClient;
 
@@ -155,6 +156,7 @@ async function dispatchToAgent(
   }
 
   const message = `${agent.slackMention} ${taskDescription}`;
+  await ensureProject({ repoFullName: repoName, repoName, displayName: repoName, currentPhase: 'agent-dispatch', lastActivityAt: new Date().toISOString() }).catch(() => null);
   const result = await sendSlackMessage(message, repoName, null).catch((err: any) => {
     logger.error({ err: err.message, agentId, repoName }, 'Dispatch to external agent failed');
     return null;
@@ -180,6 +182,8 @@ async function dispatchToAgent(
     logger.error({ err: err.message, agentId, repoName, ts }, 'Failed to record agent_dispatches row — reply correlation for this dispatch will not work');
   });
 
+  await upsertTask({ projectId: repoName, taskType: 'external-agent', title: taskDescription, status: 'queued', source: 'external_agents', sourceRef: ts, executionAgentId: agentId }).catch(() => null);
+  await recordEvent({ projectId: repoName, eventType: 'agent_action', sourceSystem: 'slack', sourceRef: ts, payload: { agentId, taskDescription, repoName } }).catch(() => null);
   logger.info({ agentId, repoName, ts }, 'Dispatched task to external agent');
   return { ts };
 }

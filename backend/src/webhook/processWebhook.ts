@@ -12,6 +12,7 @@ import { refreshRepoMetrics } from '../portfolioAnalytics';
 import { buildSuccessMessage, buildUnknownRepoMessage, buildErrorMessage } from './messages';
 import { runSecurityScan } from '../securityScanner';
 import { notifyDependents } from '../crossRepoCoordinator';
+import { ensureProject, recordEvent } from '../boardroomDb';
 import type { WebhookPayload } from '../types/webhookPayload';
 
 const { query } = dbClient;
@@ -42,6 +43,8 @@ export async function processWebhook(payload: GitHubPushPayload): Promise<void> 
     { repoName, commitSha: commitSha.substring(0, 7), branch: branchName },
     'Processing webhook'
   );
+  await ensureProject({ repoFullName: data.repoFullName, repoName: data.repoName, displayName: data.projectName || data.repoName, lastCommitSha: data.commitSha, lastActivityAt: data.commitTimestamp || new Date().toISOString() }).catch(() => null);
+  await recordEvent({ projectId: data.repoFullName, eventType: 'push_received', sourceSystem: 'github', sourceRef: data.commitSha, payload: { branchName: data.branchName, authorName: data.authorName, commitMessage: data.commitMessage, riskLevel: data.riskLevel } }).catch(() => null);
 
   // Atomic claim: returns true if we won the right to process this event,
   // false if another process already claimed it (duplicate).

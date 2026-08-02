@@ -1,4 +1,8 @@
 import { safeFire, fireAndForget } from '../utils/safeFire';
+import fs from 'fs';
+import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import logger from '../logger';
 import { sendTelegramMessage } from '../telegramClient';
 import { repoFullName } from '../repoResolver';
@@ -7,8 +11,11 @@ import { getAllAgents } from '../agentDb';
 import { runSelfAudit } from '../selfAuditor';
 import { executeApprovedTasks } from '../auditOrchestrator';
 import { dispatchToAgent, listExternalAgents } from '../agents/externalAgentRegistry';
+import { ensureProject, recordEvent, upsertDecision, summarizeProjectSnapshot, upsertMilestone, upsertRelease, upsertRisk, upsertKpi } from '../boardroomDb';
 import { getRecentAuthorityLog, listAuthorityRules } from '../viktorAuthority';
 import type { ConversationHistoryRow } from '../types/conversationHistoryRow';
+
+const execFileAsync = promisify(execFile);
 
 async function handleAgentsCmd(subcommand: string, parts: string[], chatId: string | null, topicId: number | null): Promise<boolean> {
   switch (subcommand) {
@@ -137,6 +144,252 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
       );
       return true;
     }
+    case 'hermes': {
+      // Boardroom-first local command surface for Hermes. Keeps the scope to
+      // project state, decisions, events, and a quick status readout.
+      const action = (parts[2] || '').toLowerCase();
+      const repo = parts[3] || null;
+      const message = parts.slice(4).join(' ').trim();
+
+      if (!action || !repo) {
+        await sendTelegramMessage(
+          [
+            'Usage: hermes <ingest|build|test|note|event|decision|status|milestone|release|risk|kpi> <repo> [message]',
+            'Examples:',
+            '  hermes ingest project-sentinel',
+            '  hermes milestone project-sentinel Local audit baseline',
+            '  hermes release project-sentinel v1.2.0 ready for review',
+            '  hermes build project-sentinel',
+            '  hermes test project-sentinel',
+            '  hermes risk project-sentinel high build flakes',
+            '  hermes kpi project-sentinel build_passing 1 %',
+            '  hermes status project-sentinel',
+          ].join('\n'),
+          repo, topicId
+        );
+        return true;
+      }
+
+      await ensureProject({ repoFullName: repo, repoName: repo, displayName: repo, currentPhase: 'hermes', lastActivityAt: new Date().toISOString() }).catch(() => null);
+
+      const localRoot = process.env['REPO_ROOT'] || 'D:\\AgentDevWork\\repos';
+      const repoLeaf = repo.split('/').pop() || repo;
+      const repoPath = path.join(localRoot, repoLeaf);
+      const runGit = async (args: string[]) => {
+        try {
+          const result = await execFileAsync('git', args, { cwd: repoPath, timeout: 30000 });
+          return String(result.stdout || '').trim();
+        } catch {
+          return '';
+        }
+      };
+
+      const packageJsonPath = path.join(repoPath, 'package.json');
+      const packageJson = fs.existsSync(packageJsonPath) ? JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { scripts?: Record<string, string> } : null;
+      const scripts = packageJson?.scripts || {};
+      const hasBuildScript = Boolean(scripts['build']);
+      const hasTestScript = Boolean(scripts['test']);
+      const runPackageScript = async (scriptName: 'build' | 'test') => {
+        if (!hasBuildScript && scriptName === 'build') {
+          return { code: 0, stdout: '', stderr: 'No build script defined in package.json' };
+        }
+        if (!hasTestScript && scriptName === 'test') {
+          return { code: 0, stdout: '', stderr: 'No test script defined in package.json' };
+        }
+        try {
+          const result = await execFileAsync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', scriptName, '--', '--runInBand'], { cwd: repoPath, timeout: scriptName === 'build' ? 300000 : 300000 });
+          return { code: 0, stdout: String(result.stdout || ''), stderr: String(result.stderr || '') };
+        } catch (err: any) {
+          return { code: Number.isInteger(err.code) ? err.code : 1, stdout: String(err.stdout || ''), stderr: String(err.stderr || err.message || '') };
+        }
+      };
+
+      if (action === 'status') {
+        const summary = await summarizeProjectSnapshot(repo);
+        await sendTelegramMessage(summary, repo, topicId);
+        return true;
+      }
+
+      if (action === 'build') {
+        const result = await runPackageScript('build');
+        const passed = result.code === 0;
+        await upsertKpi({
+          projectId: repo,
+          name: 'build_status',
+          value: passed ? 1 : 0,
+          unit: 'bool',
+          status: passed ? 'ok' : 'attention',
+          source: 'hermes',
+          sourceRef: 'npm run build',
+        });
+        if (!passed) {
+          await upsertRisk({
+            projectId: repo,
+            severity: 'high',
+            category: 'build',
+            title: 'Build failed',
+            description: (result.stderr || result.stdout || 'build failed').slice(0, 2000),
+            status: 'open',
+            source: 'hermes',
+            sourceRef: 'npm run build',
+          });
+        }
+        await sendTelegramMessage([
+          'Hermes build completed for ' + repo + '.',
+          'Status: ' + (passed ? 'passed' : 'failed'),
+          'Exit code: ' + result.code,
+          result.stderr ? ('Stderr: ' + result.stderr.slice(0, 400)) : null,
+        ].filter(Boolean).join('\n'), repo, topicId);
+        return true;
+      }
+
+      if (action === 'ingest') {
+        const status = await runGit(['status', '--short']);
+        const branch = await runGit(['branch', '--show-current']);
+        const commit = await runGit(['rev-parse', '--short', 'HEAD']);
+        const worktree = status ? status.split(/\r?\n/).filter(Boolean).slice(0, 12) : [];
+        const hasChanges = worktree.length > 0;
+
+        await recordEvent({
+          projectId: repo,
+          eventType: 'local_state',
+          sourceSystem: 'hermes',
+          payload: { branch, commit, repoPath, workingTree: worktree, hasChanges },
+        });
+
+        if (worktree.length > 0) {
+          await upsertRisk({
+            projectId: repo,
+            severity: worktree.length > 5 ? 'high' : 'medium',
+            category: 'local_state',
+            title: 'Uncommitted work detected',
+            description: worktree.join('\n'),
+            status: 'open',
+            source: 'hermes',
+            sourceRef: 'git status --short',
+          });
+        }
+
+        await upsertKpi({
+          projectId: repo,
+          name: 'working_tree_dirty',
+          value: hasChanges ? 1 : 0,
+          unit: 'bool',
+          status: hasChanges ? 'attention' : 'ok',
+          source: 'hermes',
+          sourceRef: 'git status --short',
+        });
+        await upsertKpi({
+          projectId: repo,
+          name: 'commit_present',
+          value: commit ? 1 : 0,
+          unit: 'bool',
+          status: commit ? 'ok' : 'attention',
+          source: 'hermes',
+          sourceRef: 'git rev-parse --short HEAD',
+        });
+        await upsertMilestone({
+          projectId: repo,
+          title: 'Hermes local-state review',
+          description: 'Branch: ' + (branch || 'unknown') + '; changes: ' + worktree.length,
+          status: hasChanges ? 'active' : 'ready',
+          progress: hasChanges ? 50 : 100,
+          source: 'hermes',
+          sourceRef: 'ingest',
+        });
+        await upsertRelease({
+          projectId: repo,
+          version: commit || branch || 'local-snapshot',
+          status: 'observed',
+          releaseNotes: 'Hermes local ingest snapshot',
+        });
+
+        await sendTelegramMessage([
+          'Hermes ingest recorded for ' + repo + '.',
+          'Branch: ' + (branch || 'unknown'),
+          'Commit: ' + (commit || 'unknown'),
+          'Working tree: ' + (hasChanges ? worktree.length + ' changed paths' : 'clean'),
+        ].join('\n'), repo, topicId);
+        return true;
+      }
+
+      if (action === 'test') {
+        const result = await runPackageScript('test');
+        const passed = result.code === 0;
+        await upsertKpi({
+          projectId: repo,
+          name: 'test_status',
+          value: passed ? 1 : 0,
+          unit: 'bool',
+          status: passed ? 'ok' : 'attention',
+          source: 'hermes',
+          sourceRef: 'npm run test',
+        });
+        if (!passed) {
+          await upsertRisk({
+            projectId: repo,
+            severity: 'high',
+            category: 'test',
+            title: 'Test suite failed',
+            description: (result.stderr || result.stdout || 'tests failed').slice(0, 2000),
+            status: 'open',
+            source: 'hermes',
+            sourceRef: 'npm run test',
+          });
+        }
+        await sendTelegramMessage([
+          'Hermes test completed for ' + repo + '.',
+          'Status: ' + (passed ? 'passed' : 'failed'),
+          'Exit code: ' + result.code,
+          result.stderr ? ('Stderr: ' + result.stderr.slice(0, 400)) : null,
+        ].filter(Boolean).join('\n'), repo, topicId);
+        return true;
+      }
+
+      if (!message && action !== 'status') {
+        await sendTelegramMessage('Hermes needs a message for note, event, decision, milestone, release, risk, or kpi.', repo, topicId);
+        return true;
+      }
+
+      if (action === 'decision') {
+        await upsertDecision({ projectId: repo, title: message.slice(0, 120), decision: message, source: 'hermes' });
+        await sendTelegramMessage('Recorded Hermes decision for ' + repo + '.', repo, topicId);
+        return true;
+      }
+      if (action === 'milestone') {
+        const parts = message.split('|').map((s) => s.trim());
+        await upsertMilestone({ projectId: repo, title: parts[0] || message.slice(0, 120), description: parts.slice(1).join(' | ') || null, status: 'planned', source: 'hermes' });
+        await sendTelegramMessage('Recorded Hermes milestone for ' + repo + '.', repo, topicId);
+        return true;
+      }
+      if (action === 'release') {
+        const parts = message.split('|').map((s) => s.trim());
+        await upsertRelease({ projectId: repo, version: parts[0] || 'unknown', status: 'planned', releaseNotes: parts.slice(1).join(' | ') || null });
+        await sendTelegramMessage('Recorded Hermes release for ' + repo + '.', repo, topicId);
+        return true;
+      }
+      if (action === 'risk') {
+        const parts = message.split('|').map((s) => s.trim());
+        await upsertRisk({ projectId: repo, severity: parts[0] || 'medium', title: parts[1] || message.slice(0, 120), description: parts.slice(2).join(' | ') || null, source: 'hermes' });
+        await sendTelegramMessage('Recorded Hermes risk for ' + repo + '.', repo, topicId);
+        return true;
+      }
+      if (action === 'kpi') {
+        const parts = message.split('|').map((s) => s.trim());
+        const value = Number(parts[1]);
+        await upsertKpi({ projectId: repo, name: parts[0] || 'unnamed_kpi', value: Number.isFinite(value) ? value : 0, unit: parts[2] || null, status: Number.isFinite(value) ? 'tracking' : 'attention', source: 'hermes', sourceRef: parts.slice(3).join(' | ') || null });
+        await sendTelegramMessage('Recorded Hermes KPI for ' + repo + '.', repo, topicId);
+        return true;
+      }
+      if (action === 'note' || action === 'event') {
+        await recordEvent({ projectId: repo, eventType: action === 'note' ? 'local_state' : 'agent_action', sourceSystem: 'hermes', payload: { title: message.slice(0, 120), detail: message, source: 'hermes', action } });
+        await sendTelegramMessage('Recorded Hermes ' + action + ' for ' + repo + '.', repo, topicId);
+        return true;
+      }
+
+      await sendTelegramMessage('Unknown Hermes action. Use ingest, build, test, note, event, decision, milestone, release, risk, kpi, or status.', repo, topicId);
+      return true;
+    }
     case 'viktor-log': {
       // Phase 6's audit-trail command — "view/audit Viktor's recent
       // decisions" from the plan doc (name was left TBD there; "viktor log"
@@ -182,4 +435,8 @@ async function handleAgentsCmd(subcommand: string, parts: string[], chatId: stri
 }
 
 export = { handleAgentsCmd };
+
+
+
+
 

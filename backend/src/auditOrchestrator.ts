@@ -24,6 +24,7 @@ import { trackModelCall } from './performanceTracker';
 import { isRepoLocked } from './repoLock';
 import { loadSettings } from './settingsLoader';
 import dbClient from './dbClient';
+import { ensureProject, recordEvent, upsertTask, upsertRisk, upsertKpi } from './boardroomDb';
 import { enqueueScheduledJob } from './queueClient';
 import { AUDIT_APPROVAL_TIMEOUT_JOB, SELF_REVIEW_FALLBACK_JOB } from './workers/scheduledJobsWorker';
 import type { AuditResult, AuditTask } from './types/auditResult';
@@ -226,6 +227,9 @@ async function triggerAudit(payload: TriggerAuditPayload): Promise<TriggerAuditR
   }
 
   logger.info({ repoFullName, cycleId: cycle.id, aspect: aspectState?.aspect }, 'Audit cycle started');
+
+  await ensureProject({ repoFullName, repoName, displayName: projectName || repoName, currentPhase: 'audit', currentAuditAspect: aspectState?.aspect || null, lastCommitSha: commitSha, lastActivityAt: new Date().toISOString() }).catch(() => null);
+  await recordEvent({ projectId: repoFullName, eventType: 'audit_started', sourceSystem: 'auditOrchestrator', sourceRef: commitSha, payload: { repoName, projectName, aspect: aspectState?.aspect || null } }).catch(() => null);
 
   // Get builder assignment from the project registry (projectDb.ts)
   let builderAgent = 'nvidia';

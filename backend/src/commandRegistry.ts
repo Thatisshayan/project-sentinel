@@ -63,6 +63,7 @@ function buildAliases(handlers: {
     { words: ['bots'],                legacy: 'bots',             handler: agents },
     { words: ['memory'],              legacy: 'memory',           handler: agents },
     { words: ['assign'],              legacy: 'assign',           handler: agents },
+    { words: ['hermes'],              legacy: 'hermes',           handler: agents },
     { words: ['viktor', 'log'],       legacy: 'viktor-log',       handler: agents },
     { words: ['viktor', 'rules'],     legacy: 'viktor-rules',     handler: agents },
     { words: ['roundtable'],          legacy: 'roundtable',       handler: roundtable }, // Phase 7
@@ -162,3 +163,4 @@ async function dispatchCommand(
 }
 
 export = { dispatchCommand };
+

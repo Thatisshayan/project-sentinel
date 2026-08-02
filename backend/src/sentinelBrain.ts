@@ -10,6 +10,7 @@ import { executeApprovedTasks } from './auditOrchestrator';
 import { isRepoLocked } from './repoLock';
 import { query } from './dbClient';
 import type { BrainDecision } from './types/brainDecision';
+import { ensureProject, recordEvent, upsertDecision, upsertKpi } from './boardroomDb';
 
 const BRAIN_MODEL = (process.env['CHAT_MODEL'] as string) || 'mistralai/mistral-nemotron';
 
@@ -273,6 +274,7 @@ async function runStrategicBrain(topicId?: number | null): Promise<void> {
     }
 
     logger.info({ decision }, 'Brain decision');
+    for (const repoName of decision.focus_repos || []) { await ensureProject({ repoFullName: repoName, repoName, displayName: repoName, currentPhase: decision.action || 'monitor', lastActivityAt: new Date().toISOString() }).catch(() => null); }
 
     const autoEnabled   = process.env['BRAIN_AUTO_EXECUTE'] !== 'false';
     interface ActionTaken { repo: string; skipped?: string; action?: string; }
@@ -301,7 +303,8 @@ async function runStrategicBrain(topicId?: number | null): Promise<void> {
       JSON.stringify(decision),
       JSON.stringify(actionsTaken),
       JSON.stringify(healthBefore),
-    ]).catch((err: any) => logger.warn({ err: err.message }, 'Brain DB save failed'));
+    ]) .catch((err: any) => logger.warn({ err: err.message }, 'Brain DB save failed'));
+    for (const repoName of decision.focus_repos || []) { await upsertDecision({ projectId: repoName, title: `Daily brain decision for ${repoName}`, decision: decision.daily_goal || decision.action || 'monitor', rationale: decision.reasoning || null, decidedBy: 'sentinel-brain', source: 'sentinelBrain' }).catch(() => null); await recordEvent({ projectId: repoName, eventType: 'decision_recorded', sourceSystem: 'sentinelBrain', sourceRef: new Date().toISOString(), payload: decision as unknown as Record<string, unknown> }).catch(() => null); }
 
     const lines = [
       `🧠 Sentinel Brain — ${new Date().toLocaleDateString('en-CA')}`,

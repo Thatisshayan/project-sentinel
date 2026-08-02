@@ -1,5 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
+import { ensureProject } from './boardroomDb';
 
 const { query } = dbClient;
 
@@ -230,9 +231,11 @@ async function createProject(data: { repoName: string; priority?: string; builde
       return null;
     }
     logger.warn({ repoName }, 'Project already exists — not recreating');
+    await ensureProject({ repoFullName: repoName, repoName, displayName: repoName, priority: priority || 'medium' }).catch(() => null);
     return id;
   }
   logger.info({ repoName, id }, 'Project record created');
+  await ensureProject({ repoFullName: repoName, repoName, displayName: repoName, priority: priority || 'medium' }).catch(() => null);
   return id;
 }
 

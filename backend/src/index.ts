@@ -12,6 +12,7 @@ import logger from './logger';
 import { timingSafeEqual } from './utils/timingSafeCompare';
 import { initSchema } from './dbClient';
 import { initAuditSchema } from './auditDb';
+import { initBoardroomSchema } from './boardroomDb';
 import { initSlackSchema } from './slackClient';
 import { initExternalAgentSchema } from './agents/externalAgentRegistry';
 import { initViktorAuthoritySchema } from './viktorAuthority';
@@ -394,6 +395,8 @@ app.listen(PORT, () => {
     logger.info('Database schema ready');
     await initAuditSchema();
     logger.info('Audit schema ready');
+    await initBoardroomSchema();
+    logger.info('Boardroom schema ready');
     await initPortfolioSchema();
     logger.info('Portfolio schema ready');
     await initProjectSchema();
