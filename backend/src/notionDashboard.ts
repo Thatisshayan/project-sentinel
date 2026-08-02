@@ -3,6 +3,7 @@ import logger from './logger';
 import { getLatestMetrics } from './businessDb';
 import { getLatestSecurityScore } from './securityDb';
 import { buildBoardroomSnapshot } from './boardroomSnapshot';
+import { writeBoardroomSnapshotArtifact } from './boardroomWriteback';
 
 interface NotionBlock {
   object: 'block';
@@ -28,6 +29,7 @@ async function updateDashboard(): Promise<void> {
 
   try {
     const snapshot = await buildBoardroomSnapshot();
+    const artifactPath = writeBoardroomSnapshotArtifact(snapshot);
     const [businessBlocks] = await Promise.all([buildBusinessSection()]);
     const now = new Date().toLocaleString('en-CA', {
       timeZone: 'America/Toronto',
@@ -84,6 +86,7 @@ async function updateDashboard(): Promise<void> {
       });
     }
 
+    logger.info({ artifactPath }, 'Boardroom snapshot writeback updated');
     logger.info('Notion dashboard updated');
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message }, 'Dashboard update failed — non-blocking');
@@ -122,3 +125,4 @@ function bulletText(text: string): NotionBlock { return { object: 'block', type:
 function code(text: string): NotionBlock { return { object: 'block', type: 'code', code: { rich_text: [{ type: 'text', text: { content: text } }], language: 'plain text' } }; }
 
 export = { updateDashboard };
+
