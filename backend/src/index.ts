@@ -34,6 +34,7 @@ import { startBuildPollWorker, startDailyReportWorker, startSprintWorker, startA
 import { registerDeadLetterEnqueuer } from './utils/safeFire';
 import { enqueueDeadLetter } from './queueClient';
 import { handleCommand, handleCallbackQuery } from './telegramCommands';
+import { bootstrapRuntime } from './startup';
 
 const dsn = process.env['SENTRY_DSN'];
 const environment = process.env['NODE_ENV'] || 'development';
@@ -389,89 +390,9 @@ app.listen(PORT, () => {
   }, '🛡️ Sentinel backend started');
 });
 
-(async () => {
-  try {
-    await initSchema();
-    logger.info('Database schema ready');
-    await initAuditSchema();
-    logger.info('Audit schema ready');
-    await initBoardroomSchema();
-    logger.info('Boardroom schema ready');
-    await initPortfolioSchema();
-    logger.info('Portfolio schema ready');
-    await initProjectSchema();
-    logger.info('Project schema ready');
-    await initMemorySchema();
-    logger.info('Project memory schema ready');
-    await initSprintSchema();
-    logger.info('Sprint schema ready');
-    await initAgentSchema();
-    logger.info('Agent schema ready');
-    await initSelfAuditSchema();
-    logger.info('Self-audit schema ready');
-    await initDefaultPrompts();
-    logger.info('Prompts initialised');
-    await initBusinessSchema();
-    logger.info('Business intelligence schema ready');
-    await initSecuritySchema();
-    logger.info('Security schema ready');
-    await initConversationSchema();
-    await initSettingsSchema();
-    logger.info('Settings schema ready');
-    await initSlackSchema();
-    logger.info('Slack schema ready');
-    await initExternalAgentSchema();
-    logger.info('External agent roster ready');
-    await initViktorAuthoritySchema();
-    logger.info('Viktor authority schema ready');
-    await initRoundtableSchema();
-    logger.info('Roundtable schema ready');
-    await initSelfScaler();
-    logger.info('Self-scaler initialized');
-    await probeTools();
-    const { registerBotCommands } = require('./telegramClient');
-    await registerBotCommands().catch((err: any) =>
-      logger.warn({ err: err.message }, 'Telegram command menu registration failed — non-blocking')
-    );
-    if (checkAndOnboardNewRepos) {
-      await checkAndOnboardNewRepos().catch((err: any) =>
-        logger.warn({ err: err.message }, 'Repo onboarding check failed — non-blocking')
-      );
-    }
-    if (discoverAndOnboardRepos) {
-      await discoverAndOnboardRepos().catch((err: any) =>
-        logger.warn({ err: err.message }, 'Repo discovery failed — non-blocking')
-      );
-    }
-    await initAgentPool();
-    logger.info('Agent pool ready');
-    startBuildPollWorker();
-    startDailyReportWorker();
-    startSprintWorker();
-    startAgentCleanupWorker();
-    startScheduledJobsWorker();
-    logger.info('Workers started');
-    registerDeadLetterEnqueuer(enqueueDeadLetter);
-    logger.info('Dead-letter enqueuer registered');
-
-    const { query: dbCleanup } = require('./dbClient');
-    const stale = await dbCleanup(`
-      UPDATE audit_tasks SET status = 'queued', updated_at = NOW()
-      WHERE status = 'in_progress'
-      RETURNING id, repo_full_name
-    `).catch(() => null);
-    if (stale?.rows?.length) {
-      logger.info({ count: stale.rows.length }, 'Startup: reset in_progress tasks to queued');
-    }
-
-    const { syncAllRepoMetrics } = require('./githubMetricsSyncer');
-    await syncAllRepoMetrics().catch((err: any) =>
-      logger.warn({ err: err.message }, 'Startup GitHub metrics sync failed — non-blocking')
-    );
-  } catch (err: any) {
-    logger.error({ err: err.stack ?? err.message }, 'Failed to initialise Phase 2 components');
-  }
-})();
+bootstrapRuntime().catch((err: any) => {
+  logger.error({ err: err.stack ?? err.message }, 'Failed to initialise Phase 2 components');
+});
 
 // Centralized unhandled promise rejection handler
 process.on('unhandledRejection', (reason: unknown) => {
