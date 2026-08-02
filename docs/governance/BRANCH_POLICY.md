@@ -22,6 +22,8 @@ This document defines the required branch protection and CI gating for `main`. I
 
 These are implemented in `.github/workflows/gate.yml` and `scripts/verify.sh` / `scripts/verify.ps1`.
 
+Secret scanning is deterministic in CI: the verify scripts run `gitleaks` directly there, and only fall back to the local heuristic scan when running outside CI on a machine without `gitleaks` installed.
+
 ## GitHub branch protection settings (apply via Settings → Branches or `gh`)
 - Require a pull request before merging to `main`.
 - Require status checks: `gate` (the workflow job that runs all checks).

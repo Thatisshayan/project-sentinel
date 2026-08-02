@@ -14,6 +14,13 @@ Write-Host "== secret-scan =="
 if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
   gitleaks detect --no-banner --redact
   if ($LASTEXITCODE -ne 0) { Err "secret-scan" "gitleaks found secrets" }
+} elseif ($env:CI -eq "true" -or $env:GITHUB_ACTIONS) {
+  if (Get-Command docker -ErrorAction SilentlyContinue) {
+    docker run --rm -v "${REPO_ROOT}:/repo" -w /repo zricethezav/gitleaks:latest detect --no-banner --redact
+    if ($LASTEXITCODE -ne 0) { Err "secret-scan" "dockerized gitleaks found secrets" }
+  } else {
+    Err "secret-scan" "gitleaks is required in CI but docker is unavailable"
+  }
 } else {
   # (a) filename-based: private key / credential files must not be committed.
   #     Exclude dependency / generated dirs (node_modules, .venv, _repo_clone,

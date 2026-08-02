@@ -15,6 +15,13 @@ error()  { echo "::error title=$1::$2"; FAIL=1; }
 echo "== secret-scan =="
 if command -v gitleaks >/dev/null 2>&1; then
   gitleaks detect --no-banner --redact || error "secret-scan" "gitleaks found secrets"
+elif [ "${CI:-}" = "true" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+  if command -v docker >/dev/null 2>&1; then
+    docker run --rm -v "$REPO_ROOT:/repo" -w /repo zricethezav/gitleaks:latest detect --no-banner --redact \
+      || error "secret-scan" "dockerized gitleaks found secrets"
+  else
+    error "secret-scan" "gitleaks is required in CI but docker is unavailable"
+  fi
 else
   # (a) filename-based: private key / credential files must not be committed.
   #     Exclude dependency / generated dirs (.venv, node_modules, dist, build,
