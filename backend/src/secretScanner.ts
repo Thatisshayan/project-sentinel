@@ -76,8 +76,9 @@ async function scanDiff(diffText: string, repoFullName: string, scanId: number, 
   const issues: SecretIssue[] = [];
   const lines  = diffText.split('\n');
   let currentFile = '';
+  const seenLocations = new Set<string>();
 
-    for (let i = 0; i < lines.length; i++) {
+  for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line) continue;
     if (line.startsWith('+++ b/')) { currentFile = line.replace('+++ b/', ''); continue; }
@@ -85,9 +86,11 @@ async function scanDiff(diffText: string, repoFullName: string, scanId: number, 
     if (shouldIgnorePath(currentFile)) continue;
 
     const content = line.slice(1);
+    const locationKey = `${currentFile}:${i}`;
+    let flagged = seenLocations.has(locationKey);
 
     for (const pattern of SECRET_PATTERNS) {
-      if (content.match(pattern.regex)) {
+      if (!flagged && content.match(pattern.regex)) {
         const issue = {
           scanId, repoFullName, issueType: 'secret',
           severity: pattern.severity,
@@ -98,15 +101,18 @@ async function scanDiff(diffText: string, repoFullName: string, scanId: number, 
           fixDescription: 'Remove the secret, rotate it immediately, use environment variables instead.',
           autoFixable: false,
         };
+        seenLocations.add(locationKey);
+        flagged = true;
         await safeFire(insertSecurityIssue(issue), { label: 'secretScanner', retryable: true })
         issues.push(issue);
       }
     }
 
+    if (flagged) continue;
+
     const highEntropy = detectHighEntropyStrings(content);
     for (const s of highEntropy) {
-      const caught = issues.some((iss) => iss.filePath === currentFile && iss.lineNumber === i);
-      if (caught) continue;
+      if (seenLocations.has(locationKey)) continue;
       const issue = {
         scanId, repoFullName, issueType: 'secret', severity: 'medium',
         title: 'High-entropy string — possible secret',
@@ -114,6 +120,7 @@ async function scanDiff(diffText: string, repoFullName: string, scanId: number, 
         filePath: currentFile, lineNumber: i,
         fixAvailable: false, autoFixable: false,
       };
+      seenLocations.add(locationKey);
       await safeFire(insertSecurityIssue(issue), { label: 'secretScanner', retryable: true })
       issues.push(issue);
     }
