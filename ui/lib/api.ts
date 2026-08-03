@@ -120,6 +120,7 @@ export interface Sprint {
 export interface SprintTask {
   id: number;
   sprint_id: number;
+  audit_task_id: number | null;
   repo_name: string;
   task_title: string;
   priority: string;

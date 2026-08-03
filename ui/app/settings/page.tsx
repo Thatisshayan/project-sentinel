@@ -2,7 +2,6 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Switch } from "@/components/ui/switch";
-import { AGENTS } from "@/lib/data";
 import { callAction } from "@/lib/actions";
 
 // Map backend canonical IDs to frontend display names and vice versa

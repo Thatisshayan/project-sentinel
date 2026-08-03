@@ -269,6 +269,58 @@ router.get('/repo/:name/tasks', async (req: Request, res: Response) => {
   }
 });
 
+// Mirrors the Telegram `task-approve:<id>` callback in telegramCommands.ts —
+// same query, same "approve then immediately execute" behavior.
+router.post('/task/:id/execute', async (req: Request, res: Response) => {
+  const idParam = req.params['id'];
+  const id = typeof idParam === 'string' ? parseInt(idParam, 10) : NaN;
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ error: 'Invalid task id' });
+    return;
+  }
+  try {
+    const result = await query(
+      `UPDATE audit_tasks SET safe_to_auto_execute = true
+       WHERE id = $1 RETURNING repo_full_name, task_number, title`,
+      [id]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      res.status(404).json({ error: 'Task not found' });
+      return;
+    }
+    res.json({ ok: true, message: `Task #${row.task_number} approved — executing now` });
+    const { executeApprovedTasks } = require('./auditOrchestrator');
+    const repoName = row.repo_full_name.split('/')[1];
+    executeApprovedTasks(row.repo_full_name, repoName, null)
+      .catch((err: any) => logger.warn({ err: err.message, id }, 'Dashboard task execute failed'));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Mirrors the Telegram `task-skip:<id>` callback in telegramCommands.ts.
+router.post('/task/:id/skip', async (req: Request, res: Response) => {
+  const idParam = req.params['id'];
+  const id = typeof idParam === 'string' ? parseInt(idParam, 10) : NaN;
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ error: 'Invalid task id' });
+    return;
+  }
+  try {
+    const { updateAuditTask } = require('./auditDb');
+    const sel = await query('SELECT task_number FROM audit_tasks WHERE id = $1', [id]);
+    if (!sel.rows[0]) {
+      res.status(404).json({ error: 'Task not found' });
+      return;
+    }
+    await updateAuditTask(id, { status: 'skipped' });
+    res.json({ ok: true, message: `Task #${sel.rows[0].task_number} skipped` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Agents ────────────────────────────────────────────────────────────────────
 
 router.get('/agents', async (req: Request, res: Response) => {
