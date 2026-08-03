@@ -2,10 +2,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BoardroomSnapshot } from './boardroomSnapshot';
 
-const ARTIFACT_PATH = join(process.cwd(), 'audits', 'boardroom-snapshot.md');
+const ARTIFACT_PATH = join(process.cwd(), 'audits', 'private', 'boardroom-snapshot.md');
 
 export function writeBoardroomSnapshotArtifact(snapshot: BoardroomSnapshot): string {
-  mkdirSync(join(process.cwd(), 'audits'), { recursive: true });
+  mkdirSync(join(process.cwd(), 'audits', 'private'), { recursive: true });
   const lines = [
     '---',
     'title: Boardroom Snapshot',
