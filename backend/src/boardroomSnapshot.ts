@@ -130,7 +130,7 @@ export async function buildBoardroomSnapshot(): Promise<BoardroomSnapshot> {
       metric.priority || 'medium',
       metric.build_status || 'unknown',
       metric.repo_name,
-      metric.last_commit_at || '',
+      metric.recorded_at || '',
     ]),
     milestones: [
       ['Snapshot builder', 'done', 'One source of truth for report and dashboard'],

@@ -7,7 +7,7 @@ Tasks claimed: 2
 Tasks proposed: 1
 Tasks in review: 2
 Tasks done: 10
-Open tasks (non-done): 4
+Open tasks (non-done): 4 (note: status groups overlap — claimed 2 + proposed 1 + in review 2 = 5; one task is double-counted across stages)
 Project files: 23
 Task files: 14
 Agents active: 6

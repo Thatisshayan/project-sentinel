@@ -13,6 +13,7 @@ import { buildSuccessMessage, buildUnknownRepoMessage, buildErrorMessage } from 
 import { runSecurityScan } from '../securityScanner';
 import { notifyDependents } from '../crossRepoCoordinator';
 import { ensureProject, recordEvent } from '../boardroomDb';
+import { getErrorInfo } from '../utils/error';
 import type { WebhookPayload } from '../types/webhookPayload';
 
 const { query } = dbClient;
@@ -32,8 +33,9 @@ export async function processWebhook(payload: GitHubPushPayload): Promise<void> 
   let data: WebhookPayload;
   try {
     data = extractPayload(payload);
-  } catch (err) {
-    logger.error({ err: (err as Error).stack ?? (err as Error).message }, 'Payload extraction failed — cannot process');
+  } catch (err: unknown) {
+    const error = getErrorInfo(err);
+    logger.error({ err: error.stack ?? error.message }, 'Payload extraction failed — cannot process');
     return;
   }
 
@@ -57,13 +59,14 @@ export async function processWebhook(payload: GitHubPushPayload): Promise<void> 
   let notionProject: Awaited<ReturnType<typeof findNotionProject>>;
   try {
     notionProject = await findNotionProject(repoNameLower);
-  } catch (err: any) {
-    logger.error({ err: err.stack ?? err.message, repoName }, 'Notion search threw an error');
+  } catch (err: unknown) {
+    const error = getErrorInfo(err);
+    logger.error({ err: error.stack ?? error.message, repoName }, 'Notion search threw an error');
     if (!isPermanentNotionError(err)) {
       await unmarkProcessed(repoName, commitSha);
     }
     await safeFire(sendTelegramMessage(
-      buildErrorMessage('Notion search failed', repoName, err.message),
+      buildErrorMessage('Notion search failed', repoName, error.message),
       repoName
     ), { label: 'webhook' })
     return;
@@ -85,13 +88,14 @@ export async function processWebhook(payload: GitHubPushPayload): Promise<void> 
 
   try {
     await updateNotionProject(notionProject.pageId, data);
-  } catch (err: any) {
-    logger.error({ err: err.stack ?? err.message, repoName }, 'Notion update failed');
+  } catch (err: unknown) {
+    const error = getErrorInfo(err);
+    logger.error({ err: error.stack ?? error.message, repoName }, 'Notion update failed');
     if (!isPermanentNotionError(err)) {
       await unmarkProcessed(repoName, commitSha);
     }
     await safeFire(sendTelegramMessage(
-      buildErrorMessage('Notion update failed', repoName, err.message),
+      buildErrorMessage('Notion update failed', repoName, error.message),
       repoName
     ), { label: 'webhook' })
     return;
@@ -101,14 +105,16 @@ export async function processWebhook(payload: GitHubPushPayload): Promise<void> 
   try {
     await appendChangelog(notionProject.pageId, data);
     changelogAppended = true;
-  } catch (err: any) {
-    logger.warn({ err: err.message, repoName }, 'Changelog append failed — continuing');
+  } catch (err: unknown) {
+    const error = getErrorInfo(err);
+    logger.warn({ err: error.message, repoName }, 'Changelog append failed — continuing');
   }
 
   try {
     await sendTelegramMessage(buildSuccessMessage(data, changelogAppended), repoName);
-  } catch (err: any) {
-    logger.error({ err: err.stack ?? err.message, repoName }, 'Telegram send failed');
+  } catch (err: unknown) {
+    const error = getErrorInfo(err);
+    logger.error({ err: error.stack ?? error.message, repoName }, 'Telegram send failed');
   }
 
   await Promise.allSettled([
@@ -118,9 +124,15 @@ export async function processWebhook(payload: GitHubPushPayload): Promise<void> 
       lastCommitAt: data.commitTimestamp ? new Date(data.commitTimestamp) : new Date(),
       buildStatus:  'unknown',
       priority:     'medium',
-    }).catch((err: any) => logger.warn({ err: err.message }, 'Metrics upsert failed')),
+    }).catch((err: unknown) => {
+      const error = getErrorInfo(err);
+      logger.warn({ err: error.message }, 'Metrics upsert failed');
+    }),
     refreshRepoMetrics(data.repoFullName, data.repoName)
-      .catch((err: any) => logger.warn({ err: err.message }, 'Post-push metrics refresh failed')),
+      .catch((err: unknown) => {
+        const error = getErrorInfo(err);
+        logger.warn({ err: error.message }, 'Post-push metrics refresh failed');
+      }),
   ]);
 
   if (notionProject && data.riskLevel === 'High') {
@@ -131,10 +143,14 @@ export async function processWebhook(payload: GitHubPushPayload): Promise<void> 
         commitSha:     data.commitSha,
         branchName:    data.branchName,
         topicId:       notionProject.topicId ? parseInt(notionProject.topicId, 10) : null,
-      }).catch((err: any) => logger.warn({ err: err.message }, 'High-risk security scan failed — non-blocking'));
+      }).catch((err: unknown) => {
+        const error = getErrorInfo(err);
+        logger.warn({ err: error.message }, 'High-risk security scan failed — non-blocking');
+      });
       logger.info({ repoName: data.repoName, risk: 'High' }, 'Security scan triggered for high-risk push');
-    } catch (err: any) {
-      logger.warn({ err: err.message, repoName: data.repoName }, 'Failed to trigger high-risk security scan');
+    } catch (err: unknown) {
+      const error = getErrorInfo(err);
+      logger.warn({ err: error.message, repoName: data.repoName }, 'Failed to trigger high-risk security scan');
     }
   }
 
@@ -153,8 +169,9 @@ export async function processWebhook(payload: GitHubPushPayload): Promise<void> 
         topicId:       notionProject.topicId ? parseInt(notionProject.topicId, 10) : null,
       });
       logger.info({ repoName: data.repoName }, 'Build check job queued');
-    } catch (err: any) {
-      logger.warn({ err: err.message }, 'Failed to queue build check — non-blocking');
+    } catch (err: unknown) {
+      const error = getErrorInfo(err);
+      logger.warn({ err: error.message }, 'Failed to queue build check — non-blocking');
     }
   }
 
@@ -165,7 +182,8 @@ export async function processWebhook(payload: GitHubPushPayload): Promise<void> 
 
   try {
     fireAndForget(notifyDependents(repoName, data.commitSha, data.authorName), { label: 'webhook' })
-  } catch (err: any) {
-    logger.warn({ err: err.message, repoName }, 'Failed to fire notifyDependents');
+  } catch (err: unknown) {
+    const error = getErrorInfo(err);
+    logger.warn({ err: error.message, repoName }, 'Failed to fire notifyDependents');
   }
 }
