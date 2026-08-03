@@ -5,9 +5,25 @@ const KEY  = process.env.SENTINEL_UI_KEY ?? '';
 // a hung connection previously blocked the whole server-component render forever).
 const API_TIMEOUT_MS = 8000;
 
+export class ApiTimeoutError extends Error {
+  readonly timeoutMs: number;
+  constructor(path: string, timeoutMs: number, cause?: unknown) {
+    super(`API ${path} timed out after ${timeoutMs}ms`, { cause });
+    this.name = 'ApiTimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export class ApiConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ApiConfigError';
+  }
+}
+
 async function api<T>(path: string, opts?: RequestInit): Promise<T> {
   if (!BASE) {
-    throw new Error(`SENTINEL_API_URL is not configured (cannot reach /api${path})`);
+    throw new ApiConfigError(`SENTINEL_API_URL is not configured (cannot reach /api${path})`);
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
@@ -26,7 +42,7 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T> {
     return res.json() as Promise<T>;
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error(`API ${path} timed out after ${API_TIMEOUT_MS}ms`);
+      throw new ApiTimeoutError(path, API_TIMEOUT_MS, err);
     }
     throw err;
   } finally {
