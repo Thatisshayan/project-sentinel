@@ -7,7 +7,7 @@ Tasks claimed: 2
 Tasks proposed: 1
 Tasks in review: 2
 Tasks done: 10
-Open tasks (non-done): 4
+Open tasks (non-done): 4 (note: status groups overlap — claimed 2 + proposed 1 + in review 2 = 5; one task is double-counted across stages)
 Project files: 23
 Task files: 14
 Agents active: 6
@@ -57,6 +57,6 @@ Agent execution: Support Sentinel + other operators — next
 | TASK-014 | Build the Boardroom dashboard UI | Hermes (U) | claimed | agent/hermes/task-014 | 2026-08-02 |
 
 ## Actions
-Hermes: Generated live Sentinel-format snapshot from boardroom state · now
-Hermes: Claimed task 014 for dashboard delivery · now
-Sentinel: Feeding audit signals into Boardroom · now
+Hermes: Generated live Sentinel-format snapshot from boardroom state · (2026-08-02T20:24:25Z)
+Hermes: Claimed task 014 for dashboard delivery · (2026-08-02T20:24:25Z)
+Sentinel: Feeding audit signals into Boardroom · (2026-08-02T20:24:25Z)

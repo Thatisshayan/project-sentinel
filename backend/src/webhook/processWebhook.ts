@@ -33,8 +33,9 @@ export async function processWebhook(payload: GitHubPushPayload): Promise<void> 
   let data: WebhookPayload;
   try {
     data = extractPayload(payload);
-  } catch (err) {
-    logger.error({ err: (err as Error).stack ?? (err as Error).message }, 'Payload extraction failed — cannot process');
+  } catch (err: unknown) {
+    const error = getErrorInfo(err);
+    logger.error({ err: error.stack ?? error.message }, 'Payload extraction failed — cannot process');
     return;
   }
 

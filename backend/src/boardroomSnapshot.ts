@@ -82,9 +82,10 @@ export async function buildBoardroomSnapshot(): Promise<BoardroomSnapshot> {
   const brokenRepos = metrics.filter((m) => m.build_status === 'failed').map((m) => m.repo_name);
   const working = activeAgents.filter((a) => a.status === 'working');
   const avgHealth = metrics.length ? health.toFixed(1) : 'N/A';
+  const now = new Date().toISOString();
 
   return {
-    updatedAt: new Date().toISOString(),
+    updatedAt: now,
     summary: 'Boardroom is the canonical governance surface. Sentinel keeps the audit picture current and can feed the same snapshot back into Boardroom.',
     boardDecision: 'Use Sentinel as the live execution and audit feeder for Boardroom',
     health,
@@ -119,9 +120,9 @@ export async function buildBoardroomSnapshot(): Promise<BoardroomSnapshot> {
       ['R-02', 'Boardroom writeback is not wired yet', 'Medium'],
     ],
     actions: [
-      ['Sentinel', 'Refreshed the Boardroom snapshot', 'now'],
-      ['Sentinel', `Queued tasks: ${queuedCount}`, 'now'],
-      ['Sentinel', `Broken repos: ${brokenRepos.length}`, 'now'],
+      ['Sentinel', 'Refreshed the Boardroom snapshot', now],
+      ['Sentinel', `Queued tasks: ${queuedCount}`, now],
+      ['Sentinel', `Broken repos: ${brokenRepos.length}`, now],
     ],
     ledger: metrics.slice(0, 8).map((metric, idx) => [
       String(idx + 1).padStart(3, '0'),
