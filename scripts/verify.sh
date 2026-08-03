@@ -11,14 +11,35 @@ FAIL=0
 notice() { echo "::notice title=$1::$2"; }
 error()  { echo "::error title=$1::$2"; FAIL=1; }
 
+# Pinned gitleaks Docker image for CI fallback (immutable digest for
+# supply-chain safety — never use :latest). Update deliberately via
+# dependency review, not automated tag tracking.
+GITLEAKS_IMAGE="zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
+
+# ---------------------------------------------------------------- 0. main guard (Rule 26)
+# Last-line defense against direct commits/pushes to main: if verification
+# runs while HEAD is main, fail immediately rather than silently green-passing
+# work that should have been on a branch.
+_current_branch=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+if [ "$_current_branch" = "main" ]; then
+  error "main-guard" "running verify on main — use a feature branch (Rule 26/27)"
+fi
+
 # ---------------------------------------------------------------- 1. secret-scan
 echo "== secret-scan =="
 if command -v gitleaks >/dev/null 2>&1; then
   gitleaks detect --no-banner --redact || error "secret-scan" "gitleaks found secrets"
 elif [ "${CI:-}" = "true" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
   if command -v docker >/dev/null 2>&1; then
-    docker run --rm -v "$REPO_ROOT:/repo" -w /repo zricethezav/gitleaks:latest detect --no-banner --redact \
-      || error "secret-scan" "dockerized gitleaks found secrets"
+    docker run --rm -v "$REPO_ROOT:/repo:ro" -w /repo "$GITLEAKS_IMAGE" detect --no-banner --redact
+    _gitleaks_rc=$?
+    if [ "$_gitleaks_rc" -eq 0 ]; then
+      notice "secret-scan" "no secrets found (dockerized gitleaks v8.30.1)"
+    elif [ "$_gitleaks_rc" -eq 1 ]; then
+      error "secret-scan" "dockerized gitleaks found secrets"
+    else
+      error "secret-scan" "dockerized gitleaks exited with code $_gitleaks_rc (scanner/runtime error)"
+    fi
   else
     error "secret-scan" "gitleaks is required in CI but docker is unavailable"
   fi

@@ -9,6 +9,15 @@ $failed = $false
 function Notice($t,$m){ Write-Host "::notice title=$t::$m" }
 function Err($t,$m){ Write-Host "::error title=$t::$m"; $script:failed = $true }
 
+# Pinned gitleaks Docker image for CI fallback (immutable digest for
+# supply-chain safety — never use :latest). Update deliberately via
+# dependency review, not automated tag tracking.
+$GitleaksImage = "zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
+
+# ---------------------------------------------------------------- 0. main guard (Rule 26)
+$currentBranch = (git -C $RepoRoot rev-parse --abbrev-ref HEAD 2>$null).Trim()
+if ($currentBranch -eq "main") { Err "main-guard" "running verify on main — use a feature branch (Rule 26/27)" }
+
 # ---------------------------------------------------------------- 1. secret-scan
 Write-Host "== secret-scan =="
 if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
@@ -16,8 +25,10 @@ if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
   if ($LASTEXITCODE -ne 0) { Err "secret-scan" "gitleaks found secrets" }
 } elseif ($env:CI -eq "true" -or $env:GITHUB_ACTIONS) {
   if (Get-Command docker -ErrorAction SilentlyContinue) {
-    docker run --rm -v "${REPO_ROOT}:/repo" -w /repo zricethezav/gitleaks:latest detect --no-banner --redact
-    if ($LASTEXITCODE -ne 0) { Err "secret-scan" "dockerized gitleaks found secrets" }
+    docker run --rm -v "${REPO_ROOT}:/repo:ro" -w /repo "$GitleaksImage" detect --no-banner --redact
+    if ($LASTEXITCODE -eq 0) { Notice "secret-scan" "no secrets found (dockerized gitleaks v8.30.1)" }
+    elseif ($LASTEXITCODE -eq 1) { Err "secret-scan" "dockerized gitleaks found secrets" }
+    else { Err "secret-scan" "dockerized gitleaks exited with code $LASTEXITCODE (scanner/runtime error)" }
   } else {
     Err "secret-scan" "gitleaks is required in CI but docker is unavailable"
   }
