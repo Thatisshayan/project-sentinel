@@ -1,18 +1,53 @@
 const BASE = process.env.SENTINEL_API_URL ?? '';
 const KEY  = process.env.SENTINEL_UI_KEY ?? '';
 
+// Hard timeout so a slow/unreachable backend fails fast (F1 from UI E2E report:
+// a hung connection previously blocked the whole server-component render forever).
+const API_TIMEOUT_MS = 8000;
+
+export class ApiTimeoutError extends Error {
+  readonly timeoutMs: number;
+  constructor(path: string, timeoutMs: number, cause?: unknown) {
+    super(`API ${path} timed out after ${timeoutMs}ms`, { cause });
+    this.name = 'ApiTimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export class ApiConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ApiConfigError';
+  }
+}
+
 async function api<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}/api${path}`, {
-    ...opts,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(KEY ? { 'x-sentinel-key': KEY } : {}),
-      ...(opts?.headers ?? {}),
-    },
-    next: { revalidate: 30 },
-  });
-  if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
-  return res.json() as Promise<T>;
+  if (!BASE) {
+    throw new ApiConfigError(`SENTINEL_API_URL is not configured (cannot reach /api${path})`);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${BASE}/api${path}`, {
+      ...opts,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(KEY ? { 'x-sentinel-key': KEY } : {}),
+        ...(opts?.headers ?? {}),
+      },
+      next: { revalidate: 30 },
+    });
+    if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
+    return res.json() as Promise<T>;
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new ApiTimeoutError(path, API_TIMEOUT_MS, err);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
