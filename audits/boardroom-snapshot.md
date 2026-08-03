@@ -57,6 +57,6 @@ Agent execution: Support Sentinel + other operators — next
 | TASK-014 | Build the Boardroom dashboard UI | Hermes (U) | claimed | agent/hermes/task-014 | 2026-08-02 |
 
 ## Actions
-Hermes: Generated live Sentinel-format snapshot from boardroom state · now
-Hermes: Claimed task 014 for dashboard delivery · now
-Sentinel: Feeding audit signals into Boardroom · now
+Hermes: Generated live Sentinel-format snapshot from boardroom state · (2026-08-02T20:24:25Z)
+Hermes: Claimed task 014 for dashboard delivery · (2026-08-02T20:24:25Z)
+Sentinel: Feeding audit signals into Boardroom · (2026-08-02T20:24:25Z)
