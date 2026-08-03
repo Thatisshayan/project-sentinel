@@ -13,14 +13,14 @@ Decision: Make OBSIDIAN-TEAM-BOARDROOM the canonical Boardroom home
 Summary: Boardroom is the canonical governance surface. Hermes keeps local execution in sync, while Sentinel feeds audit signals back into the same system. Live snapshot generated 2026-08-02 from OBSIDIAN-TEAM-BOARDROOM ledger, projects, and decisions.
 
 ## KPIs
-- Tasks claimed: 2
-- Tasks proposed: 1
-- Tasks in review: 2
-- Tasks done: 10
-- Open tasks (non-done): 4
-- Project files: 22
-- Task files: 14
-- Agents active: 6
+Tasks claimed: 2
+Tasks proposed: 1
+Tasks in review: 2
+Tasks done: 10
+Open tasks (non-done): 4 (note: status groups overlap - claimed 2 + proposed 1 + in review 2 = 5; one task is double-counted across stages)
+Project files: 23
+Task files: 14
+Agents active: 6
 
 ## Projects
 - ACC — Agent Command Center | boardroom | Active
@@ -78,6 +78,6 @@ Summary: Boardroom is the canonical governance surface. Hermes keeps local execu
 - Uptime: self-hosted
 
 ## Actions
-- Hermes: Generated live Sentinel-format snapshot from boardroom state (2026-08-02T20:24:25Z)
-- Hermes: Claimed task 014 for dashboard delivery (2026-08-02T20:24:25Z)
-- Sentinel: Feeding audit signals into Boardroom (2026-08-02T20:24:25Z)
+Hermes: Generated live Sentinel-format snapshot from boardroom state · (2026-08-02T20:24:25Z)
+Hermes: Claimed task 014 for dashboard delivery · (2026-08-02T20:24:25Z)
+Sentinel: Feeding audit signals into Boardroom · (2026-08-02T20:24:25Z)

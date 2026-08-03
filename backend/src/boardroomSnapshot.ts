@@ -85,7 +85,7 @@ export async function buildBoardroomSnapshot(): Promise<BoardroomSnapshot> {
   const now = new Date().toISOString();
 
   return {
-    updatedAt: new Date().toISOString(),
+    updatedAt: now,
     summary: 'Boardroom is the canonical governance surface. Sentinel keeps the audit picture current and can feed the same snapshot back into Boardroom.',
     boardDecision: 'Use Sentinel as the live execution and audit feeder for Boardroom',
     health,
@@ -130,7 +130,7 @@ export async function buildBoardroomSnapshot(): Promise<BoardroomSnapshot> {
       metric.priority || 'medium',
       metric.build_status || 'unknown',
       metric.repo_name,
-      metric.last_commit_at || '',
+      metric.recorded_at || '',
     ]),
     milestones: [
       ['Snapshot builder', 'done', 'One source of truth for report and dashboard'],

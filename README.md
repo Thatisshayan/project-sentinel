@@ -185,6 +185,18 @@ SENTINEL_API_URL   Base URL of the backend, no trailing slash (e.g. http://local
 SENTINEL_UI_KEY    Must match the backend's SENTINEL_UI_KEY exactly
 ```
 
+### API behavior (timeouts & failure handling)
+
+All dashboard data is fetched server-side via `ui/lib/api.ts`, which proxies to
+the backend `/api/*` routes. The `api()` helper enforces an **8-second timeout**
+(`AbortController`) so a slow or unreachable backend fails fast instead of
+hanging a server-component render indefinitely. If `SENTINEL_API_URL` is unset,
+`api()` throws an `ApiConfigError` immediately. Pages wrap each fetch in
+`try/catch` and render an empty state on failure — the dashboard never blocks
+on a slow backend. Timeouts surface as `ApiTimeoutError` (extending `Error`
+with `name = 'ApiTimeoutError'`) so callers can distinguish them from other
+failures without parsing message text.
+
 ### Deployment (self-hosted)
 
 Deploys as part of the same Docker Compose stack as the backend — see

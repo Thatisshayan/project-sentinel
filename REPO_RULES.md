@@ -235,7 +235,7 @@ See `docs/governance/BRANCH_POLICY.md`.
 
 `.github/workflows/gate.yml` runs on PRs to `main` and on pushes to non-main branches.
 Jobs / checks:
-1. `secret-scan` — gitleaks if available, else fallback grep for `*.p8`, `*credential*`, `API_KEY`, `SECRET`, `PRIVATE_KEY`.
+1. `secret-scan` — native `gitleaks` when installed; pinned Docker fallback (`zricethezav/gitleaks:v8.30.1`) in CI when `gitleaks` is absent but Docker is available (fails closed if neither can run); outside CI on a machine without `gitleaks`, a local heuristic grep for `*.p8`, `*credential*`, `API_KEY`, `SECRET`, `PRIVATE_KEY`.
 2. `doc-freshness` — README exists + link integrity; newest audit < 30 days; `docs/` md count ≥ baseline.
 3. `build` / `test` — repo-adaptive (Node / Python / Rust / static).
 4. `deploy-dry` — if a deploy target config is present (vercel/railway/eas/netlify), run its dry-run; otherwise the smoke build covers it.
