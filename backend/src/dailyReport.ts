@@ -65,6 +65,30 @@ async function buildReportMessage(summary: PortfolioSummary, patterns: RepoPatte
       ].join('\n')
     : '';
 
+  const backlogThreshold = parseInt(process.env['AUDIT_BACKLOG_ALERT_COUNT'] || '3', 10);
+  const backlogResult = await query(`
+    SELECT repo_full_name, COUNT(*) AS queued_count,
+           MIN(created_at) AS oldest_queued_at
+    FROM audit_tasks
+    WHERE status = 'queued'
+    GROUP BY repo_full_name
+    HAVING COUNT(*) >= $1
+    ORDER BY queued_count DESC, oldest_queued_at ASC
+  `, [backlogThreshold]);
+  const backlogRows = backlogResult.rows as Array<{
+    repo_full_name: string;
+    queued_count: string | number;
+    oldest_queued_at: string | null;
+  }>;
+  const backlogLine = backlogRows.length > 0
+    ? [
+        `\n📋 Audit backlog: ${backlogRows.length} repos have ${backlogThreshold}+ queued tasks`,
+        ...backlogRows.slice(0, 5).map((r) =>
+          `   · ${r.repo_full_name}: ${Number(r.queued_count)} queued${r.oldest_queued_at ? ` (oldest ${r.oldest_queued_at})` : ''}`
+        ),
+      ].join('\n')
+    : '';
+
   const patternLines = patterns.length > 0
     ? '\n🔍 Cross-repo patterns detected:\n' +
       patterns.slice(0, 3).map((p: RepoPatternRow) =>
@@ -90,6 +114,7 @@ async function buildReportMessage(summary: PortfolioSummary, patterns: RepoPatte
     `✅ ${totalBuildsPassed} builds passed  ❌ ${totalBuildsFailed} failed`,
     `🔧 ${totalTasksDone} tasks completed  📋 ${totalTasksQueued} queued`,
     staleLine,
+    backlogLine,
     patternLines,
     costLine,
     ``,
