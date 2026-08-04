@@ -1,14 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
-// CSRF/origin guard: in production only the app's own origin may call this route.
-function isValidOrigin(req: NextRequest): boolean {
-  const origin = req.headers.get("origin");
-  const host = req.headers.get("host");
-  if (process.env.NODE_ENV === "production") {
-    return origin === `https://${host}` || origin === process.env.APP_URL;
-  }
-  return true; // dev: allow all
-}
+import { isValidOrigin } from "@/lib/originGuard";
 
 export async function GET(req: NextRequest) {
   const base = process.env.SENTINEL_API_URL;

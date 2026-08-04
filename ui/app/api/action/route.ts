@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimitMiddleware } from "@/lib/rateLimit";
+import { isValidOrigin } from "@/lib/originGuard";
 
 function getRateLimitKey(req: NextRequest): string {
   // Use x-forwarded-for header for production, fall back to socket IP
@@ -55,16 +56,6 @@ function hasDotSegment(path: string): boolean {
 function isAllowedPath(path: string): boolean {
   if (hasDotSegment(path)) return false;
   return ALLOWED_PATH_PATTERNS.some((p) => p.test(path));
-}
-
-// CSRF/origin guard: in production only the app's own origin may call this route.
-function isValidOrigin(req: NextRequest): boolean {
-  const origin = req.headers.get("origin");
-  const host = req.headers.get("host");
-  if (process.env.NODE_ENV === "production") {
-    return origin === `https://${host}` || origin === process.env.APP_URL;
-  }
-  return true; // dev: allow all
 }
 
 // Universal proxy — client sends { path, body, method? } → we forward to
