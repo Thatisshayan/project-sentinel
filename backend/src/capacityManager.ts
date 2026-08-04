@@ -1,5 +1,6 @@
 import { getMonthlyCost } from './portfolioDb';
 import logger from './logger';
+import { nvidiaPoolSize } from './utils/nvidiaKeyPool';
 import type { CapacityStatus } from './types/capacityStatus';
 
 const MONTHLY_BUDGET         = (): number => parseFloat(process.env['SPRINT_MONTHLY_BUDGET'] || '30');
@@ -66,8 +67,11 @@ function estimateTaskCost(builderAgent: string, count: number = 1): number {
 
 function selectBuilder(repoName: string, capacity: CapacityStatus, notionBuilder: string): string {
   if (capacity.usagePercent >= 75) {
-    // Route to first available free builder
-    if (process.env['NVIDIA_API_KEY'])     { logger.info({ repoName, reason: capacity.reason }, 'Budget routing to NVIDIA'); return 'nvidia'; }
+    // Route to first available free builder. NVIDIA check uses the pool
+    // size, not process.env['NVIDIA_API_KEY'] directly — an operator who
+    // only sets NVIDIA_API_KEY_2 (documented as valid in .env.example) would
+    // otherwise fall through this branch even though NVIDIA is configured.
+    if (nvidiaPoolSize() > 0)              { logger.info({ repoName, reason: capacity.reason }, 'Budget routing to NVIDIA'); return 'nvidia'; }
     if (process.env['GEMINI_API_KEY'])     { logger.info({ repoName, reason: capacity.reason }, 'Budget routing to Gemini'); return 'gemini'; }
     if (process.env['MISTRAL_API_KEY'])    { logger.info({ repoName, reason: capacity.reason }, 'Budget routing to Mistral'); return 'mistral_codestral'; }
     if (process.env['OPENROUTER_API_KEY']) { logger.info({ repoName, reason: capacity.reason }, 'Budget routing to OpenRouter'); return 'openrouter_gemma'; }

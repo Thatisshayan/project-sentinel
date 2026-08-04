@@ -52,6 +52,21 @@ async function probeAIProviders(): Promise<string[]> {
       url:  'https://generativelanguage.googleapis.com/v1beta/openai/models',
       auth: () => `Bearer ${process.env['GEMINI_API_KEY']}`,
     },
+    // Mistral/OpenRouter back agentRegistry.ts's AGENT_POOL entries
+    // (mistral_codestral, openrouter_gemma) — without probes here, an
+    // invalid key for either would only surface when a task actually tries
+    // to use that builder, instead of being caught proactively like every
+    // other provider.
+    {
+      name: 'Mistral',   key: 'MISTRAL_API_KEY',
+      url:  'https://api.mistral.ai/v1/models',
+      auth: () => `Bearer ${process.env['MISTRAL_API_KEY']}`,
+    },
+    {
+      name: 'OpenRouter', key: 'OPENROUTER_API_KEY',
+      url:  'https://openrouter.ai/api/v1/models',
+      auth: () => `Bearer ${process.env['OPENROUTER_API_KEY']}`,
+    },
     {
       name: 'DashScope (Qwen)', key: 'DASHSCOPE_API_KEY',
       url:  `${process.env['DASHSCOPE_BASE_URL'] || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}/models`,
@@ -122,8 +137,10 @@ async function probeAIProviders(): Promise<string[]> {
     // nothing to mark for them even though the probe above still checks
     // whether their (now-unused) env keys are configured.
     const PROVIDER_AGENT_MAP: Record<string, string[]> = {
-      'NVIDIA NIM': ['nvidia', 'gpt_oss_120b', 'llama_8b'],
-      'Gemini':     ['gemini'],
+      'NVIDIA NIM':  ['nvidia', 'gpt_oss_120b', 'llama_8b'],
+      'Gemini':      ['gemini'],
+      'Mistral':     ['mistral_codestral'],
+      'OpenRouter':  ['openrouter_gemma'],
     };
     const affectedProviders = new Set<string>();
     if (nvidiaAllDown) affectedProviders.add('NVIDIA NIM');

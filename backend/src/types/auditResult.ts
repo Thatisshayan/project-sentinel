@@ -25,4 +25,12 @@ export interface AuditResult {
   aspectHealthScore: number;
   aspectEffectSummary: string;
   tasks: AuditTask[];
+  /**
+   * Which engine actually produced this audit — 'claude' (Claude Code CLI
+   * path) or the ai/client.ts provider id that won its fallback chain
+   * ('nvidia', 'gemini', 'dashscope', 'deepseek'). Optional only because
+   * parseAuditOutput() (shared by both paths) doesn't know which path
+   * called it — the caller fills this in after the fact.
+   */
+  provider?: string;
 }

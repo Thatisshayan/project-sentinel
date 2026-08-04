@@ -34,8 +34,11 @@ const ALLOWED_PATH_PATTERNS: RegExp[] = [
   /^\/api\/repo\/[\w.-]+\/audit$/,
   /^\/api\/sprint\/approve$/,
   /^\/api\/sprint\/skip$/,
-  /^\/api\/task\/[\w.-]+\/execute$/,
-  /^\/api\/task\/[\w.-]+\/skip$/,
+  // Digits only — task ids are numeric; the backend already rejects
+  // non-numeric ids (api.ts) but there's no reason to let anything else
+  // reach it through this proxy in the first place.
+  /^\/api\/task\/\d+\/execute$/,
+  /^\/api\/task\/\d+\/skip$/,
   /^\/api\/system\/pause$/,
   /^\/api\/system\/resume$/,
   /^\/api\/system\/audit-all$/,

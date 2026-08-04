@@ -273,20 +273,34 @@ router.get('/repo/:name/tasks', async (req: Request, res: Response) => {
 // same query, same "approve then immediately execute" behavior.
 router.post('/task/:id/execute', async (req: Request, res: Response) => {
   const idParam = req.params['id'];
-  const id = typeof idParam === 'string' ? parseInt(idParam, 10) : NaN;
+  // parseInt() alone accepts "1abc"/"1.2" and silently truncates to 1 —
+  // require the whole param to be digits before converting, so a malformed
+  // id 400s instead of silently operating on an unrelated task.
+  const id = typeof idParam === 'string' && /^\d+$/.test(idParam) ? parseInt(idParam, 10) : NaN;
   if (!Number.isInteger(id)) {
     res.status(400).json({ error: 'Invalid task id' });
     return;
   }
   try {
+    // WHERE status = 'queued' makes this an atomic, idempotent transition —
+    // without it, a repeated/racing request (double-click before the UI
+    // disables the button, a retried request, a stale tab) could re-trigger
+    // executeApprovedTasks() on a task that's already in_progress/done/
+    // skipped/failed instead of being a no-op.
     const result = await query(
       `UPDATE audit_tasks SET safe_to_auto_execute = true
-       WHERE id = $1 RETURNING repo_full_name, task_number, title`,
+       WHERE id = $1 AND status = 'queued'
+       RETURNING repo_full_name, task_number, title`,
       [id]
     );
     const row = result.rows[0];
     if (!row) {
-      res.status(404).json({ error: 'Task not found' });
+      const existing = await query('SELECT status FROM audit_tasks WHERE id = $1', [id]);
+      if (!existing.rows[0]) {
+        res.status(404).json({ error: 'Task not found' });
+      } else {
+        res.status(409).json({ error: `Task is already ${existing.rows[0].status} — cannot execute` });
+      }
       return;
     }
     res.json({ ok: true, message: `Task #${row.task_number} approved — executing now` });
@@ -302,20 +316,35 @@ router.post('/task/:id/execute', async (req: Request, res: Response) => {
 // Mirrors the Telegram `task-skip:<id>` callback in telegramCommands.ts.
 router.post('/task/:id/skip', async (req: Request, res: Response) => {
   const idParam = req.params['id'];
-  const id = typeof idParam === 'string' ? parseInt(idParam, 10) : NaN;
+  // parseInt() alone accepts "1abc"/"1.2" and silently truncates to 1 —
+  // require the whole param to be digits before converting, so a malformed
+  // id 400s instead of silently operating on an unrelated task.
+  const id = typeof idParam === 'string' && /^\d+$/.test(idParam) ? parseInt(idParam, 10) : NaN;
   if (!Number.isInteger(id)) {
     res.status(400).json({ error: 'Invalid task id' });
     return;
   }
   try {
-    const { updateAuditTask } = require('./auditDb');
-    const sel = await query('SELECT task_number FROM audit_tasks WHERE id = $1', [id]);
-    if (!sel.rows[0]) {
-      res.status(404).json({ error: 'Task not found' });
+    // Same atomicity concern as /execute above — only a still-'queued' task
+    // can be skipped, so a stale/racing skip request can't flip an
+    // already-executing or already-done task back to 'skipped'.
+    const result = await query(
+      `UPDATE audit_tasks SET status = 'skipped'
+       WHERE id = $1 AND status = 'queued'
+       RETURNING task_number`,
+      [id]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      const existing = await query('SELECT status FROM audit_tasks WHERE id = $1', [id]);
+      if (!existing.rows[0]) {
+        res.status(404).json({ error: 'Task not found' });
+      } else {
+        res.status(409).json({ error: `Task is already ${existing.rows[0].status} — cannot skip` });
+      }
       return;
     }
-    await updateAuditTask(id, { status: 'skipped' });
-    res.json({ ok: true, message: `Task #${sel.rows[0].task_number} skipped` });
+    res.json({ ok: true, message: `Task #${row.task_number} skipped` });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

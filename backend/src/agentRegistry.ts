@@ -55,8 +55,25 @@ async function initAgentPool(): Promise<void> {
 async function selectAgent(taskComplexity: string, preferredBuilder?: string): Promise<string> {
   if (preferredBuilder) {
     const config = getBuilderConfig(preferredBuilder);
-    if (config && hasConfiguredKey(config)) {
+    // getBuilderConfig() falls back to a *different* builder — anywhere in
+    // builderRouter.ts's full ~20-entry pool, not just this file's smaller
+    // AGENT_POOL — for an unrecognized id, or one whose own key is missing.
+    // Returning preferredBuilder (or an off-AGENT_POOL fallback id like
+    // 'poolside') here would hand back an id initAgentPool() never
+    // registers in agent_registry (it only registers this file's curated
+    // AGENT_POOL), so assignAgent()/setAgentWorking() would silently no-op
+    // and activeCounts-based concurrency gating would never see the task.
+    // Only honor preferredBuilder when it's both the builder actually
+    // resolved (no silent redirect) AND a member of this file's own pool;
+    // otherwise fall through to normal complexity-based selection below,
+    // which only ever picks from AGENT_POOL.
+    const inPool = !!config && AGENT_POOL.some((a) => a.id === config.id);
+    if (config && config.id === preferredBuilder && inPool && hasConfiguredKey(config)) {
       return preferredBuilder;
+    }
+    if (preferredBuilder !== config?.id || !inPool) {
+      logger.warn({ preferredBuilder, resolvedTo: config?.id },
+        'selectAgent: preferred builder unrecognized or outside AGENT_POOL — falling through to normal selection');
     }
   }
 

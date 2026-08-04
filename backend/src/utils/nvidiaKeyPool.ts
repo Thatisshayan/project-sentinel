@@ -38,8 +38,17 @@ function loadKeys(): KeyEntry[] {
   return keys;
 }
 
+const DEFAULT_PER_KEY_CONCURRENCY = 2;
+
+// parseInt('') and parseInt(non-numeric) both return NaN, and `active >= NaN`
+// is always false — an unset-but-present or typo'd NVIDIA_KEY_CONCURRENCY
+// would silently remove the cap entirely (every key stays "eligible"
+// forever), defeating the reason this module exists. A configured value
+// <= 0 would have the opposite failure mode (no key ever acquirable) —
+// both fall back to the default instead.
 function perKeyConcurrency(): number {
-  return parseInt(process.env['NVIDIA_KEY_CONCURRENCY'] || '2');
+  const parsed = parseInt(process.env['NVIDIA_KEY_CONCURRENCY'] || '', 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_PER_KEY_CONCURRENCY;
 }
 
 export interface AcquiredNvidiaKey {

@@ -30,6 +30,16 @@ export interface CallAnyProviderOptions {
   models?: ProviderModels;
   /** Anthropic is never used unless explicitly opted in — free providers first. */
   includeAnthropic?: boolean;
+  /**
+   * Optional — invoked with the provider name that actually served the
+   * request, right before callAnyProvider() returns successfully. Lets a
+   * caller record real provider attribution (e.g. auditDb.ts's
+   * audit_cycles.audit_agent, which previously hardcoded 'nvidia'
+   * regardless of which provider in the fallback chain actually handled
+   * it) without changing this function's return type for every other
+   * caller that doesn't care which provider won.
+   */
+  onProviderUsed?: (provider: string) => void;
 }
 
 const DEFAULT_MODELS: Required<Omit<ProviderModels, 'anthropic'>> & { anthropic: string } = {
@@ -147,6 +157,7 @@ export async function callAnyProvider(opts: CallAnyProviderOptions): Promise<str
           opts
         );
         if (!content) throw new Error('empty response');
+        opts.onProviderUsed?.('nvidia');
         return content;
       } catch (err: any) {
         lastErr = err;
@@ -159,10 +170,17 @@ export async function callAnyProvider(opts: CallAnyProviderOptions): Promise<str
     }
   }
 
+  const PROVIDER_ID: Record<string, string> = {
+    'Gemini':           'gemini',
+    'DashScope (Qwen)': 'dashscope',
+    'DeepSeek':         'deepseek',
+  };
+
   for (const provider of otherProviders) {
     try {
       const content = await callOpenAiCompatible(provider, opts);
       if (!content) throw new Error('empty response');
+      opts.onProviderUsed?.(PROVIDER_ID[provider.name] || provider.name);
       return content;
     } catch (err: any) {
       lastErr = err;
@@ -174,6 +192,7 @@ export async function callAnyProvider(opts: CallAnyProviderOptions): Promise<str
     try {
       const content = await callAnthropic(anthropicKey, opts);
       if (!content) throw new Error('empty response');
+      opts.onProviderUsed?.('claude');
       return content;
     } catch (err: any) {
       lastErr = err;
