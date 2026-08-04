@@ -22,11 +22,11 @@ const AGENT_NAME_TO_ID: Record<string, string> = Object.fromEntries(
 
 function Row({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-3 border-b border-s-border last:border-b-0">
-      <div>
+    <div className="flex items-center justify-between gap-4 py-3 border-b border-s-border last:border-b-0">
+      <label className="min-w-0">
         <div className="text-sm font-medium">{label}</div>
         {desc && <div className="text-[11px] text-s-muted mt-0.5">{desc}</div>}
-      </div>
+      </label>
       <div className="flex-shrink-0 ml-4">{children}</div>
     </div>
   );
@@ -149,41 +149,41 @@ export default function SettingsPage() {
           <Switch checked={autoApprove} onCheckedChange={setAutoApprove} />
         </Row>
         <Row label="Audit cooldown" desc="Minimum time between repo audits">
-          <select value={auditCooldown} onChange={(e) => setAuditCooldown(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
+          <select aria-label="Audit cooldown" value={auditCooldown} onChange={(e) => setAuditCooldown(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
             <option value="6">6 hours</option>
             <option value="12">12 hours</option>
             <option value="24">24 hours</option>
           </select>
         </Row>
         <Row label="Max active agents" desc="Concurrent agents across all repos">
-          <select value={maxAgents} onChange={(e) => setMaxAgents(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
+          <select aria-label="Max active agents" value={maxAgents} onChange={(e) => setMaxAgents(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
             <option value="4">4</option>
             <option value="6">6</option>
             <option value="8">8</option>
           </select>
         </Row>
         <Row label="Daily report time" desc="When the overnight summary is generated">
-          <input value={dailyReportTime} onChange={(e) => setDailyReportTime(e.target.value)} type="time" className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text font-mono outline-none focus:border-s-ind/50" />
+          <input aria-label="Daily report time" value={dailyReportTime} onChange={(e) => setDailyReportTime(e.target.value)} type="time" className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text font-mono outline-none focus:border-s-ind/50" />
         </Row>
       </Section>
 
       <Section title="Agent Defaults">
         <Row label="Primary agent">
-          <select value={primaryAgent} onChange={(e) => setPrimaryAgent(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
+          <select aria-label="Primary agent" value={primaryAgent} onChange={(e) => setPrimaryAgent(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
             {Object.entries(AGENT_ID_MAP).map(([id, name]) => (
               <option key={id} value={id}>{name}</option>
             ))}
           </select>
         </Row>
         <Row label="Build agent">
-          <select value={buildAgent} onChange={(e) => setBuildAgent(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
+          <select aria-label="Build agent" value={buildAgent} onChange={(e) => setBuildAgent(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
             {Object.entries(AGENT_ID_MAP).map(([id, name]) => (
               <option key={id} value={id}>{name}</option>
             ))}
           </select>
         </Row>
         <Row label="Fallback agent">
-          <select value={fallbackAgent} onChange={(e) => setFallbackAgent(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
+          <select aria-label="Fallback agent" value={fallbackAgent} onChange={(e) => setFallbackAgent(e.target.value)} className="bg-s-surface border border-s-border rounded px-2 py-1 text-xs text-s-text outline-none focus:border-s-ind/50">
             {Object.entries(AGENT_ID_MAP).map(([id, name]) => (
               <option key={id} value={id}>{name}</option>
             ))}
@@ -216,6 +216,7 @@ export default function SettingsPage() {
           <button
             onClick={pauseAll}
             disabled={pausing}
+            aria-label="Pause all agents"
             className="px-3 py-1.5 text-[11px] rounded border border-s-amber/40 text-s-amber hover:bg-s-amber/10 transition-all disabled:opacity-40"
           >
             {pausing ? "Pausing…" : "Pause All"}
@@ -225,6 +226,7 @@ export default function SettingsPage() {
           <button
             onClick={resumeAll}
             disabled={resuming}
+            aria-label="Resume all agents"
             className="px-3 py-1.5 text-[11px] rounded border border-s-green/40 text-s-green hover:bg-s-green/10 transition-all disabled:opacity-40"
           >
             {resuming ? "Resuming…" : "Resume All"}
@@ -234,6 +236,7 @@ export default function SettingsPage() {
           <button
             disabled
             title="Not yet implemented"
+            aria-label="Reset agent pool"
             className="px-3 py-1.5 text-[11px] rounded border border-s-red/40 text-s-red opacity-40 cursor-not-allowed"
           >
             Reset Pool

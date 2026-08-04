@@ -113,7 +113,7 @@
 | 7.3 | Monitoring setup (/metrics endpoint, slow-query alerting, self-review) | MEDIUM | ⏳ Pending |
 | 7.4 | Documentation consolidation (archive 8 stale docs, merge MANUAL.md into README.md) | MEDIUM | ⏳ Pending |
 | 7.5 | Set up Dependabot for auto dependency updates | MEDIUM | ⏳ Pending |
-| 7.6 | Accessibility improvements (aria-labels, semantic HTML, color contrast, form labels) | LOW | ⏳ Pending |
+| 7.6 | Accessibility improvements (aria-labels, semantic HTML, color contrast, form labels) | LOW | ✅ Done 2026-08-04 — added semantic `aria-label`s to sidebar/nav/action buttons, labeled settings controls, and gave the security views table/list regions explicit roles. |
 | 7.7 | Backend Dockerfile hardening (multi-stage, pinned digest, .dockerignore) | MEDIUM | ✅ Partially done 2026-08-04 — `.dockerignore` already existed; backend Dockerfile is still multi-stage and now works with the migration flow, but pinned digest work remains pending. |
 | 7.8 | Railway config consistency (UI → Dockerfile, healthcheckPath, normalized casing) | LOW | ✅ Obsolete (2026-07-29) — hosting migrated off Railway to self-hosted Docker Compose on Oracle Cloud; see `docs/ORACLE_DEPLOY.md`. |
 | 7.9 | Alert on stale `awaiting_approval`/`executing` audit cycles before their timeout fires (e.g. daily digest: "N pending, oldest is X days old") | MEDIUM | ✅ Done 2026-08-04 — `backend/src/dailyReport.ts` now includes a stale-cycle digest section using `STALE_AUDIT_CYCLE_ALERT_HOURS` (default 24h) and shows the oldest pending/executing cycle when any exist. |

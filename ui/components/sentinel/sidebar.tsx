@@ -121,6 +121,7 @@ export function Sidebar() {
       animate={{ width: expanded ? 220 : 52 }}
       transition={{ type: "spring", stiffness: 300, damping: 30 }}
       className="relative flex flex-col h-full bg-s-surface border-r border-s-border overflow-hidden flex-shrink-0 z-10"
+      aria-label="Primary"
     >
       {/* Brand edge line */}
       <div className="pointer-events-none absolute right-0 top-0 w-px h-full"
@@ -168,6 +169,7 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              aria-label={item.label}
               className={cn(
                 "group relative flex items-center gap-2.5 px-2 py-[7px] rounded min-h-[34px] text-xs font-medium transition-colors duration-100",
                 active

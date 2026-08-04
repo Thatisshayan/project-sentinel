@@ -26,6 +26,7 @@ export function RepoActions() {
       <button
         disabled={!!loading}
         onClick={() => run("audit", "/api/system/audit-all")}
+        aria-label="Audit all repositories"
         className="px-3 py-1.5 text-[11px] rounded border border-s-border text-s-muted hover:text-s-text hover:border-s-border-2 transition-all disabled:opacity-40"
       >
         {loading === "audit" ? "Auditing…" : "Audit All"}
@@ -33,6 +34,7 @@ export function RepoActions() {
       <button
         disabled={!!loading}
         onClick={() => run("scan", "/api/system/security-scan")}
+        aria-label="Run security scan for all repositories"
         className="px-3 py-1.5 text-[11px] rounded border border-s-border text-s-muted hover:text-s-text hover:border-s-border-2 transition-all disabled:opacity-40"
       >
         {loading === "scan" ? "Scanning…" : "Run Security Scan"}
