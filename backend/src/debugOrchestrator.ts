@@ -29,13 +29,22 @@ interface DebugPayload {
 const MAX_ATTEMPTS = (): number => parseInt(process.env['MAX_DEBUG_ATTEMPTS'] || '5');
 const DRY_RUN      = (): boolean => process.env['DEBUGGER_DRY_RUN'] === 'true';
 
-function selectAgent(attemptNumber: number): string {
-  if (attemptNumber <= 3) return 'aider';
-  return 'claude_code';
+// Previously escalated to 'claude_code' after 3 failed attempts (in the
+// Telegram message text and the debug_attempts DB row) — but the actual
+// execution a few lines below always calls cloneAndFix() (aiderRunner.ts,
+// i.e. Aider), unconditionally, regardless of what this function returns.
+// Claude Code has no builder config entry (builderRouter.ts dropped it
+// 2026-07-29, no ANTHROPIC_API_KEY configured) and was never actually
+// invoked here — so every debug run was silently claiming to switch to
+// Claude Code on attempt 4 while still running Aider underneath. Always
+// return 'aider' until Claude Code is genuinely re-wired (a builder config
+// entry + real dispatch, not just this label).
+function selectAgent(_attemptNumber: number): string {
+  return 'aider';
 }
 
-function getAgentLabel(agent: string): string {
-  return agent === 'aider' ? 'Aider' : 'Claude Code';
+function getAgentLabel(_agent: string): string {
+  return 'Aider';
 }
 
 async function orchestrateDebug(payload: DebugPayload): Promise<void> {

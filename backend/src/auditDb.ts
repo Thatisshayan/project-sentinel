@@ -15,7 +15,7 @@ async function initAuditSchema(): Promise<void> {
       status            TEXT NOT NULL DEFAULT 'auditing',
       health_score      INTEGER,
       audit_summary     TEXT,
-      audit_agent       TEXT DEFAULT 'claude-code',
+      audit_agent       TEXT DEFAULT 'nvidia',
       tasks_total       INTEGER DEFAULT 0,
       tasks_safe        INTEGER DEFAULT 0,
       tasks_done        INTEGER DEFAULT 0,
@@ -31,6 +31,12 @@ async function initAuditSchema(): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_cycles_repo_commit
       ON audit_cycles (repo_full_name, commit_sha);
   `);
+
+  // See createAuditCycle()'s comment — audit_agent's default/hardcoded
+  // insert value was 'claude-code', an engine that never actually runs
+  // Sentinel-originated audit cycles. ALTER is needed on top of the CREATE
+  // TABLE default above since that only applies to a fresh table.
+  await query(`ALTER TABLE audit_cycles ALTER COLUMN audit_agent SET DEFAULT 'nvidia';`);
 
   await query(`
     CREATE TABLE IF NOT EXISTS audit_tasks (
@@ -49,7 +55,7 @@ async function initAuditSchema(): Promise<void> {
       acceptance_criteria  TEXT,
       status               TEXT NOT NULL DEFAULT 'queued',
       batch_number         INTEGER,
-      builder_agent        TEXT DEFAULT 'claude',
+      builder_agent        TEXT DEFAULT 'nvidia',
       notion_page_id       TEXT,
       branch_name          TEXT,
       commit_sha           TEXT,
@@ -72,6 +78,16 @@ async function initAuditSchema(): Promise<void> {
   // engine produced a task so notifications/reports can show provenance
   // once CodeRabbit becomes the primary audit engine.
   await query(`ALTER TABLE audit_tasks ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'sentinel';`);
+
+  // builder_agent's column default was 'claude' — Claude Code was dropped
+  // from builderRouter.ts's builder pool on 2026-07-29 and getBuilderConfig()
+  // silently redirects any unrecognized/unconfigured id to 'nvidia' anyway,
+  // so every row relying on this default was quietly funneling through
+  // NVIDIA already; this just makes that honest. CREATE TABLE IF NOT EXISTS
+  // above only sets the default for a brand-new table, so an explicit ALTER
+  // is needed to update the default on an already-existing table (idempotent
+  // — safe to run on every boot).
+  await query(`ALTER TABLE audit_tasks ALTER COLUMN builder_agent SET DEFAULT 'nvidia';`);
 
   // D-027 item 5 (multi-aspect audit + scoring + rotation) — which single
   // aspect (security, frontend, backend, ...) this cycle's 10 tasks focused
@@ -201,10 +217,21 @@ async function getPreviousAspectHealthScore(repoFullName: string, aspect: string
 }
 
 async function createAuditCycle(data: { repoFullName: string; commitSha: string; projectName?: string; aspect?: string }): Promise<AuditCycleRow | null> {
+  // audit_agent was hardcoded 'claude-code' here regardless of which engine
+  // actually ran — Sentinel's own fallback audit (auditOrchestrator.ts) goes
+  // through ai/client.ts's NVIDIA-first provider chain, never Claude, so
+  // every Sentinel-originated cycle was mislabeled. processCodeRabbitEvent.ts
+  // immediately overwrites this to 'coderabbit' via updateAuditCycle() for
+  // its own cycles, so only the Sentinel-originated path was actually wrong
+  // in practice — but it made agentStandup.ts's getRealAgentStats('nvidia')
+  // permanently report 0 audits for the agent doing all of them. 'nvidia' is
+  // the accurate default for the common case (ai/client.ts tries it first);
+  // a cycle handled by a later fallback provider will still show 'nvidia'
+  // here, same imprecision the pre-existing 'claude-code' default had.
   const r = await query<AuditCycleRow>(`
     INSERT INTO audit_cycles
       (repo_full_name, commit_sha, project_name, status, audit_agent, aspect)
-    VALUES ($1,$2,$3,'auditing','claude-code',$4)
+    VALUES ($1,$2,$3,'auditing','nvidia',$4)
     ON CONFLICT (repo_full_name, commit_sha) DO NOTHING
     RETURNING *
   `, [data.repoFullName, data.commitSha, data.projectName, data.aspect || null]);

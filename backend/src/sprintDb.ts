@@ -38,7 +38,7 @@ async function initSprintSchema(): Promise<void> {
       task_description TEXT,
       priority         TEXT DEFAULT 'medium',
       complexity       TEXT DEFAULT 'medium',
-      builder_agent    TEXT DEFAULT 'claude',
+      builder_agent    TEXT DEFAULT 'nvidia',
       estimated_cost   NUMERIC(10,4) DEFAULT 0,
       execution_order  INTEGER NOT NULL,
       status           TEXT NOT NULL DEFAULT 'queued',
@@ -55,6 +55,12 @@ async function initSprintSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_sprint_tasks_sprint
       ON sprint_tasks (sprint_id, execution_order);
   `);
+
+  // See auditDb.ts's matching migration comment — builder_agent's default
+  // was 'claude' (Claude Code isn't wired; getBuilderConfig() silently
+  // redirected it to 'nvidia' anyway). ALTER is needed on top of the
+  // CREATE TABLE default above since that only applies to a fresh table.
+  await query(`ALTER TABLE sprint_tasks ALTER COLUMN builder_agent SET DEFAULT 'nvidia';`);
 
   await query(`
     CREATE TABLE IF NOT EXISTS velocity_metrics (

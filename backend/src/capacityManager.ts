@@ -12,15 +12,22 @@ async function getCapacityStatus(): Promise<CapacityStatus> {
   const remaining     = budget - monthlySpend;
   const usagePercent  = budget > 0 ? (monthlySpend / budget) * 100 : 0;
 
-  let recommendedBuilder = 'claude';
+  // Was defaulting to 'claude' — Claude Code has no builder config entry
+  // (builderRouter.ts dropped it 2026-07-29, no ANTHROPIC_API_KEY
+  // configured) and getBuilderConfig() silently redirects it to 'nvidia'
+  // anyway, so every "budget healthy" recommendation was already routing
+  // through NVIDIA regardless. 'nvidia' is the honest default; there's no
+  // Claude quota left to conserve, so the two branches below collapse to
+  // the same recommendation the default already gives — kept only for the
+  // distinct reason strings shown to the user, and because they're the
+  // hook to re-add real budget-based routing once more paid builders exist.
+  let recommendedBuilder = 'nvidia';
   let reason             = 'Budget healthy';
 
   if (usagePercent >= 90) {
-    recommendedBuilder = 'nvidia';
     reason = 'Budget at 90%+ — routing to free builder';
   } else if (usagePercent >= 75) {
-    recommendedBuilder = 'nvidia';
-    reason = 'Budget at 75%+ — conserving Claude quota';
+    reason = 'Budget at 75%+ — conserving quota';
   }
 
   return {
@@ -36,21 +43,25 @@ async function getCapacityStatus(): Promise<CapacityStatus> {
   };
 }
 
+// Real, currently-live builder ids only (builderRouter.ts) — this previously
+// listed qwen_coder/llama_fast/qwen_max/qwen_plus/qwen_coder_dash/qwen_turbo/
+// deepseek, providers dropped from the pool on 2026-07-29 (same drift as
+// agentRegistry.ts's AGENT_POOL). Any id missing from this map falls back to
+// CLAUDE_COST_PER_TASK (0.05) below — which every one of those real,
+// actually-free builder ids was silently doing, inflating the estimated
+// monthly spend and risking premature "budget at 75%+" throttling for work
+// that costs nothing.
 function estimateTaskCost(builderAgent: string, count: number = 1): number {
   const costMap: Record<string, number> = {
-    claude:          CLAUDE_COST_PER_TASK,
-    nvidia:          0.0,
-    qwen_coder:      0.0,
-    llama_fast:      0.0,
-    gemini:          0.001,
-    qwen_max:        0.002,
-    qwen_plus:       0.001,
-    qwen_coder_dash: 0.001,
-    qwen_turbo:      0.0005,
-    deepseek:        0.001,
-    opencode:        0.01,
+    nvidia:            0.0,
+    gpt_oss_120b:      0.0,
+    llama_8b:          0.0,
+    gemini:            0.001,
+    mistral_codestral: 0.0,
+    openrouter_gemma:  0.0,
+    opencode:          0.01,
   };
-  return (costMap[builderAgent] || CLAUDE_COST_PER_TASK) * count;
+  return (costMap[builderAgent] ?? 0.0) * count;
 }
 
 function selectBuilder(repoName: string, capacity: CapacityStatus, notionBuilder: string): string {
@@ -58,11 +69,11 @@ function selectBuilder(repoName: string, capacity: CapacityStatus, notionBuilder
     // Route to first available free builder
     if (process.env['NVIDIA_API_KEY'])     { logger.info({ repoName, reason: capacity.reason }, 'Budget routing to NVIDIA'); return 'nvidia'; }
     if (process.env['GEMINI_API_KEY'])     { logger.info({ repoName, reason: capacity.reason }, 'Budget routing to Gemini'); return 'gemini'; }
-    if (process.env['DASHSCOPE_API_KEY'])  { logger.info({ repoName, reason: capacity.reason }, 'Budget routing to Qwen'); return 'qwen_max'; }
-    if (process.env['DEEPSEEK_API_KEY'])   { logger.info({ repoName, reason: capacity.reason }, 'Budget routing to DeepSeek'); return 'deepseek'; }
-    logger.warn({ repoName }, 'Budget at 75%+ but no free builder keys set — using claude');
+    if (process.env['MISTRAL_API_KEY'])    { logger.info({ repoName, reason: capacity.reason }, 'Budget routing to Mistral'); return 'mistral_codestral'; }
+    if (process.env['OPENROUTER_API_KEY']) { logger.info({ repoName, reason: capacity.reason }, 'Budget routing to OpenRouter'); return 'openrouter_gemma'; }
+    logger.warn({ repoName }, 'Budget at 75%+ but no free builder keys set — using nvidia anyway');
   }
-  return notionBuilder || 'claude';
+  return notionBuilder || 'nvidia';
 }
 
 export = { getCapacityStatus, estimateTaskCost, selectBuilder };
