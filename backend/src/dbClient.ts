@@ -1,4 +1,6 @@
 import { Pool, QueryResult, QueryResultRow } from 'pg';
+import fs from 'fs';
+import path from 'path';
 import logger from './logger';
 import type { DebugAttemptRow } from './types/debugAttemptRow';
 
@@ -106,49 +108,32 @@ async function initSchema(): Promise<void> {
     return;
   }
   await query(`
-    CREATE TABLE IF NOT EXISTS debug_attempts (
-      id               SERIAL PRIMARY KEY,
-      repo_full_name   TEXT NOT NULL,
-      commit_sha       TEXT NOT NULL,
-      attempt_number   INTEGER NOT NULL DEFAULT 0,
-      max_attempts     INTEGER NOT NULL DEFAULT 5,
-      status           TEXT NOT NULL DEFAULT 'in_progress',
-      debugger_used    TEXT,
-      fix_commit_sha   TEXT,
-      fix_commit_url   TEXT,
-      fix_branch       TEXT,
-      fix_pr_url       TEXT,
-      failure_reason   TEXT,
-      build_provider   TEXT,
-      build_url        TEXT,
-      high_risk        BOOLEAN NOT NULL DEFAULT false,
-      high_risk_reason TEXT,
-      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
 
-  await query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_debug_attempts_repo_commit
-      ON debug_attempts (repo_full_name, commit_sha);
-  `);
+  const migrationsDir = path.resolve(process.cwd(), 'migrations');
+  if (fs.existsSync(migrationsDir)) {
+    const files = fs.readdirSync(migrationsDir)
+      .filter((name) => /^\d+[-_].*\.sql$/i.test(name))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
-  await query(`
-    CREATE TABLE IF NOT EXISTS build_poll_jobs (
-      id              SERIAL PRIMARY KEY,
-      job_id          TEXT NOT NULL UNIQUE,
-      repo_full_name  TEXT NOT NULL,
-      commit_sha      TEXT NOT NULL,
-      providers       TEXT[] NOT NULL DEFAULT '{}',
-      attempt_number  INTEGER NOT NULL DEFAULT 0,
-      max_attempts    INTEGER NOT NULL DEFAULT 20,
-      status          TEXT NOT NULL DEFAULT 'pending',
-      result          TEXT,
-      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
+    for (const file of files) {
+      const version = file.replace(/\.sql$/i, '');
+      const applied = await query<{ version: string }>(
+        'SELECT version FROM schema_migrations WHERE version = $1',
+        [version]
+      );
+      if (applied.rows.length > 0) continue;
 
+      const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+      await query(sql);
+      await query('INSERT INTO schema_migrations (version) VALUES ($1)', [version]);
+      logger.info({ version }, 'Applied database migration');
+    }
+  }
   logger.info('Database schema initialised');
 }
 

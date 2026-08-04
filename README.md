@@ -163,6 +163,8 @@ setup steps, including DNS, firewall, and env config, are in
 
 The Dockerfile installs Node.js 20, Python 3, Git, and aider. The app starts on port 3000 (Caddy reverse-proxies webhook/health routes to it — see `Caddyfile`).
 
+Backend schema changes are now managed through `backend/migrations/*.sql` via `npm run migrate` in `backend/` before startup bootstrap applies the same migration set.
+
 Always verify a deploy actually succeeded (`docker compose -f docker-compose.prod.yml ps` should show all services `Up`, and `curl -I https://<PUBLIC_DOMAIN>/health` should return 200) rather than assuming a clean `docker compose up` output means the app is actually serving traffic.
 
 ---
