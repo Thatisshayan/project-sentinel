@@ -1,6 +1,6 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
-import { callAnyProvider } from './ai/client';
+import { callAnyProvider, extractJsonObject } from './ai/client';
 import { repoFullName } from './repoResolver';
 import { validateBrainOutput } from './aiOutputValidator';
 import { getPortfolioSummary, REPO_LIST } from './portfolioAnalytics';
@@ -261,12 +261,7 @@ async function runStrategicBrain(topicId?: number | null): Promise<void> {
     const raw = await callBrainAI(intelligence);
     let decision: BrainDecision;
     try {
-      const cleaned = raw
-        .replace(/<think>[\s\S]*?<\/think>/gi, '')
-        .replace(/```json?|```/g, '')
-        .trim();
-      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-      decision = validateBrainOutput(JSON.parse(jsonMatch ? jsonMatch[0] : cleaned));
+      decision = validateBrainOutput(extractJsonObject<BrainDecision>(raw).parsed);
     } catch (parseErr: any) {
       logger.warn({ raw, err: parseErr.message }, 'Brain returned invalid output — skipping execution');
       await safeFire(sendTelegramMessage(`🧠 Brain error — ${parseErr.message}. Check logs.`, null, topicId), { label: 'sentinelBrain' })

@@ -42,6 +42,18 @@ export interface CallAnyProviderOptions {
   onProviderUsed?: (provider: string) => void;
 }
 
+export interface ParsedJsonResponse<T> {
+  raw: string;
+  cleaned: string;
+  parsed: T;
+}
+
+export interface ParsedJsonArrayResponse<T> {
+  raw: string;
+  cleaned: string;
+  parsed: T[];
+}
+
 const DEFAULT_MODELS: Required<Omit<ProviderModels, 'anthropic'>> & { anthropic: string } = {
   nvidia:    'mistralai/mistral-nemotron',
   gemini:    'gemini-2.0-flash',
@@ -201,4 +213,50 @@ export async function callAnyProvider(opts: CallAnyProviderOptions): Promise<str
   }
 
   throw lastErr;
+}
+
+export function stripThinkBlocks(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+}
+
+export function extractJsonObject<T>(text: string): ParsedJsonResponse<T> {
+  const cleaned = stripThinkBlocks(text).replace(/```json?|```/g, '').trim();
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('No JSON object found in provider response');
+  }
+
+  let parsed: T;
+  try {
+    parsed = JSON.parse(jsonMatch[0]) as T;
+  } catch (err) {
+    throw new Error(`Failed to parse provider JSON: ${(err as Error).message}`);
+  }
+
+  return {
+    raw: text,
+    cleaned,
+    parsed,
+  };
+}
+
+export function extractJsonArray<T>(text: string): ParsedJsonArrayResponse<T> {
+  const cleaned = stripThinkBlocks(text).replace(/```json?|```/g, '').trim();
+  const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+  if (!arrMatch) {
+    throw new Error('No JSON array found in provider response');
+  }
+
+  let parsed: T[];
+  try {
+    parsed = JSON.parse(arrMatch[0]) as T[];
+  } catch (err) {
+    throw new Error(`Failed to parse provider JSON array: ${(err as Error).message}`);
+  }
+
+  return {
+    raw: text,
+    cleaned,
+    parsed,
+  };
 }

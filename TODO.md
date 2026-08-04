@@ -92,15 +92,15 @@
 
 ---
 
-## 🏗️ Phase 6 — Architecture Refactoring (IN PROGRESS)
+## 🏗️ Phase 6 — Architecture Refactoring (COMPLETE)
 
 | # | Task | Priority | Status |
 |---|------|----------|--------|
 | 6.1 | Split workers.ts god module (596 LOC → src/workers/{buildPoll,dailyReport,sprint,agentCleanup}Worker.ts barrel) | HIGH | ✅ Done |
 | 6.2 | Split webhook.ts (messages + processWebhook + processPREvent → src/webhook/) | HIGH | ✅ Done |
-| 6.3 | Centralize 4 duplicated AI provider call patterns into one ai/client.ts | HIGH | ⏸️ Deferred (D-005) |
+| 6.3 | Centralize 4 duplicated AI provider call patterns into one ai/client.ts | HIGH | ✅ Done 2026-08-04 — shared `stripThinkBlocks`, `extractJsonObject`, and `extractJsonArray` helpers added; migrated `ceoReport`, `sprintPlanner`, `sentinelBrain`, `telegramAI`, and `owaspChecker`. |
 | 6.4 | Eliminate inline require() calls (replace with top-level imports) | MEDIUM | ✅ Done (12 files converted, tsc+jest verified) |
-| 6.5 | Consolidate duplicated UI utilities (relativeTime, agentColor, mapBuild, etc.) | LOW | ⏳ Pending |
+| 6.5 | Consolidate duplicated UI utilities (relativeTime, agentColor, mapBuild, etc.) | LOW | ✅ Done 2026-08-04 — shared helpers live in `ui/lib/format.ts` and `ui/lib/theme.ts`; no remaining inline duplicates found in `ui/app/` or `ui/components/`. |
 
 ---
 

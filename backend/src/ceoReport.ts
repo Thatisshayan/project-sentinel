@@ -1,5 +1,5 @@
 import logger from './logger';
-import { callAnyProvider } from './ai/client';
+import { callAnyProvider, stripThinkBlocks } from './ai/client';
 import { sendTelegramMessage } from './telegramClient';
 import { getPortfolioSummary } from './portfolioAnalytics';
 import { getSprintStatus } from './sprintOrchestrator';
@@ -68,9 +68,7 @@ Tone: confident, like a sharp technical co-founder. No fluff. No "I hope this he
 Max 200 words. Start with "📊 Weekly Update —" and today's date (${todayStr}).`;
 
     const rawNote = await callAI(prompt).catch(() => null);
-    const ceoNote = rawNote
-      ? rawNote.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
-      : null;
+    const ceoNote = rawNote ? stripThinkBlocks(rawNote) : null;
 
     const message = ceoNote || [
       `📊 Weekly Update — ${todayStr}`,

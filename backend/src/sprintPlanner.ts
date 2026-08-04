@@ -1,6 +1,6 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
-import { callAnyProvider } from './ai/client';
+import { callAnyProvider, extractJsonObject } from './ai/client';
 import { getGithubOrg } from './repoResolver';
 import { validateSprintOutput } from './aiOutputValidator';
 import { query } from './dbClient';
@@ -148,107 +148,100 @@ Respond with ONLY valid JSON:
 
   const raw = await callFreeAI(prompt);
 
-  let parsedJson: unknown;
   try {
-    const cleaned = raw
-      .replace(/<think>[\s\S]*?<\/think>/gi, '')
-      .replace(/```json?|```/g, '')
-      .trim();
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    parsedJson = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
+    const parsedJson = extractJsonObject<unknown>(raw).parsed;
+    const proposal = validateSprintOutput(parsedJson);
+
+    const avgHealth = metrics.length > 0
+      ? metrics.reduce((s: number, m: PortfolioMetricRow) => s + parseFloat(m.health_score || '5'), 0) / metrics.length
+      : 5.0;
+
+    const sprint = await createSprint({
+      weekStart:       proposal.weekStart || weekStart,
+      weekEnd:         proposal.weekEnd   || weekEnd,
+      totalTasks:      proposal.tasks.length,
+      estimatedCost:   proposal.estimatedCost || 0,
+      healthStart:     parseFloat(avgHealth.toFixed(1)),
+      proposalSummary: proposal.summary,
+    });
+
+    for (const [i, task] of proposal.tasks.entries()) {
+      await createSprintTask({
+        sprintId:        sprint.id,
+        repoFullName:    task.repoFullName,
+        repoName:        task.repoName,
+        taskTitle:       task.taskTitle,
+        taskDescription: task.taskDescription || task.reason || '',
+        priority:        task.priority,
+        complexity:      task.complexity,
+        builderAgent:    selectBuilder(task.repoName, capacity, task.builderAgent),
+        estimatedCost:   task.estimatedCost || 0,
+        executionOrder:  i + 1,
+      });
+    }
+
+    logger.info({ sprintId: sprint.id, tasks: proposal.tasks.length }, 'Sprint proposal saved');
+
+    const PRIORITY_EMOJI: Record<string, string> = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' };
+    const reposInSprint  = [...new Set(proposal.tasks.map((t) => t.repoName))];
+    const taskLines      = proposal.tasks.map((t, i) =>
+      `${i + 1}. ${PRIORITY_EMOJI[t.priority] || '⚪'} ${t.repoName}: ${t.taskTitle}`
+    ).join('\n');
+
+    const sprintLines = [
+      `Project Sentinel — Sprint Proposal 📋`,
+      `Week of ${weekStart}`,
+      ``,
+      proposal.summary,
+      ``,
+      `${proposal.tasks.length} tasks across ${reposInSprint.length} repos:`,
+      taskLines,
+      ``,
+      `Estimated cost: $${(proposal.estimatedCost || 0).toFixed(2)}`,
+      `Budget remaining: $${capacity.remaining.toFixed(2)} (${100 - capacity.usagePercent}% left)`,
+    ];
+
+    try {
+      const { loadSettings } = require('./settingsLoader') as { loadSettings: () => Promise<Settings> };
+      const settings = await loadSettings();
+      if (settings.auto_approve_tasks) {
+        sprintLines.push(`\n⏳ Auto-approves in 2h unless you skip below.`);
+      }
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'Could not load auto-approve setting');
+    }
+
+    const sprintText = sprintLines.filter(Boolean).join('\n');
+
+    try {
+      const { sendMenu } = require('./telegramMenus') as {
+        sendMenu: (chatId: number | string | null, threadId: number | null, text: string, buttons: { text: string; callback_data: string }[][]) => Promise<void>;
+      };
+      const chatId = process.env['TELEGRAM_CHAT_ID'] || null;
+      await sendMenu(chatId, null, sprintText, [
+        [
+          { text: '✅ Approve Sprint',  callback_data: 'approve:sprint'      },
+          { text: '⏭ Skip Sprint',     callback_data: 'approve:skip-sprint'  },
+        ],
+        [
+          { text: '📋 View Tasks',     callback_data: 'menu:sprint'          },
+        ],
+      ]);
+    } catch {
+      await safeFire(sendTelegramMessage(sprintText, null, null), { label: 'sprintPlanner' })
+    }
+
+    try {
+      const { scheduleAutoApprove } = require('./autoApprover') as { scheduleAutoApprove: (sprintId: number, topicId: number | null) => Promise<void> };
+      await scheduleAutoApprove(sprint.id, null);
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'Auto-approve scheduling failed — non-blocking');
+    }
+
+    return { sprint, proposal };
   } catch (err) {
     throw new Error(`Sprint proposal JSON parse failed: ${(err as Error).message}\nRaw: ${raw.slice(0, 200)}`);
   }
-
-  const proposal = validateSprintOutput(parsedJson);
-
-  const avgHealth = metrics.length > 0
-    ? metrics.reduce((s: number, m: PortfolioMetricRow) => s + parseFloat(m.health_score || '5'), 0) / metrics.length
-    : 5.0;
-
-  const sprint = await createSprint({
-    weekStart:       proposal.weekStart || weekStart,
-    weekEnd:         proposal.weekEnd   || weekEnd,
-    totalTasks:      proposal.tasks.length,
-    estimatedCost:   proposal.estimatedCost || 0,
-    healthStart:     parseFloat(avgHealth.toFixed(1)),
-    proposalSummary: proposal.summary,
-  });
-
-  for (const [i, task] of proposal.tasks.entries()) {
-    await createSprintTask({
-      sprintId:        sprint.id,
-      repoFullName:    task.repoFullName,
-      repoName:        task.repoName,
-      taskTitle:       task.taskTitle,
-      taskDescription: task.taskDescription || task.reason || '',
-      priority:        task.priority,
-      complexity:      task.complexity,
-      builderAgent:    selectBuilder(task.repoName, capacity, task.builderAgent),
-      estimatedCost:   task.estimatedCost || 0,
-      executionOrder:  i + 1,
-    });
-  }
-
-  logger.info({ sprintId: sprint.id, tasks: proposal.tasks.length }, 'Sprint proposal saved');
-
-  const PRIORITY_EMOJI: Record<string, string> = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' };
-  const reposInSprint  = [...new Set(proposal.tasks.map((t) => t.repoName))];
-  const taskLines      = proposal.tasks.map((t, i) =>
-    `${i + 1}. ${PRIORITY_EMOJI[t.priority] || '⚪'} ${t.repoName}: ${t.taskTitle}`
-  ).join('\n');
-
-  const sprintLines = [
-    `Project Sentinel — Sprint Proposal 📋`,
-    `Week of ${weekStart}`,
-    ``,
-    proposal.summary,
-    ``,
-    `${proposal.tasks.length} tasks across ${reposInSprint.length} repos:`,
-    taskLines,
-    ``,
-    `Estimated cost: $${(proposal.estimatedCost || 0).toFixed(2)}`,
-    `Budget remaining: $${capacity.remaining.toFixed(2)} (${100 - capacity.usagePercent}% left)`,
-  ];
-
-  try {
-    const { loadSettings } = require('./settingsLoader') as { loadSettings: () => Promise<Settings> };
-    const settings = await loadSettings();
-    if (settings.auto_approve_tasks) {
-      sprintLines.push(`\n⏳ Auto-approves in 2h unless you skip below.`);
-    }
-  } catch (err) {
-    logger.warn({ err: (err as Error).message }, 'Could not load auto-approve setting');
-  }
-
-  const sprintText = sprintLines.filter(Boolean).join('\n');
-
-  try {
-    const { sendMenu } = require('./telegramMenus') as {
-      sendMenu: (chatId: number | string | null, threadId: number | null, text: string, buttons: { text: string; callback_data: string }[][]) => Promise<void>;
-    };
-    const chatId = process.env['TELEGRAM_CHAT_ID'] || null;
-    await sendMenu(chatId, null, sprintText, [
-      [
-        { text: '✅ Approve Sprint',  callback_data: 'approve:sprint'      },
-        { text: '⏭ Skip Sprint',     callback_data: 'approve:skip-sprint'  },
-      ],
-      [
-        { text: '📋 View Tasks',     callback_data: 'menu:sprint'          },
-      ],
-    ]);
-  } catch {
-    await safeFire(sendTelegramMessage(sprintText, null, null), { label: 'sprintPlanner' })
-  }
-
-  try {
-    const { scheduleAutoApprove } = require('./autoApprover') as { scheduleAutoApprove: (sprintId: number, topicId: number | null) => Promise<void> };
-    await scheduleAutoApprove(sprint.id, null);
-  } catch (err) {
-    logger.warn({ err: (err as Error).message }, 'Auto-approve scheduling failed — non-blocking');
-  }
-
-  return { sprint, proposal };
 }
 
 export = { generateSprintProposal };
