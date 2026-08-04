@@ -6,6 +6,8 @@ import type { DebugAttemptRow } from './types/debugAttemptRow';
 
 let pool: Pool | null = null;
 
+const SLOW_QUERY_THRESHOLD_MS = parseInt(process.env['DB_SLOW_QUERY_ALERT_MS'] || '500', 10);
+
 /**
  * Railway's managed Postgres/Redis are reachable at *.railway.internal
  * over Railway's private network — traffic never touches the public
@@ -90,10 +92,20 @@ async function query<T extends QueryResultRow = any>(text: string, params?: any[
   const start = Date.now();
   try {
     const result = await p.query<T>(text, params);
-    logger.debug(
-      { duration: Date.now() - start, rows: result.rowCount },
-      'DB query executed'
-    );
+    const duration = Date.now() - start;
+    if (duration >= SLOW_QUERY_THRESHOLD_MS) {
+      logger.warn({ duration, rows: result.rowCount, thresholdMs: SLOW_QUERY_THRESHOLD_MS, query: text.slice(0, 300) }, 'Slow DB query detected');
+      const { sendTelegramMessage } = require('./telegramClient');
+      await sendTelegramMessage(
+        `🐢 Slow DB query detected (${duration}ms >= ${SLOW_QUERY_THRESHOLD_MS}ms)\n\n${text.slice(0, 500)}`,
+        null, null
+      ).catch(() => null);
+    } else {
+      logger.debug(
+        { duration, rows: result.rowCount },
+        'DB query executed'
+      );
+    }
     return result;
   } catch (err) {
     logger.error({ err: (err as Error).message, query: text }, 'DB query failed');

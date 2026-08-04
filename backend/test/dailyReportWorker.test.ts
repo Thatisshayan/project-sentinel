@@ -102,7 +102,7 @@ describe('startDailyReportWorker', () => {
     expect(queueAddMock).not.toHaveBeenCalled();
   });
 
-  it('schedules all 16 cron jobs when Redis is available', () => {
+  it('schedules all 17 cron jobs when Redis is available', () => {
     startDailyReportWorker();
     const names = queueAddMock.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
@@ -110,6 +110,7 @@ describe('startDailyReportWorker', () => {
       'monthly-security', 'priority-engine', 'agent-standup', 'ceo-report',
       'agent-leaderboard', 'weekly-audit', 'stale-tasks', 'provider-health',
       'github-metrics-sync', 'repo-discovery', 'brain-outcome', 'brain-strategy',
+      'self-review',
     ]);
     // H-1 regression guard: repeat crons must NOT pass a constant jobId —
     // BullMQ dedupes repeatables by (name + pattern) internally, but a

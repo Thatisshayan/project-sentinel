@@ -31,7 +31,7 @@
 | 4: Test Coverage Blitz | **COMPLETE** 🧪 | ~100% (infra + unit suites; integration deferred D-002) | Needs Phase 0 + 1 |
 | 5: Catch Pattern Elimination | **COMPLETE** 🧹 | 100% (5.1–5.3 done; integration verify on Docker runner, see D-002) | Needs Phase 2 + 4 |
 | 6: Architecture Refactoring | **COMPLETE** ✅ | 100% (6.1–6.5 done; shared AI response helpers added in `backend/src/ai/client.ts`) | Needs Phase 4 + 5 |
-| 7: Operational Excellence | **IN PROGRESS** | ~50% (7.1, 7.2, 7.6, 7.7, 7.9 done; remaining ops/docs items pending) | Can continue after Phase 3 |
+| 7: Operational Excellence | **IN PROGRESS** | ~60% (7.1, 7.2, 7.3, 7.6, 7.7, 7.9 done; remaining ops/docs items pending) | Can continue after Phase 3 |
 
 ## Phase 0 — Completed Tasks
 - 0.1: CI overhaul (PR trigger, npm cache, lint step)

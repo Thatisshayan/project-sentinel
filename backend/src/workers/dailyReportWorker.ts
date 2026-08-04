@@ -119,6 +119,10 @@ export function startDailyReportWorker(): Worker | null {
     repeat: { pattern: '0 7 * * *', tz: SENTINEL_TZ },
   }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule brain strategy cron'));
 
+  queue.add('self-review', {}, {
+    repeat: { pattern: '0 10 * * 1', tz: SENTINEL_TZ },
+  }).catch((err: any) => logger.warn({ err: err.message }, 'Could not schedule self-review cron'));
+
   const worker = new Worker('daily-report', async (job: Job) => {
     if (job.name === 'morning-briefing') {
       await sendMorningBriefing();
@@ -237,6 +241,11 @@ export function startDailyReportWorker(): Worker | null {
     if (job.name === 'brain-strategy') {
       if (runStrategicBrain) await runStrategicBrain(null);
       else logger.warn('brain-strategy job fired but sentinelBrain module did not load');
+      return;
+    }
+    if (job.name === 'self-review') {
+      const { runSelfAudit } = require('../selfAuditor') as { runSelfAudit: () => Promise<void> };
+      await runSelfAudit();
       return;
     }
     await refreshAllMetrics();

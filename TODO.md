@@ -110,7 +110,7 @@
 |---|------|----------|--------|
 | 7.1 | DB migration tooling (replace CREATE TABLE IF NOT EXISTS with proper migrations) | HIGH | ✅ Done 2026-08-04 — added `backend/migrations/001-initial-schema.sql`, `backend/src/migrate.ts`, and wired `schema_migrations` tracking into `initSchema()`. |
 | 7.2 | UI hardening (output:standalone, multi-stage Docker, error boundaries, loading states) | HIGH | ✅ Done 2026-08-04 — `ui/next.config.mjs` now uses `output: "standalone"`, `ui/Dockerfile` is multi-stage, and `ui/app/error.tsx` + `ui/app/loading.tsx` provide app-level fallbacks. |
-| 7.3 | Monitoring setup (/metrics endpoint, slow-query alerting, self-review) | MEDIUM | ⏳ Pending |
+| 7.3 | Monitoring setup (/metrics endpoint, slow-query alerting, self-review) | MEDIUM | ✅ Done 2026-08-04 — `/metrics` is live in `backend/src/index.ts`, `dbClient.ts` now alerts on slow queries over `DB_SLOW_QUERY_ALERT_MS` (default 500ms), and `dailyReportWorker.ts` schedules a weekly `self-review` job that runs `selfAuditor.ts`. |
 | 7.4 | Documentation consolidation (archive 8 stale docs, merge MANUAL.md into README.md) | MEDIUM | ⏳ Pending |
 | 7.5 | Set up Dependabot for auto dependency updates | MEDIUM | ⏳ Pending |
 | 7.6 | Accessibility improvements (aria-labels, semantic HTML, color contrast, form labels) | LOW | ✅ Done 2026-08-04 — added semantic `aria-label`s to sidebar/nav/action buttons, labeled settings controls, and gave the security views table/list regions explicit roles. |
