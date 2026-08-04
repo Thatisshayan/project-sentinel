@@ -14,8 +14,8 @@ export function RepoActions() {
     try {
       await callAction(path);
       router.refresh();
-    } catch {
-      setError(`${label === "audit" ? "Audit All" : "Security scan"} failed — backend route not available.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `${label === "audit" ? "Audit All" : "Security scan"} failed`);
     }
     setLoading(null);
   };

@@ -10,8 +10,13 @@ export async function callAction(path: string, body?: object, method: "POST" | "
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path, body, method }),
     });
-    if (!r.ok) throw new Error(`Action failed: ${r.status}`);
-    return await r.json();
+    const data = await r.json().catch(() => null);
+    // Prefer the backend's own error message (e.g. "Not implemented — use
+    // Telegram command /sentinel security-patch <repo>") over a generic
+    // "Action failed: 501" — the backend route often explains exactly what
+    // to do instead, which a bare status code throws away.
+    if (!r.ok) throw new Error(data?.error || `Action failed: ${r.status}`);
+    return data;
   } catch (err) {
     toast.error(err instanceof Error ? err.message : "Request failed", "Action failed");
     throw err;

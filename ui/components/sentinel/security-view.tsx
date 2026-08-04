@@ -31,8 +31,8 @@ export function SecurityView({ scores, issues, summary, loadError }: Props) {
     try {
       await callAction("/api/system/security-scan");
       router.refresh();
-    } catch {
-      setError("Security scan failed — backend route not available.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Security scan failed");
     }
     setScanning(false);
   };
@@ -43,8 +43,8 @@ export function SecurityView({ scores, issues, summary, loadError }: Props) {
     try {
       await callAction(`/api/security/issue/${id}/patch`);
       router.refresh();
-    } catch {
-      setError("Patch failed — backend route not available.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Patch failed");
     }
     setPatching(null);
   };
