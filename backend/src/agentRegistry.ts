@@ -1,6 +1,6 @@
 import logger from './logger';
 import { registerAgent, setAgentWorking, setAgentIdle, getActiveAgents } from './agentDb';
-import { getBuilderConfig } from './builderRouter';
+import { getBuilderConfig, hasConfiguredKey } from './builderRouter';
 import { broadcastToAll } from './agentRoom';
 
 // IDs must match real entries in builderRouter.ts's BUILDERS map. This pool
@@ -16,16 +16,20 @@ import { broadcastToAll } from './agentRoom';
 // against the one real, rate-limited NVIDIA_API_KEY they all secretly
 // shared — a plausible root cause for aider calls timing out / the key
 // intermittently looking "invalid" under load. Real distinct providers only
-// below, with NVIDIA-key entries kept deliberately small since they still
-// share one account's rate limit even though the models differ.
+// below. NVIDIA-key entries' maxConcurrent is deliberately modest at this
+// bookkeeping layer — the real cross-caller cap now lives in
+// utils/nvidiaKeyPool.ts (NVIDIA_API_KEY may be backed by several keys;
+// each gets its own concurrency slot there), shared between these agents'
+// aider calls and ai/client.ts's separate NVIDIA usage. This layer's numbers
+// just need to not wildly exceed the pool's total real capacity.
 const AGENT_POOL = [
   // { id: 'claude', priority: 1, maxConcurrent: 2 },  // re-add when ANTHROPIC_API_KEY is set
-  { id: 'nvidia',            priority: 1, maxConcurrent: 2 }, // NVIDIA_API_KEY
-  { id: 'gpt_oss_120b',      priority: 2, maxConcurrent: 1 }, // NVIDIA_API_KEY (shares quota with nvidia)
+  { id: 'nvidia',            priority: 1, maxConcurrent: 3 }, // NVIDIA_API_KEY pool
+  { id: 'gpt_oss_120b',      priority: 2, maxConcurrent: 2 }, // NVIDIA_API_KEY pool
   { id: 'gemini',            priority: 2, maxConcurrent: 2 }, // GEMINI_API_KEY — distinct provider
   { id: 'mistral_codestral', priority: 3, maxConcurrent: 2 }, // MISTRAL_API_KEY — distinct provider
   { id: 'openrouter_gemma',  priority: 3, maxConcurrent: 2 }, // OPENROUTER_API_KEY — distinct provider
-  { id: 'llama_8b',          priority: 4, maxConcurrent: 1 }, // NVIDIA_API_KEY (shares quota with nvidia)
+  { id: 'llama_8b',          priority: 4, maxConcurrent: 2 }, // NVIDIA_API_KEY pool
 ];
 
 async function initAgentPool(): Promise<void> {
@@ -40,7 +44,7 @@ async function initAgentPool(): Promise<void> {
       logger.warn({ poolId: agent.id, resolvedTo: config.id }, 'AGENT_POOL entry does not match a known builder — skipping');
       continue;
     }
-    if (config.envKey && !process.env[config.envKey]) continue;
+    if (!hasConfiguredKey(config)) continue;
     await registerAgent(agent.id, config.label);
     registered++;
   }
@@ -51,7 +55,7 @@ async function initAgentPool(): Promise<void> {
 async function selectAgent(taskComplexity: string, preferredBuilder?: string): Promise<string> {
   if (preferredBuilder) {
     const config = getBuilderConfig(preferredBuilder);
-    if (config && (!config.envKey || process.env[config.envKey])) {
+    if (config && hasConfiguredKey(config)) {
       return preferredBuilder;
     }
   }
@@ -77,7 +81,7 @@ async function selectAgent(taskComplexity: string, preferredBuilder?: string): P
     const currentCount = activeCounts[agentId] || 0;
     if (currentCount < poolEntry.maxConcurrent) {
       const config = getBuilderConfig(agentId);
-      if (!config.envKey || process.env[config.envKey]) {
+      if (hasConfiguredKey(config)) {
         return agentId;
       }
     }
@@ -87,7 +91,7 @@ async function selectAgent(taskComplexity: string, preferredBuilder?: string): P
     const currentCount = activeCounts[poolEntry.id] || 0;
     if (currentCount < poolEntry.maxConcurrent) {
       const config = getBuilderConfig(poolEntry.id);
-      if (!config.envKey || process.env[config.envKey]) {
+      if (hasConfiguredKey(config)) {
         return poolEntry.id;
       }
     }
