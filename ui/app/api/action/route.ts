@@ -33,6 +33,8 @@ const ALLOWED_PATH_PATTERNS: RegExp[] = [
   /^\/api\/repo\/[\w.-]+\/audit$/,
   /^\/api\/sprint\/approve$/,
   /^\/api\/sprint\/skip$/,
+  /^\/api\/task\/[\w.-]+\/execute$/,
+  /^\/api\/task\/[\w.-]+\/skip$/,
   /^\/api\/system\/pause$/,
   /^\/api\/system\/resume$/,
   /^\/api\/system\/audit-all$/,
