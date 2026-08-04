@@ -40,6 +40,31 @@ async function buildReportMessage(summary: PortfolioSummary, patterns: RepoPatte
   const totalBuildsPassed = metrics.reduce((s: number, m: PortfolioMetricRow) => s + (m.builds_passed || 0), 0);
   const totalBuildsFailed = metrics.reduce((s: number, m: PortfolioMetricRow) => s + (m.builds_failed || 0), 0);
 
+  const staleThresholdHours = parseInt(process.env['STALE_AUDIT_CYCLE_ALERT_HOURS'] || '24', 10);
+  const staleCyclesResult = await query(`
+    SELECT repo_full_name, status, created_at,
+           EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 AS age_hours
+    FROM audit_cycles
+    WHERE status IN ('awaiting_approval', 'executing')
+      AND created_at < NOW() - ($1 || ' hours')::interval
+    ORDER BY created_at ASC
+  `, [staleThresholdHours]);
+
+  const staleCycles = staleCyclesResult.rows as Array<{
+    repo_full_name: string;
+    status: string;
+    created_at: string;
+    age_hours: string | number;
+  }>;
+  const oldestStaleCycle = staleCycles[0];
+  const oldestStaleHours = oldestStaleCycle ? Number(oldestStaleCycle.age_hours) : 0;
+  const staleLine = oldestStaleCycle
+    ? [
+        `\n⏳ Stale audit cycles: ${staleCycles.length} pending/executing older than ${staleThresholdHours}h`,
+        `   Oldest: ${oldestStaleCycle.repo_full_name} (${Math.floor(oldestStaleHours / 24)}d ${Math.floor(oldestStaleHours % 24)}h old, ${oldestStaleCycle.status})`,
+      ].join('\n')
+    : '';
+
   const patternLines = patterns.length > 0
     ? '\n🔍 Cross-repo patterns detected:\n' +
       patterns.slice(0, 3).map((p: RepoPatternRow) =>
@@ -64,6 +89,7 @@ async function buildReportMessage(summary: PortfolioSummary, patterns: RepoPatte
     `ACTIVITY (last 24h):`,
     `✅ ${totalBuildsPassed} builds passed  ❌ ${totalBuildsFailed} failed`,
     `🔧 ${totalTasksDone} tasks completed  📋 ${totalTasksQueued} queued`,
+    staleLine,
     patternLines,
     costLine,
     ``,
