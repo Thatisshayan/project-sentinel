@@ -29,6 +29,16 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T> {
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
     const res = await fetch(`${BASE}/api${path}`, {
+      // `cache: 'no-store'` unconditionally, not a `next.revalidate` window:
+      // every one of these fetchers backs a view with a mutate-then-
+      // router.refresh() action (repo memory add/delete, agent toggle,
+      // sprint approve/skip, security patch, repo audit). A cached fetch
+      // means router.refresh() re-invokes the Server Component but still
+      // serves the pre-mutation response until the cache window lapses, so
+      // a just-added memory entry (for example) silently doesn't appear.
+      // This also used to be placed after `...opts`, clobbering any
+      // per-call override the caller passed in — no-store is the right
+      // default so there's nothing left to override.
       ...opts,
       signal: controller.signal,
       headers: {
@@ -36,7 +46,7 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T> {
         ...(KEY ? { 'x-sentinel-key': KEY } : {}),
         ...(opts?.headers ?? {}),
       },
-      next: { revalidate: 30 },
+      cache: 'no-store',
     });
     if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
     return res.json() as Promise<T>;

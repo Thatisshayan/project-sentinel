@@ -5,7 +5,7 @@ import { RepoRow } from "@/components/sentinel/repo-row";
 import { RepoActions } from "@/components/sentinel/repo-actions";
 import type { Repo } from "@/lib/types";
 
-export const revalidate = 30;
+// No `export const revalidate` here — see app/agents/page.tsx for why.
 
 export default async function ReposPage() {
   let repos: Repo[] = [];

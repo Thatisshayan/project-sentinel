@@ -2,7 +2,10 @@ import { getAgents } from "@/lib/api";
 import { AgentsView } from "@/components/sentinel/agents-view";
 import { agentColorForLabel } from "@/lib/theme";
 
-export const revalidate = 15;
+// No `export const revalidate` here: lib/api.ts's api() helper fetches with
+// cache: 'no-store' so agent-toggle mutations show up immediately on
+// router.refresh() — a revalidate window on this segment would be dead
+// config, since the underlying fetch already opts the route out of caching.
 
 export default async function AgentsPage() {
   let agents: {

@@ -2,7 +2,7 @@ import { getCurrentSprint } from "@/lib/api";
 import { SprintView } from "@/components/sentinel/sprint-view";
 import { mapTaskStatus } from "@/lib/format";
 
-export const revalidate = 60;
+// No `export const revalidate` here — see app/agents/page.tsx for why.
 
 export default async function SprintPage() {
   let data = null;
