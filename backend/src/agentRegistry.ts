@@ -3,22 +3,43 @@ import { registerAgent, setAgentWorking, setAgentIdle, getActiveAgents } from '.
 import { getBuilderConfig } from './builderRouter';
 import { broadcastToAll } from './agentRoom';
 
+// IDs must match real entries in builderRouter.ts's BUILDERS map. This pool
+// previously listed qwen_coder / qwen_coder_dash / qwen_max / qwen_turbo /
+// deepseek — providers dropped from builderRouter.ts on 2026-07-29 (see its
+// header comment). getBuilderConfig() silently maps any *unrecognized* id to
+// the default ('nvidia') builder rather than throwing, so those five stale
+// ids were quietly registering as duplicate "nvidia" agents under fake
+// names/labels — each with its own maxConcurrent slot (totaling ~19 phantom
+// slots) that selectAgent()'s activeCounts bookkeeping never actually
+// tracked, since getActiveAgents() only sees rows this file registers. Net
+// effect: nothing gated how many of those phantom agents could run at once
+// against the one real, rate-limited NVIDIA_API_KEY they all secretly
+// shared — a plausible root cause for aider calls timing out / the key
+// intermittently looking "invalid" under load. Real distinct providers only
+// below, with NVIDIA-key entries kept deliberately small since they still
+// share one account's rate limit even though the models differ.
 const AGENT_POOL = [
   // { id: 'claude', priority: 1, maxConcurrent: 2 },  // re-add when ANTHROPIC_API_KEY is set
-  { id: 'nvidia',          priority: 1, maxConcurrent: 3 },
-  { id: 'qwen_coder',      priority: 2, maxConcurrent: 3 },
-  { id: 'qwen_coder_dash', priority: 3, maxConcurrent: 3 },
-  { id: 'gemini',          priority: 3, maxConcurrent: 2 },
-  { id: 'qwen_max',        priority: 3, maxConcurrent: 2 },
-  { id: 'llama_fast',      priority: 4, maxConcurrent: 5 },
-  { id: 'qwen_turbo',      priority: 4, maxConcurrent: 5 },
-  { id: 'deepseek',        priority: 4, maxConcurrent: 3 },
+  { id: 'nvidia',            priority: 1, maxConcurrent: 2 }, // NVIDIA_API_KEY
+  { id: 'gpt_oss_120b',      priority: 2, maxConcurrent: 1 }, // NVIDIA_API_KEY (shares quota with nvidia)
+  { id: 'gemini',            priority: 2, maxConcurrent: 2 }, // GEMINI_API_KEY — distinct provider
+  { id: 'mistral_codestral', priority: 3, maxConcurrent: 2 }, // MISTRAL_API_KEY — distinct provider
+  { id: 'openrouter_gemma',  priority: 3, maxConcurrent: 2 }, // OPENROUTER_API_KEY — distinct provider
+  { id: 'llama_8b',          priority: 4, maxConcurrent: 1 }, // NVIDIA_API_KEY (shares quota with nvidia)
 ];
 
 async function initAgentPool(): Promise<void> {
   let registered = 0;
   for (const agent of AGENT_POOL) {
     const config = getBuilderConfig(agent.id);
+    // getBuilderConfig() falls back to the default builder for an
+    // unrecognized id instead of failing — catch that here so a typo'd or
+    // since-removed pool entry doesn't silently register as a mislabeled
+    // duplicate of the default builder (see comment above AGENT_POOL).
+    if (config.id !== agent.id) {
+      logger.warn({ poolId: agent.id, resolvedTo: config.id }, 'AGENT_POOL entry does not match a known builder — skipping');
+      continue;
+    }
     if (config.envKey && !process.env[config.envKey]) continue;
     await registerAgent(agent.id, config.label);
     registered++;
@@ -42,9 +63,9 @@ async function selectAgent(taskComplexity: string, preferredBuilder?: string): P
   });
 
   const complexityPreference: Record<string, string[]> = {
-    low:      ['llama_fast', 'qwen_turbo', 'qwen_coder', 'nvidia'],
-    medium:   ['qwen_coder', 'nvidia', 'qwen_coder_dash', 'gemini'],
-    high:     ['nvidia', 'qwen_max', 'qwen_coder', 'gemini'],
+    low:      ['llama_8b', 'gpt_oss_120b', 'nvidia', 'gemini'],
+    medium:   ['gpt_oss_120b', 'nvidia', 'mistral_codestral', 'gemini'],
+    high:     ['nvidia', 'gemini', 'mistral_codestral', 'openrouter_gemma'],
   };
 
   const preferred = complexityPreference[taskComplexity] || complexityPreference['medium'] || [];

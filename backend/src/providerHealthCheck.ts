@@ -76,12 +76,15 @@ async function probeAIProviders(): Promise<string[]> {
       null, null
     ), { label: 'providerHealthCheck' })
 
-    // Mark affected agents as error so the UI shows truth instead of idle
+    // Mark affected agents as error so the UI shows truth instead of idle.
+    // Keys here must match agentRegistry.ts's AGENT_POOL ids — DashScope and
+    // DeepSeek were dropped from the builder pool (builderRouter.ts,
+    // 2026-07-29) and are no longer registered as agents at all, so there's
+    // nothing to mark for them even though the probe above still checks
+    // whether their (now-unused) env keys are configured.
     const PROVIDER_AGENT_MAP: Record<string, string[]> = {
-      'NVIDIA NIM':       ['nvidia', 'qwen_coder', 'llama_fast'],
-      'Gemini':           ['gemini'],
-      'DashScope (Qwen)': ['qwen_coder_dash', 'qwen_max', 'qwen_turbo'],
-      'DeepSeek':         ['deepseek'],
+      'NVIDIA NIM': ['nvidia', 'gpt_oss_120b', 'llama_8b'],
+      'Gemini':     ['gemini'],
     };
     for (const line of invalidProviders) {
       const provider = line.match(/✗ (.+?):/)?.[1];
