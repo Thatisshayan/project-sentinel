@@ -135,7 +135,7 @@ NATURAL LANGUAGE TRIGGERS:
 - "cost update"                      → action: show_costs
 
 REPO NAMES (always use exact spelling in the "repo" field — never invent camelCase):
-acc, tapcash, AlphonsoEcosystem, session-guard, costpilot, shiporex, aegis, mint, agents-ops-board, founder-social-club, obsidian-studio, obsidian-media, project-sentinel
+acc, tapcash, AlphonsoEcosystem, session-guard, costpilot, shiporex, aegis, mint, founder-social-club, obsidian-studio, obsidian-media, project-sentinel
 
 AGENT IDs: nvidia, qwen_coder, qwen_coder_dash, llama_fast, gemini, qwen_max, qwen_plus, qwen_turbo, deepseek, opencode
 
