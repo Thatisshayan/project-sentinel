@@ -1,11 +1,10 @@
 "use client";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, AlertCircle } from "lucide-react";
-import { AGENTS } from "@/lib/data";
 import { callAction } from "@/lib/actions";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { priorityColor } from "@/lib/theme";
+import { priorityColor, agentColorForLabel } from "@/lib/theme";
 import { fadeInStagger, growHeight, useSafeReducedMotion } from "@/lib/motion";
 import { ColorBadge } from "./color-badge";
 import { MeterBar } from "./meter-bar";
@@ -17,7 +16,7 @@ interface DisplayTask {
   agent: string | null;
   status: 'done' | 'working' | 'blocked' | 'todo';
   priority: string;
-  id: number;
+  id: number | null;
 }
 
 interface DisplaySprint {
@@ -70,6 +69,26 @@ export function SprintView({
     setPausing(false);
   };
 
+  const [actingId, setActingId] = useState<number | null>(null);
+
+  const handleTaskExecute = async (id: number) => {
+    setActingId(id);
+    try {
+      await callAction(`/api/task/${id}/execute`);
+      router.refresh();
+    } catch {}
+    setActingId(null);
+  };
+
+  const handleTaskSkip = async (id: number) => {
+    setActingId(id);
+    try {
+      await callAction(`/api/task/${id}/skip`);
+      router.refresh();
+    } catch {}
+    setActingId(null);
+  };
+
   return (
     <div className="p-5 space-y-5">
       {loadError && <ApiErrorBanner label="sprint" />}
@@ -111,7 +130,7 @@ export function SprintView({
         {/* Task list */}
         <PagePanel title={`Tasks (${tasks.length})`}>
           {tasks.length > 0 ? tasks.map((task, i) => {
-            const agent = AGENTS.find(a => a.name === task.agent);
+            const agent = task.agent ? { color: agentColorForLabel(task.agent) } : null;
             return (
               <motion.div
                 key={task.id || i}
@@ -129,16 +148,18 @@ export function SprintView({
                 )}
                 <div className="flex gap-1.5">
                   <button
-                    disabled
-                    title="Not yet wired — approve individual tasks via Telegram (/sentinel tasks)"
-                    className="text-[10px] px-2 py-0.5 rounded border border-s-border text-s-muted opacity-40 cursor-not-allowed"
+                    onClick={() => task.id != null && handleTaskExecute(task.id)}
+                    disabled={task.id == null || actingId === task.id || task.status === 'done' || task.status === 'working'}
+                    title={task.id == null ? "No underlying audit task to execute" : task.status === 'working' ? "Already executing" : undefined}
+                    className="text-[10px] px-2 py-0.5 rounded border border-s-green/40 text-s-green hover:bg-s-green/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Execute
                   </button>
                   <button
-                    disabled
-                    title="Not yet wired — approve individual tasks via Telegram (/sentinel tasks)"
-                    className="text-[10px] px-2 py-0.5 rounded border border-s-border text-s-dim opacity-40 cursor-not-allowed"
+                    onClick={() => task.id != null && handleTaskSkip(task.id)}
+                    disabled={task.id == null || actingId === task.id || task.status === 'done' || task.status === 'working'}
+                    title={task.id == null ? "No underlying audit task to skip" : task.status === 'working' ? "Already executing" : undefined}
+                    className="text-[10px] px-2 py-0.5 rounded border border-s-border text-s-dim hover:text-s-text transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Skip
                   </button>

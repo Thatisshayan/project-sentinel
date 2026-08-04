@@ -1,7 +1,18 @@
 import logger from './logger';
 import { buildChildEnv } from './utils/childEnv';
+import { nvidiaPoolSize } from './utils/nvidiaKeyPool';
 
 const NVIDIA_BASE = 'https://integrate.api.nvidia.com/v1';
+
+// NVIDIA_API_KEY may now be backed by a pool of several keys (see
+// utils/nvidiaKeyPool.ts) — "is this builder's key configured" for an
+// NVIDIA-keyed builder means "is at least one pool key set", not just
+// whether the single NVIDIA_API_KEY var itself is set.
+function hasConfiguredKey(config: BuilderConfig): boolean {
+  if (!config.envKey) return true;
+  if (config.envKey === 'NVIDIA_API_KEY') return nvidiaPoolSize() > 0;
+  return !!process.env[config.envKey];
+}
 
 interface BuilderConfig {
   id: string;
@@ -215,7 +226,7 @@ function getFallbackBuilder(failedBuilder: string, tried: string[] = []): string
   for (const candidate of chain) {
     if (excluded.has(candidate)) continue;
     const config = BUILDERS[candidate];
-    if (config && (!config.envKey || process.env[config.envKey])) {
+    if (config && hasConfiguredKey(config)) {
       return candidate;
     }
   }
@@ -231,14 +242,14 @@ function getBuilderConfig(assignment?: string): BuilderConfig {
     return getBuilderConfig(DEFAULT_BUILDER);
   }
 
-  if (config.envKey && !process.env[config.envKey]) {
+  if (!hasConfiguredKey(config)) {
     // Walk the FALLBACK_CHAIN to find the first builder with a valid key.
     // Do NOT fall back to BUILDERS[DEFAULT_BUILDER] unconditionally — if the
     // default itself has no key this creates an infinite loop.
     const chain = FALLBACK_CHAIN[key] || [];
     for (const candidate of chain) {
       const fb = BUILDERS[candidate];
-      if (fb && (!fb.envKey || process.env[fb.envKey])) {
+      if (fb && hasConfiguredKey(fb)) {
         logger.warn({ builder: key, envKey: config.envKey, fallback: candidate },
           'Builder API key missing — falling back');
         return fb;
@@ -253,7 +264,12 @@ function getBuilderConfig(assignment?: string): BuilderConfig {
   return config;
 }
 
-function getAiderEnv(config: BuilderConfig): Record<string, string | undefined> {
+// `nvidiaKey` is the key string aiderRunner.ts already acquired from the
+// pool (see utils/nvidiaKeyPool.ts) for this specific run — passed in
+// rather than read from process.env here, since which of several
+// configured NVIDIA keys is "the" key is now a per-call decision, not a
+// single global value.
+function getAiderEnv(config: BuilderConfig, nvidiaKey?: string): Record<string, string | undefined> {
   // Start from a scoped env (no full process.env leak) — see utils/childEnv.ts
   const env = buildChildEnv();
   if (config.id === 'gemini') {
@@ -270,7 +286,7 @@ function getAiderEnv(config: BuilderConfig): Record<string, string | undefined> 
     env['OPENAI_API_BASE'] = config.apiBase;
     env['OPENAI_BASE_URL'] = config.apiBase;
   } else if (config.envKey === 'NVIDIA_API_KEY') {
-    env['OPENAI_API_KEY']  = process.env['NVIDIA_API_KEY'] || '';
+    env['OPENAI_API_KEY']  = nvidiaKey || process.env['NVIDIA_API_KEY'] || '';
     env['OPENAI_API_BASE'] = NVIDIA_BASE;
     env['OPENAI_BASE_URL'] = NVIDIA_BASE;
   }
@@ -281,9 +297,9 @@ function listBuilders(): Array<{ id: string; label: string; configured: boolean;
   return Object.values(BUILDERS).map(b => ({
     id:          b.id,
     label:       b.label,
-    configured:  b.envKey ? !!process.env[b.envKey] : true,
+    configured:  hasConfiguredKey(b),
     description: b.description,
   }));
 }
 
-export = { getBuilderConfig, getAiderEnv, listBuilders, getFallbackBuilder };
+export = { getBuilderConfig, getAiderEnv, listBuilders, getFallbackBuilder, hasConfiguredKey };

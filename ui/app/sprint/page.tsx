@@ -2,7 +2,7 @@ import { getCurrentSprint } from "@/lib/api";
 import { SprintView } from "@/components/sentinel/sprint-view";
 import { mapTaskStatus } from "@/lib/format";
 
-export const revalidate = 60;
+// No `export const revalidate` here — see app/agents/page.tsx for why.
 
 export default async function SprintPage() {
   let data = null;
@@ -41,7 +41,9 @@ export default async function SprintPage() {
     agent:    'builder_agent' in t ? (t as any).builder_agent : (t as any).agent,
     status:   mapTaskStatus((t as any).status),
     priority: ((t as any).priority ?? 'P2').toUpperCase(),
-    id:       (t as any).id,
+    // Execute/Skip act on the underlying audit_tasks row, not the
+    // sprint_tasks row — the two have separate id sequences.
+    id:       (t as any).audit_task_id ?? null,
   }));
 
   return (

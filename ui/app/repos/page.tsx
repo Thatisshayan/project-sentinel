@@ -1,12 +1,11 @@
 import { getPortfolio } from "@/lib/api";
-import { AGENTS } from "@/lib/data";
-import { scoreColor } from "@/lib/theme";
+import { scoreColor, agentColorForLabel } from "@/lib/theme";
 import { mapBuild, mapPriority, relativeTime } from "@/lib/format";
 import { RepoRow } from "@/components/sentinel/repo-row";
 import { RepoActions } from "@/components/sentinel/repo-actions";
 import type { Repo } from "@/lib/types";
 
-export const revalidate = 30;
+// No `export const revalidate` here — see app/agents/page.tsx for why.
 
 export default async function ReposPage() {
   let repos: Repo[] = [];
@@ -59,16 +58,23 @@ export default async function ReposPage() {
         {repos.length === 0 && !loadError && (
           <div className="px-5 py-8 text-center text-[11px] text-s-dim">No repos tracked yet.</div>
         )}
-        {repos.map((repo, i) => (
-          <RepoRow
-            key={repo.name}
-            repo={repo}
-            agent={AGENTS.find(a => a.name === repo.agent) ?? null}
-            index={i}
-            healthColor={scoreColor(repo.health)}
-            secColor={scoreColor(repo.security)}
-          />
-        ))}
+        {repos.map((repo, i) => {
+          const agentObj = repo.agent ? {
+            id: repo.agent, name: repo.agent, model: "", provider: "",
+            color: agentColorForLabel(repo.agent), status: "working" as const,
+            task: null, repo: repo.name, elapsed: 0, done: 0, prs: 0, fails: 0,
+          } : null;
+          return (
+            <RepoRow
+              key={repo.name}
+              repo={repo}
+              agent={agentObj}
+              index={i}
+              healthColor={scoreColor(repo.health)}
+              secColor={scoreColor(repo.security)}
+            />
+          );
+        })}
       </div>
     </div>
   );

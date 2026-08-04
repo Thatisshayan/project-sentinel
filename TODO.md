@@ -115,7 +115,7 @@
 | 7.5 | Set up Dependabot for auto dependency updates | MEDIUM | ⏳ Pending |
 | 7.6 | Accessibility improvements (aria-labels, semantic HTML, color contrast, form labels) | LOW | ⏳ Pending |
 | 7.7 | Backend Dockerfile hardening (multi-stage, pinned digest, .dockerignore) | MEDIUM | ⏳ Pending |
-| 7.8 | Railway config consistency (UI → Dockerfile, healthcheckPath, normalized casing) | LOW | ⏳ Pending |
+| 7.8 | Railway config consistency (UI → Dockerfile, healthcheckPath, normalized casing) | LOW | ✅ Obsolete (2026-07-29) — hosting migrated off Railway to self-hosted Docker Compose on Oracle Cloud; see `docs/ORACLE_DEPLOY.md`. |
 | 7.9 | Alert on stale `awaiting_approval`/`executing` audit cycles before their timeout fires (e.g. daily digest: "N pending, oldest is X days old") | MEDIUM | ⏳ Pending — recommended 2026-07-19 after 13 such cycles (9 days to 1+ month old) were found stuck in production and had to be manually cleared. See `ConfirmedBugs.md` Ops log. |
 | 7.10 | Add Slack as a second notification/command destination alongside Telegram | LOW | ⏳ Pending — discussed 2026-07-19; the notification layer is already isolated behind `telegramClient.ts`, so this is a parallel `slackClient.ts` module, not an architecture change. |
 | 7.11 | Audit whether other Vercel projects in this account have the same "auto-deploys, nobody wired the env vars" gap as `project-sentinel` did | LOW | ⏳ Pending — recommended 2026-07-19 after finding `project-sentinel`'s Vercel deployment silently non-functional (zero env vars, disconnected 2026-07-19). |
@@ -140,7 +140,7 @@ These are data-flow / configuration issues, not code bugs. They persist until th
 | # | Issue | Status |
 |---|-------|--------|
 | P1-8 | Brain deployed but not verified — never tested end to end | Pending |
-| P1-9 | Railway service arrow visual not connected (cosmetic) | Pending |
+| P1-9 | Railway service arrow visual not connected (cosmetic) | ✅ Obsolete (2026-07-29) — hosting migrated off Railway; see `docs/ORACLE_DEPLOY.md`. |
 | P1-10 | DashScope international endpoint — verify working | Pending |
 
 ## 🟢 Existing P2 — Feature Gaps

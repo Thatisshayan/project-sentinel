@@ -24,7 +24,7 @@ Project Sentinel is a self-hosted tool. Your security posture depends on:
 - **`SENTINEL_UI_KEY`** — required in production. Protects the REST API from unauthenticated access. Generate with `openssl rand -hex 32`.
 - **`GITHUB_WEBHOOK_SECRET`** — validates GitHub webhook payloads. Required.
 - **`DEBUGGER_SHARED_SECRET`** — validates Telegram webhook payloads. Required.
-- **Database URL** — keep `DATABASE_URL` private. The database is not exposed externally in Railway deployments.
+- **Database URL** — keep `DATABASE_URL` private. In the standard self-hosted Oracle Cloud deploy (see `docs/ORACLE_DEPLOY.md`), Postgres runs as a Docker Compose service with no port published to the host/internet — only reachable from the `backend`/`ui` containers on the compose network.
 - **AI provider keys** — treat these as secrets. They grant API spending access to your accounts.
 
 ## Known limitations

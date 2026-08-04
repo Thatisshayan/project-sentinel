@@ -2,7 +2,6 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Switch } from "@/components/ui/switch";
-import { AGENTS } from "@/lib/data";
 import { callAction } from "@/lib/actions";
 
 // Map backend canonical IDs to frontend display names and vice versa
@@ -59,6 +58,7 @@ export default function SettingsPage() {
   const [pausing, setPausing] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -87,8 +87,9 @@ export default function SettingsPage() {
 
   const saveSettings = async () => {
     setSaving(true);
+    setSaveError(null);
     try {
-      await fetch("/api/settings", {
+      const response = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -103,9 +104,17 @@ export default function SettingsPage() {
           email_digest: email,
         }),
       });
+      // fetch() only rejects on network failure, not on a non-2xx response —
+      // without this check a backend-side save failure (500, validation
+      // error, etc.) silently looked like success to the user.
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || `Save failed (${response.status})`);
+      }
       router.refresh();
     } catch (err) {
       console.error("Failed to save settings:", err);
+      setSaveError(err instanceof Error ? err.message : "Failed to save settings");
     } finally {
       setSaving(false);
     }
@@ -191,7 +200,7 @@ export default function SettingsPage() {
         </Row>
       </Section>
 
-      <div className="mb-4">
+      <div className="mb-4 flex items-center gap-3">
         <button
           onClick={saveSettings}
           disabled={saving}
@@ -199,6 +208,7 @@ export default function SettingsPage() {
         >
           {saving ? "Saving..." : "Save Settings"}
         </button>
+        {saveError && <span className="text-[11px] text-s-red">{saveError}</span>}
       </div>
 
       <Section title="Danger Zone">

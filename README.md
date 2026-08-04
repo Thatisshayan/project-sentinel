@@ -66,13 +66,25 @@ Self-hosted (Node.js + Express, full TypeScript)  ◄──────┘
 
 ## AI Providers (free-first, Anthropic last resort)
 
+There are two separate provider systems: the **build/aider pool**
+(`backend/src/builderRouter.ts` — code-editing tasks, audit-fix, debug-fix)
+and the **chat/analysis chain** (`backend/src/ai/client.ts`'s
+`callAnyProvider` — audits, security checks, sprint planning, chat replies).
+They drifted apart on 2026-07-29 when DashScope/Qwen and DeepSeek-direct were
+dropped from the build pool in favor of a wider NVIDIA-hosted model pool
+(`backend/src/agentRegistry.ts`'s `AGENT_POOL`) — they're still read by the
+chat/analysis chain if configured, just no longer available as a code
+builder.
+
 | Provider | Env Var | Used for |
 |---|---|---|
-| NVIDIA NIM | `NVIDIA_API_KEY` | Audits (fallback), analysis, primary builder |
-| Google Gemini | `GEMINI_API_KEY` | Debugging, creative tasks, fallback builder |
-| DashScope (Qwen) | `DASHSCOPE_API_KEY` | Code tasks (Qwen 2.5 Coder), fast batch work |
-| DeepSeek | `DEEPSEEK_API_KEY` | Cheap fallback, routine tasks |
-| Anthropic | `ANTHROPIC_API_KEY` | Last resort only — never the default |
+| NVIDIA NIM | `NVIDIA_API_KEY` (optionally `NVIDIA_API_KEY_2`..`_10`, see `utils/nvidiaKeyPool.ts`) | Primary builder, audits (fallback), analysis, chat |
+| Google Gemini | `GEMINI_API_KEY` | Fallback builder, debugging, chat |
+| Mistral | `MISTRAL_API_KEY` | Fallback builder (Codestral — dedicated code model), real cross-provider redundancy |
+| OpenRouter | `OPENROUTER_API_KEY` | Fallback builder (free-tier routed models) |
+| DashScope (Qwen) | `DASHSCOPE_API_KEY` | Chat/analysis chain only — not in the build pool since 2026-07-29 |
+| DeepSeek | `DEEPSEEK_API_KEY` | Chat/analysis chain only — not in the build pool since 2026-07-29 |
+| Anthropic | `ANTHROPIC_API_KEY` | Opt-in only, per-caller, in the chat/analysis chain; not in the build pool at all (no `claude` builder entry currently) |
 
 ---
 

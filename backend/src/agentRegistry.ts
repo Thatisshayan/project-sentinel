@@ -1,25 +1,50 @@
 import logger from './logger';
 import { registerAgent, setAgentWorking, setAgentIdle, getActiveAgents } from './agentDb';
-import { getBuilderConfig } from './builderRouter';
+import { getBuilderConfig, hasConfiguredKey } from './builderRouter';
 import { broadcastToAll } from './agentRoom';
 
+// IDs must match real entries in builderRouter.ts's BUILDERS map. This pool
+// previously listed qwen_coder / qwen_coder_dash / qwen_max / qwen_turbo /
+// deepseek — providers dropped from builderRouter.ts on 2026-07-29 (see its
+// header comment). getBuilderConfig() silently maps any *unrecognized* id to
+// the default ('nvidia') builder rather than throwing, so those five stale
+// ids were quietly registering as duplicate "nvidia" agents under fake
+// names/labels — each with its own maxConcurrent slot (totaling ~19 phantom
+// slots) that selectAgent()'s activeCounts bookkeeping never actually
+// tracked, since getActiveAgents() only sees rows this file registers. Net
+// effect: nothing gated how many of those phantom agents could run at once
+// against the one real, rate-limited NVIDIA_API_KEY they all secretly
+// shared — a plausible root cause for aider calls timing out / the key
+// intermittently looking "invalid" under load. Real distinct providers only
+// below. NVIDIA-key entries' maxConcurrent is deliberately modest at this
+// bookkeeping layer — the real cross-caller cap now lives in
+// utils/nvidiaKeyPool.ts (NVIDIA_API_KEY may be backed by several keys;
+// each gets its own concurrency slot there), shared between these agents'
+// aider calls and ai/client.ts's separate NVIDIA usage. This layer's numbers
+// just need to not wildly exceed the pool's total real capacity.
 const AGENT_POOL = [
   // { id: 'claude', priority: 1, maxConcurrent: 2 },  // re-add when ANTHROPIC_API_KEY is set
-  { id: 'nvidia',          priority: 1, maxConcurrent: 3 },
-  { id: 'qwen_coder',      priority: 2, maxConcurrent: 3 },
-  { id: 'qwen_coder_dash', priority: 3, maxConcurrent: 3 },
-  { id: 'gemini',          priority: 3, maxConcurrent: 2 },
-  { id: 'qwen_max',        priority: 3, maxConcurrent: 2 },
-  { id: 'llama_fast',      priority: 4, maxConcurrent: 5 },
-  { id: 'qwen_turbo',      priority: 4, maxConcurrent: 5 },
-  { id: 'deepseek',        priority: 4, maxConcurrent: 3 },
+  { id: 'nvidia',            priority: 1, maxConcurrent: 3 }, // NVIDIA_API_KEY pool
+  { id: 'gpt_oss_120b',      priority: 2, maxConcurrent: 2 }, // NVIDIA_API_KEY pool
+  { id: 'gemini',            priority: 2, maxConcurrent: 2 }, // GEMINI_API_KEY — distinct provider
+  { id: 'mistral_codestral', priority: 3, maxConcurrent: 2 }, // MISTRAL_API_KEY — distinct provider
+  { id: 'openrouter_gemma',  priority: 3, maxConcurrent: 2 }, // OPENROUTER_API_KEY — distinct provider
+  { id: 'llama_8b',          priority: 4, maxConcurrent: 2 }, // NVIDIA_API_KEY pool
 ];
 
 async function initAgentPool(): Promise<void> {
   let registered = 0;
   for (const agent of AGENT_POOL) {
     const config = getBuilderConfig(agent.id);
-    if (config.envKey && !process.env[config.envKey]) continue;
+    // getBuilderConfig() falls back to the default builder for an
+    // unrecognized id instead of failing — catch that here so a typo'd or
+    // since-removed pool entry doesn't silently register as a mislabeled
+    // duplicate of the default builder (see comment above AGENT_POOL).
+    if (config.id !== agent.id) {
+      logger.warn({ poolId: agent.id, resolvedTo: config.id }, 'AGENT_POOL entry does not match a known builder — skipping');
+      continue;
+    }
+    if (!hasConfiguredKey(config)) continue;
     await registerAgent(agent.id, config.label);
     registered++;
   }
@@ -30,8 +55,25 @@ async function initAgentPool(): Promise<void> {
 async function selectAgent(taskComplexity: string, preferredBuilder?: string): Promise<string> {
   if (preferredBuilder) {
     const config = getBuilderConfig(preferredBuilder);
-    if (config && (!config.envKey || process.env[config.envKey])) {
+    // getBuilderConfig() falls back to a *different* builder — anywhere in
+    // builderRouter.ts's full ~20-entry pool, not just this file's smaller
+    // AGENT_POOL — for an unrecognized id, or one whose own key is missing.
+    // Returning preferredBuilder (or an off-AGENT_POOL fallback id like
+    // 'poolside') here would hand back an id initAgentPool() never
+    // registers in agent_registry (it only registers this file's curated
+    // AGENT_POOL), so assignAgent()/setAgentWorking() would silently no-op
+    // and activeCounts-based concurrency gating would never see the task.
+    // Only honor preferredBuilder when it's both the builder actually
+    // resolved (no silent redirect) AND a member of this file's own pool;
+    // otherwise fall through to normal complexity-based selection below,
+    // which only ever picks from AGENT_POOL.
+    const inPool = !!config && AGENT_POOL.some((a) => a.id === config.id);
+    if (config && config.id === preferredBuilder && inPool && hasConfiguredKey(config)) {
       return preferredBuilder;
+    }
+    if (preferredBuilder !== config?.id || !inPool) {
+      logger.warn({ preferredBuilder, resolvedTo: config?.id },
+        'selectAgent: preferred builder unrecognized or outside AGENT_POOL — falling through to normal selection');
     }
   }
 
@@ -42,9 +84,9 @@ async function selectAgent(taskComplexity: string, preferredBuilder?: string): P
   });
 
   const complexityPreference: Record<string, string[]> = {
-    low:      ['llama_fast', 'qwen_turbo', 'qwen_coder', 'nvidia'],
-    medium:   ['qwen_coder', 'nvidia', 'qwen_coder_dash', 'gemini'],
-    high:     ['nvidia', 'qwen_max', 'qwen_coder', 'gemini'],
+    low:      ['llama_8b', 'gpt_oss_120b', 'nvidia', 'gemini'],
+    medium:   ['gpt_oss_120b', 'nvidia', 'mistral_codestral', 'gemini'],
+    high:     ['nvidia', 'gemini', 'mistral_codestral', 'openrouter_gemma'],
   };
 
   const preferred = complexityPreference[taskComplexity] || complexityPreference['medium'] || [];
@@ -56,7 +98,7 @@ async function selectAgent(taskComplexity: string, preferredBuilder?: string): P
     const currentCount = activeCounts[agentId] || 0;
     if (currentCount < poolEntry.maxConcurrent) {
       const config = getBuilderConfig(agentId);
-      if (!config.envKey || process.env[config.envKey]) {
+      if (hasConfiguredKey(config)) {
         return agentId;
       }
     }
@@ -66,7 +108,7 @@ async function selectAgent(taskComplexity: string, preferredBuilder?: string): P
     const currentCount = activeCounts[poolEntry.id] || 0;
     if (currentCount < poolEntry.maxConcurrent) {
       const config = getBuilderConfig(poolEntry.id);
-      if (!config.envKey || process.env[config.envKey]) {
+      if (hasConfiguredKey(config)) {
         return poolEntry.id;
       }
     }

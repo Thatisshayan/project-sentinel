@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimitMiddleware } from "@/lib/rateLimit";
+import { isValidOrigin } from "@/lib/originGuard";
 
 function getRateLimitKey(req: NextRequest): string {
   // Use x-forwarded-for header for production, fall back to socket IP
@@ -7,8 +8,9 @@ function getRateLimitKey(req: NextRequest): string {
   if (forwardedFor) {
     return forwardedFor.split(",")[0].trim();
   }
-  // In production, this would be the Cloudflare/Railway proxy IP
-  // For Railway deployments, we rely on x-forwarded-for
+  // Self-hosted behind Caddy (docker-compose.prod.yml) — Caddy sets
+  // x-forwarded-for on every proxied request, so this path is the true
+  // fallback: only hit if the request somehow bypassed the reverse proxy.
   return "unknown";
 }
 
@@ -32,6 +34,11 @@ const ALLOWED_PATH_PATTERNS: RegExp[] = [
   /^\/api\/repo\/[\w.-]+\/audit$/,
   /^\/api\/sprint\/approve$/,
   /^\/api\/sprint\/skip$/,
+  // Digits only — task ids are numeric; the backend already rejects
+  // non-numeric ids (api.ts) but there's no reason to let anything else
+  // reach it through this proxy in the first place.
+  /^\/api\/task\/\d+\/execute$/,
+  /^\/api\/task\/\d+\/skip$/,
   /^\/api\/system\/pause$/,
   /^\/api\/system\/resume$/,
   /^\/api\/system\/audit-all$/,
@@ -55,16 +62,6 @@ function hasDotSegment(path: string): boolean {
 function isAllowedPath(path: string): boolean {
   if (hasDotSegment(path)) return false;
   return ALLOWED_PATH_PATTERNS.some((p) => p.test(path));
-}
-
-// CSRF/origin guard: in production only the app's own origin may call this route.
-function isValidOrigin(req: NextRequest): boolean {
-  const origin = req.headers.get("origin");
-  const host = req.headers.get("host");
-  if (process.env.NODE_ENV === "production") {
-    return origin === `https://${host}` || origin === process.env.APP_URL;
-  }
-  return true; // dev: allow all
 }
 
 // Universal proxy — client sends { path, body, method? } → we forward to

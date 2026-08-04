@@ -64,35 +64,33 @@ async function checkNotion(): Promise<ConnectorStatus> {
   });
 }
 
-async function checkRailway(): Promise<ConnectorStatus> {
-  if (!process.env['RAILWAY_TOKEN']) {
-    return { name: 'Railway', status: 'unconfigured', detail: 'RAILWAY_TOKEN not set' };
+// Replaces the old checkRailway() (pinged Railway's GraphQL API with
+// RAILWAY_TOKEN) — hosting moved to a self-hosted Oracle Cloud VM (see
+// docs/ORACLE_DEPLOY.md), which has no equivalent external management API to
+// probe. Instead this hits the app's own public /health endpoint through
+// Caddy, the same check ORACLE_DEPLOY.md's own setup verification step uses
+// (`curl -I https://<PUBLIC_DOMAIN>/health`) — it verifies the full
+// externally-visible chain (DNS + Caddy TLS + backend), which is a more
+// meaningful signal than the old check ever gave (that only confirmed
+// RAILWAY_TOKEN was valid, not that anything was actually serving traffic).
+async function checkOracleHost(): Promise<ConnectorStatus> {
+  if (!process.env['PUBLIC_DOMAIN']) {
+    return { name: 'Oracle host', status: 'unconfigured', detail: 'PUBLIC_DOMAIN not set' };
   }
-  return ping('Railway', async () => {
-    const res = await axios.post(
-      'https://backboard.railway.app/graphql/v2',
-      { query: '{ me { name } }' },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env['RAILWAY_TOKEN']}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 5000,
-      }
-    );
-    const name = res.data?.data?.me?.name;
-    return name ? `user: ${name}` : 'reachable';
+  return ping('Oracle host', async () => {
+    const res = await axios.get(`https://${process.env['PUBLIC_DOMAIN']}/health`, { timeout: 5000 });
+    return `status ${res.status}`;
   });
 }
 
 async function getIntegrationsStatus(): Promise<{ connectors: ConnectorStatus[] }> {
-  const [github, telegram, notion, railway] = await Promise.all([
+  const [github, telegram, notion, oracleHost] = await Promise.all([
     checkGitHub(),
     checkTelegram(),
     checkNotion(),
-    checkRailway(),
+    checkOracleHost(),
   ]);
-  return { connectors: [github, telegram, notion, railway] };
+  return { connectors: [github, telegram, notion, oracleHost] };
 }
 
 export = { getIntegrationsStatus };

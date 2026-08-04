@@ -297,6 +297,14 @@ async function triggerAudit(payload: TriggerAuditPayload): Promise<TriggerAuditR
 
   await updateAuditCycle(cycle.id, {
     status:                'awaiting_approval',
+    // createAuditCycle() sets audit_agent='nvidia' as its honest default
+    // (see auditDb.ts) since ai/client.ts tries NVIDIA first — but if that
+    // call actually failed over to a different provider (or this is the
+    // Claude Code CLI path), auditResult.provider carries the real one, so
+    // agentStandup.ts's per-agent audit counts attribute the cycle to
+    // whichever engine actually produced it, not just whoever's first in
+    // the fallback chain. Flagged by CodeRabbit on PR #72.
+    audit_agent:           auditResult.provider || 'nvidia',
     health_score:          auditResult.overallHealthScore,
     audit_summary:         auditResult.auditSummary,
     tasks_total:           totalCount,

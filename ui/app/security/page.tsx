@@ -1,7 +1,7 @@
 import { getSecurityPortfolio, getPortfolio } from "@/lib/api";
 import { SecurityView } from "@/components/sentinel/security-view";
 
-export const revalidate = 60;
+// No `export const revalidate` here — see app/agents/page.tsx for why.
 
 export default async function SecurityPage() {
   let scores: { repo: string; score: number; critical: number; high: number; medium: number; low: number }[] = [];

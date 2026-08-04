@@ -8,6 +8,7 @@ import { validateAuditOutput } from './aiOutputValidator';
 import { buildChildEnv } from './utils/childEnv';
 import projectMemory from './projectMemory';
 import { callAnyProvider } from './ai/client';
+import { nvidiaPoolSize } from './utils/nvidiaKeyPool';
 import type { AuditResult, AuditTask } from './types/auditResult';
 
 const AUDIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -259,15 +260,19 @@ async function runProviderAudit(payload: AuditPayload, repoContext: string, memo
 
   logger.info({ repo: payload.repoFullName, model: AUDIT_MODEL }, 'Provider fallback audit starting');
 
+  let usedProvider = 'nvidia'; // callAnyProvider tries NVIDIA first; overwritten below if it actually fell back
   const text = await callAnyProvider({
     userPrompt:  prompt,
     maxTokens:   4096,
     temperature: 0.1,
     timeoutMs:   AUDIT_TIMEOUT_MS,
     models:      { nvidia: AUDIT_MODEL },
+    onProviderUsed: (provider) => { usedProvider = provider; },
   });
 
-  return parseAuditOutput(text);
+  const result = parseAuditOutput(text);
+  result.provider = usedProvider;
+  return result;
 }
 
 function parseAuditOutput(stdout: string): AuditResult {
@@ -344,8 +349,12 @@ async function runAudit(payload: AuditPayload): Promise<AuditResult> {
 
     // Any OpenAI-compatible provider is the primary audit path — no
     // ANTHROPIC_API_KEY required. These models have no Read tool, so they
-    // get a text snapshot of the cloned repo instead.
-    const hasProviderKey = process.env['NVIDIA_API_KEY'] || process.env['GEMINI_API_KEY']
+    // get a text snapshot of the cloned repo instead. NVIDIA check uses the
+    // key pool (nvidiaPoolSize()), not process.env['NVIDIA_API_KEY']
+    // directly — an operator who only set NVIDIA_API_KEY_2 (documented as
+    // valid in .env.example) would otherwise fall through to the Claude
+    // Code CLI path below and fail there with no ANTHROPIC_API_KEY set.
+    const hasProviderKey = nvidiaPoolSize() > 0 || process.env['GEMINI_API_KEY']
       || process.env['DASHSCOPE_API_KEY'] || process.env['DEEPSEEK_API_KEY'];
     if (hasProviderKey) {
       const auditResult = await runProviderAudit(payload, buildRepoContext(tmpDir.name), memoryText);
@@ -365,6 +374,7 @@ async function runAudit(payload: AuditPayload): Promise<AuditResult> {
     }
 
     const auditResult = parseAuditOutput(result.stdout!);
+    auditResult.provider = 'claude';
 
     logger.info({
       repoFullName,

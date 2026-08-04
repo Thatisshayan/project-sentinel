@@ -6,6 +6,7 @@ import fs from 'fs';
 import logger from './logger';
 import { sanitizeLogs } from './riskAssessor';
 import { getBuilderConfig, getAiderEnv, getFallbackBuilder } from './builderRouter';
+import { acquireNvidiaKey } from './utils/nvidiaKeyPool';
 import loopGuard from './utils/loopGuard';
 import type { AiderContext, CloneResult } from './types/debugFix';
 
@@ -56,7 +57,7 @@ interface AiderResult {
 }
 
 async function runAider(repoPath: string, context: AiderContext, builderId?: string): Promise<AiderResult> {
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
     // Shares builderRouter.ts's verified-working model pool and fallback
     // chain with taskBuilder.ts's audit-fix path, instead of this file's
     // previous standalone AIDER_MODEL env var — that var had drifted to
@@ -64,6 +65,38 @@ async function runAider(repoPath: string, context: AiderContext, builderId?: str
     // fallback, silently routing every build-failure repair to DeepSeek
     // after Shayan asked for it to be removed from the pool (2026-07-29).
     const builderConfig = getBuilderConfig(builderId);
+
+    // NVIDIA-keyed builders draw from the shared pool (utils/nvidiaKeyPool.ts)
+    // instead of the single NVIDIA_API_KEY var — reserve a slot for the
+    // lifetime of this aider process, released on every exit path below.
+    //
+    // Pool saturation is transient (another in-flight call releases its slot
+    // within seconds), not a real per-builder failure — but cloneAndFix()'s
+    // fallback loop below treats any failed attempt as a permanent strike
+    // against that builder (triedBuilders), and most of SAFE_POOL is
+    // NVIDIA-keyed. Failing instantly on saturation would burn through
+    // nearly the whole builder-fallback chain in one synchronous pass
+    // instead of just waiting the moment out (confirmed by CodeRabbit on
+    // PR #72). So: retry acquiring a few times with a short delay before
+    // treating it as this attempt's failure.
+    let nvidiaKey: ReturnType<typeof acquireNvidiaKey> = null;
+    if (builderConfig.envKey === 'NVIDIA_API_KEY') {
+      const maxRetries = 3;
+      const retryDelayMs = 5000;
+      for (let i = 0; nvidiaKey === null && i <= maxRetries; i++) {
+        nvidiaKey = acquireNvidiaKey();
+        if (nvidiaKey || i === maxRetries) break;
+        await new Promise((r) => setTimeout(r, retryDelayMs));
+      }
+      if (!nvidiaKey) {
+        logger.warn({ builder: builderConfig.id, attempt: context.attemptNumber },
+          'NVIDIA key pool still at capacity after retries — skipping this builder attempt');
+        resolve({ success: false, reason: 'NVIDIA key pool at capacity' });
+        return;
+      }
+    }
+    const releaseNvidiaKey = () => nvidiaKey?.release();
+
     const model = builderConfig.aiderModel || 'openai/meta/llama-3.1-70b-instruct';
     const message = buildAiderMessage(context);
 
@@ -101,7 +134,7 @@ async function runAider(repoPath: string, context: AiderContext, builderId?: str
 
     const proc = spawn('aider', args, {
       cwd: repoPath,
-      env: getAiderEnv(builderConfig),
+      env: getAiderEnv(builderConfig, nvidiaKey?.key),
     });
 
     proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
@@ -109,6 +142,7 @@ async function runAider(repoPath: string, context: AiderContext, builderId?: str
 
     const timer = setTimeout(() => {
       proc.kill('SIGTERM');
+      releaseNvidiaKey();
       logger.warn({ attempt: context.attemptNumber }, 'Aider timed out — killed');
       resolve({
         success:    false,
@@ -120,6 +154,7 @@ async function runAider(repoPath: string, context: AiderContext, builderId?: str
 
     proc.on('close', (code: number | null) => {
       clearTimeout(timer);
+      releaseNvidiaKey();
 
       // Clean up temp message file
       try { fs.unlinkSync(msgFile); } catch (e: any) {
@@ -139,6 +174,7 @@ async function runAider(repoPath: string, context: AiderContext, builderId?: str
 
     proc.on('error', (err: Error) => {
       clearTimeout(timer);
+      releaseNvidiaKey();
       logger.error({ err: err.stack ?? err.message }, 'Failed to spawn Aider process');
       resolve({
         success: false,

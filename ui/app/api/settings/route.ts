@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimitMiddleware } from "@/lib/rateLimit";
+import { isValidOrigin } from "@/lib/originGuard";
 
 // Rate limit configuration
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
@@ -45,16 +46,6 @@ setInterval(() => {
     }
   }
 }, 5 * 60 * 1000);
-
-// CSRF/origin guard: in production only the app's own origin may call this route.
-function isValidOrigin(req: NextRequest): boolean {
-  const origin = req.headers.get("origin");
-  const host = req.headers.get("host");
-  if (process.env.NODE_ENV === "production") {
-    return origin === `https://${host}` || origin === process.env.APP_URL;
-  }
-  return true; // dev: allow all
-}
 
 export async function GET(req: NextRequest) {
   const rateLimit = checkRateLimit(req);
