@@ -149,16 +149,16 @@ export function SprintView({
                 <div className="flex gap-1.5">
                   <button
                     onClick={() => task.id != null && handleTaskExecute(task.id)}
-                    disabled={task.id == null || actingId === task.id || task.status === 'done'}
-                    title={task.id == null ? "No underlying audit task to execute" : undefined}
+                    disabled={task.id == null || actingId === task.id || task.status === 'done' || task.status === 'working'}
+                    title={task.id == null ? "No underlying audit task to execute" : task.status === 'working' ? "Already executing" : undefined}
                     className="text-[10px] px-2 py-0.5 rounded border border-s-green/40 text-s-green hover:bg-s-green/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Execute
                   </button>
                   <button
                     onClick={() => task.id != null && handleTaskSkip(task.id)}
-                    disabled={task.id == null || actingId === task.id || task.status === 'done'}
-                    title={task.id == null ? "No underlying audit task to skip" : undefined}
+                    disabled={task.id == null || actingId === task.id || task.status === 'done' || task.status === 'working'}
+                    title={task.id == null ? "No underlying audit task to skip" : task.status === 'working' ? "Already executing" : undefined}
                     className="text-[10px] px-2 py-0.5 rounded border border-s-border text-s-dim hover:text-s-text transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Skip
