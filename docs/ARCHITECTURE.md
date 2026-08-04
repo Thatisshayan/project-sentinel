@@ -13,12 +13,13 @@ GitHub (push/PR) ──webhook──▶ Sentinel Backend (Express/Node.js)
                           └──────┬──────┘
                                  ▼
                           AI Agent Pool
-                    (NVIDIA/Gemini/DashScope/DeepSeek)
+                  (NVIDIA/Gemini/Mistral/OpenRouter)
                           aider (code execution)
                                  │
                           GitHub PRs (auto-filed)
                                  │
-                    Sentinel UI (Next.js, Railway)
+              Sentinel UI (Next.js, self-hosted on Oracle Cloud —
+                     see docs/ORACLE_DEPLOY.md)
 ```
 
 ## Core components
@@ -42,7 +43,7 @@ GitHub (push/PR) ──webhook──▶ Sentinel Backend (Express/Node.js)
 | `agentDb.js` | Agent registry — tracks agent status and task history |
 | `repoResolver.js` | `GITHUB_ORG`-aware repo name resolution |
 | `aiOutputValidator.js` | Structural validation for AI JSON outputs |
-| `integrationsStatus.js` | Live health probes for GitHub/Telegram/Notion/Railway |
+| `integrationsStatus.js` | Live health probes for GitHub/Telegram/Notion |
 
 ### UI (`ui/`)
 

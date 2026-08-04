@@ -2,10 +2,13 @@ import { cn } from "@/lib/utils";
 import { getIntegrationsStatus, type ConnectorStatus } from "@/lib/api";
 
 const CONNECTOR_META: Record<string, { color: string; category: string; how: string }> = {
-  GitHub:   { color: "#e6edf3", category: "Dev",    how: "Webhook on push/PR events" },
-  Telegram: { color: "#26A5E4", category: "Comms",  how: "Bot webhook — commands & alerts" },
-  Notion:   { color: "#ffffff", category: "PM",     how: "API — project status & task sync" },
-  Railway:  { color: "#B835F4", category: "Deploy", how: "GraphQL API — deployment status" },
+  GitHub:       { color: "#e6edf3", category: "Dev",    how: "Webhook on push/PR events" },
+  Telegram:     { color: "#26A5E4", category: "Comms",  how: "Bot webhook — commands & alerts" },
+  Notion:       { color: "#ffffff", category: "PM",     how: "API — project status & task sync" },
+  // Backend renamed this connector from "Railway" when hosting migrated to a
+  // self-hosted Oracle Cloud VM (docs/ORACLE_DEPLOY.md) — it now checks the
+  // app's own public /health endpoint instead of an external deploy API.
+  "Oracle host": { color: "#C74634", category: "Deploy", how: "HTTPS — self-hosted VM health check" },
 };
 
 const AVAILABLE_CONNECTORS = [

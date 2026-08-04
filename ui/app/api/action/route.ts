@@ -8,8 +8,9 @@ function getRateLimitKey(req: NextRequest): string {
   if (forwardedFor) {
     return forwardedFor.split(",")[0].trim();
   }
-  // In production, this would be the Cloudflare/Railway proxy IP
-  // For Railway deployments, we rely on x-forwarded-for
+  // Self-hosted behind Caddy (docker-compose.prod.yml) — Caddy sets
+  // x-forwarded-for on every proxied request, so this path is the true
+  // fallback: only hit if the request somehow bypassed the reverse proxy.
   return "unknown";
 }
 

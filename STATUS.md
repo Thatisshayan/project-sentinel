@@ -17,6 +17,8 @@
 > **Pass 5 findings, not yet resolved:** attempting a live end-to-end audit trigger to visually confirm the richer Telegram report (pass 4) found that `agents-ops-board` in the tracked repo list points at a nonexistent GitHub repo (every audit for it has failed since at least 2026-06-29), and that nearly every other tracked repo has a 10–25-item `audit_tasks` backlog that silently trips the audit orchestrator's Rule 2 ("skip if queued tasks ≥ 3") — meaning new audits are effectively blocked across most of the portfolio right now. See `ConfirmedBugs.md` Pass 5 and `TODO.md` items 7.13/7.14.
 >
 > **Ops log (2026-07-19, live production, not code changes):** cleared 13 audit_cycles rows stuck in `awaiting_approval`/`executing` (dated 2026-06-13 to 2026-07-10 — predated every persistence fix above) via a direct Postgres `UPDATE` the user ran themselves (the agent is blocked from mutating production DB directly, by design); disconnected the non-functional Vercel auto-deploy for `project-sentinel` (zero env vars configured, `/api/stats` returned `"no backend"`) via `vercel git disconnect` — Railway remains the one real, working UI deployment. See `ConfirmedBugs.md`'s "Ops log" section for full detail.
+>
+> **Superseded (2026-07-28/29):** production hosting has since migrated off Railway entirely, to a self-hosted Docker Compose stack on an Oracle Cloud Always Free VM — see `docs/ORACLE_DEPLOY.md`. The "Railway remains the one real, working UI deployment" line above was accurate as of 2026-07-19 and is left unedited as a historical record; it no longer describes the current deployment.
 
 ## Phase Progress
 
