@@ -112,6 +112,30 @@ git pull
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
+## Auto-deploy
+
+There's no CI/CD pipeline wired up to this VM — merging to `main` on GitHub
+does **not** deploy anything by itself. `scripts/auto_deploy.sh` closes that
+gap with a cron-based poller instead of a push-triggered pipeline, so no SSH
+key needs to be shared with GitHub Actions.
+
+Every run it does: `git fetch origin main`, compares SHAs, and if `main`
+moved, fast-forwards (`git merge --ff-only`) and rebuilds
+(`docker compose -f docker-compose.prod.yml up -d --build`). It skips the
+run instead of stacking up if a previous deploy is still building, and
+refuses to deploy over a dirty working tree instead of clobbering local
+changes.
+
+```bash
+chmod +x scripts/auto_deploy.sh
+(crontab -l 2>/dev/null; echo "*/5 * * * * $(pwd)/scripts/auto_deploy.sh") | crontab -
+```
+
+Deploys land in `~/backups/deploy.log` (same directory the backup script
+already logs to). Expect up to a ~5 minute lag between merging to `main`
+and the change actually running — for anything you need live immediately,
+run the `Updating` command above by hand instead of waiting on the cron.
+
 ## Backups
 
 Postgres data lives in the `postgres_data` named volume. There's no
