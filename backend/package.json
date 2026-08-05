@@ -31,12 +31,12 @@
     "tmp": "^0.2.7"
   },
   "devDependencies": {
-    "@swc/core": "^1.15.46",
+    "@swc/core": "^1.15.47",
     "@swc/jest": "^0.2.39",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.1.2",
-    "@types/pg": "^8.20.0",
+    "@types/pg": "^8.20.3",
     "@types/supertest": "^7.2.1",
     "eslint": "^8.57.1",
     "eslint-config-prettier": "^9.1.2",
