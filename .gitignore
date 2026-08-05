@@ -9,6 +9,7 @@ backend/dist/
 rwstatus.json
 session-sentinel-phase1-build.md
 14.07.2026CurrentStateofRepo.md
+docs/archive/
 # --- Repo Governance additions (merged into .gitignore by apply script) ---
 .env
 .env.*
