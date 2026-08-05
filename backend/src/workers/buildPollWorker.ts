@@ -32,6 +32,26 @@ const SENTINEL_TZ = process.env['SENTINEL_TIMEZONE'] || 'America/Toronto';
 const POLL_INTERVAL_MS = 30 * 1000;
 const MAX_POLL_ATTEMPTS = 20;
 
+// Each concurrent job that reaches orchestrateDebug() spawns its own aider
+// (Python) subprocess via cloneAndFix() — a real CPU/memory cost, and one
+// completely uncoordinated with MAX_PARALLEL_AGENTS (parallelExecutor.ts's
+// separate task-batch path). The old hardcoded concurrency:5 here, stacked
+// on top of that path's own concurrent agents, put up to 8 aider processes
+// on the host at once — confirmed live on a 1 OCPU / 1GB Oracle Free-tier
+// VM: 5 concurrent aider processes alone were enough to starve the running
+// backend/Caddy of CPU/memory and cause real request timeouts (2026-08-05).
+const DEBUG_WORKER_CONCURRENCY = (): number => {
+  const raw = process.env['DEBUG_WORKER_CONCURRENCY'];
+  const parsed = Number(raw);
+  if (raw === undefined || !Number.isInteger(parsed) || parsed <= 0) {
+    if (raw !== undefined) {
+      logger.warn({ raw }, 'DEBUG_WORKER_CONCURRENCY invalid — falling back to 2');
+    }
+    return 2;
+  }
+  return parsed;
+};
+
 // ── Build poll worker ─────────────────────────────────────────────────────────
 
 export function startBuildPollWorker(): Worker | null {
@@ -259,7 +279,7 @@ export function startBuildPollWorker(): Worker | null {
 
   }, {
     connection:  conn,
-    concurrency: 5,
+    concurrency: DEBUG_WORKER_CONCURRENCY(),
   });
 
   worker.on('failed', (job: Job<BuildCheckJobData> | undefined, err: Error) => {
