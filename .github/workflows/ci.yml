@@ -102,8 +102,9 @@ jobs:
   # here while the real Docker build silently breaks. This job closes that gap
   # by actually invoking `docker build` against each service's own Dockerfile,
   # on the ubuntu-latest runner's built-in Docker daemon (no extra setup
-  # needed). backend/Dockerfile is what docker-compose.prod.yml builds in
-  # production (see docs/ORACLE_DEPLOY.md) — this repo has already had one
+  # needed). backend/Dockerfile is what .github/workflows/publish.yml builds
+  # and pushes to GHCR for production (see docs/ORACLE_DEPLOY.md) — this repo
+  # has already had one
   # severe incident (see git history: "production container has been
   # crash-looping since the TS migration") from exactly this class of change
   # reaching main unverified.

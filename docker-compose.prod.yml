@@ -5,8 +5,15 @@ version: '3.9'
 # Caddy is, and it terminates TLS (via Let's Encrypt) and reverse-proxies to
 # the backend/ui containers over the internal docker network.
 #
+# Images are built in CI (.github/workflows/publish.yml) and pushed to
+# GHCR — this file only ever pulls them. Building backend/ui in place on a
+# 1 OCPU / 1GB Oracle Free-tier host starves the live containers of
+# CPU/memory badly enough to cause real request timeouts while it runs
+# (confirmed live on 2026-08-05) — don't add `build:` back here.
+#
 # Usage:
-#   PUBLIC_DOMAIN=sentinel.yourdomain.com docker compose -f docker-compose.prod.yml up -d --build
+#   PUBLIC_DOMAIN=sentinel.yourdomain.com docker compose -f docker-compose.prod.yml pull
+#   PUBLIC_DOMAIN=sentinel.yourdomain.com docker compose -f docker-compose.prod.yml up -d
 #
 # See docs/ORACLE_DEPLOY.md for full setup instructions.
 
@@ -38,8 +45,14 @@ services:
     restart: unless-stopped
 
   backend:
-    build:
-      context: ./backend
+    image: ghcr.io/${GHCR_OWNER:-thatisshayan}/project-sentinel-backend:${IMAGE_TAG:-latest}
+    # Without this, `node dist/index.js` runs as PID 1 inside the container.
+    # PID 1 is responsible for reaping re-parented orphan/zombie processes,
+    # a job Node.js doesn't do — a git subprocess that exits under some edge
+    # case (e.g. a timed-out clone) was left as a permanent zombie instead
+    # of being cleaned up. `init: true` runs a real init (tini) as PID 1.
+    # Confirmed live: 81 accumulated `[git] <defunct>` zombies on 2026-08-05.
+    init: true
     env_file:
       - ./backend/.env
     environment:
@@ -56,8 +69,8 @@ services:
     restart: unless-stopped
 
   ui:
-    build:
-      context: ./ui
+    image: ghcr.io/${GHCR_OWNER:-thatisshayan}/project-sentinel-ui:${IMAGE_TAG:-latest}
+    init: true
     env_file:
       - ./ui/.env
     environment:

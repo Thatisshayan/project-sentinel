@@ -4,6 +4,12 @@
 # "Auto-deploy" section. Not run automatically anywhere else; run it in
 # place from the repo checkout and cron it there (`crontab -e`) — it does
 # not run in CI or locally.
+#
+# Images are built in CI (.github/workflows/publish.yml) and pushed to GHCR
+# — this script only ever pulls them, never builds. Building backend/ui in
+# place on a 1 OCPU / 1GB Oracle Free-tier host starves the live containers
+# of CPU/memory badly enough to cause real request timeouts while it runs
+# (confirmed live on 2026-08-05).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -15,10 +21,9 @@ LOCK_FILE="/tmp/sentinel-auto-deploy.lock"
 mkdir -p "$LOG_DIR"
 log() { echo "$(date): $1" >> "$LOG_FILE"; }
 
-# Skip this run instead of stacking up if a previous deploy (a `--build` can
-# take a couple of minutes on a 1-CPU Oracle Free-tier VM) is still going.
+# Skip this run instead of stacking up if a previous run is still going.
 if ! mkdir "$LOCK_FILE" 2>/dev/null; then
-  log "SKIPPED - previous deploy still running (lock present)"
+  log "SKIPPED - previous run still in progress (lock present)"
   exit 0
 fi
 trap 'rmdir "$LOCK_FILE" 2>/dev/null' EXIT
@@ -32,24 +37,39 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 0
 fi
 
+BEFORE_SHA="$(git rev-parse HEAD)"
 git fetch origin main --quiet
 
-LOCAL_SHA="$(git rev-parse HEAD)"
-REMOTE_SHA="$(git rev-parse origin/main)"
-
-if [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
-  exit 0
+if [ "$BEFORE_SHA" != "$(git rev-parse origin/main)" ]; then
+  # Keeps docker-compose.prod.yml, Caddyfile, and this script itself current
+  # — the images themselves come from GHCR, not this checkout.
+  if ! git merge --ff-only origin/main >> "$LOG_FILE" 2>&1; then
+    log "FAILED - git merge --ff-only failed (local main has diverged from origin/main)"
+    exit 1
+  fi
+  log "Repo checkout updated: $BEFORE_SHA -> $(git rev-parse HEAD)"
 fi
 
-log "DEPLOYING - $LOCAL_SHA -> $REMOTE_SHA"
+# `docker compose pull` on an unchanged tag is a fast, cheap no-op (a
+# digest check, not a rebuild) — safe to run unconditionally every tick
+# instead of trying to predict whether CI has finished publishing yet.
+BEFORE_IDS="$(docker compose -f "$COMPOSE_FILE" images -q backend ui 2>/dev/null)"
 
-if ! git merge --ff-only origin/main >> "$LOG_FILE" 2>&1; then
-  log "FAILED - git merge --ff-only failed (local main has diverged from origin/main)"
+if ! docker compose -f "$COMPOSE_FILE" pull --quiet backend ui >> "$LOG_FILE" 2>&1; then
+  log "FAILED - docker compose pull failed"
   exit 1
 fi
 
-if ! docker compose -f "$COMPOSE_FILE" up -d --build >> "$LOG_FILE" 2>&1; then
-  log "FAILED - docker compose up --build failed at $(git rev-parse HEAD)"
+AFTER_IDS="$(docker compose -f "$COMPOSE_FILE" images -q backend ui 2>/dev/null)"
+
+if [ "$BEFORE_IDS" = "$AFTER_IDS" ]; then
+  exit 0
+fi
+
+log "DEPLOYING - new image(s) pulled"
+
+if ! docker compose -f "$COMPOSE_FILE" up -d >> "$LOG_FILE" 2>&1; then
+  log "FAILED - docker compose up -d failed after pulling new image(s)"
   exit 1
 fi
 

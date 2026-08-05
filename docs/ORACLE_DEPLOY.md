@@ -36,7 +36,7 @@ sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-## 4. Clone the repo and configure environment
+## 4. Clone the repo, configure environment, and log in to GHCR
 
 ```bash
 git clone <your-repo-url> project-sentinel
@@ -44,6 +44,20 @@ cd project-sentinel
 cp backend/.env.example backend/.env
 cp ui/.env.example ui/.env
 ```
+
+Images are built in CI and pushed to GitHub Container Registry (GHCR) —
+see `.github/workflows/publish.yml` — not built on this VM. They're
+private, so the VM needs its own read-only credential to pull them:
+
+1. On GitHub: Settings → Developer settings → Personal access tokens →
+   Tokens (classic) → Generate new token, scope `read:packages` only.
+2. On the VM:
+   ```bash
+   echo '<your-token>' | docker login ghcr.io -u <your-github-username> --password-stdin
+   ```
+   This writes to `~/.docker/config.json` — it is never committed to git,
+   and the token itself only needs to live in your password manager, not
+   anywhere in this repo.
 
 Fill in `backend/.env` with your real values (Slack, Telegram, GitHub,
 Notion, AI provider keys, etc. — see the comments in the file). Notably:
@@ -77,7 +91,8 @@ substitution inside `docker-compose.prod.yml`.)
 ## 5. Bring up the stack
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 docker compose -f docker-compose.prod.yml logs -f caddy
 ```
 
@@ -109,22 +124,32 @@ test push/PR shows up), then decommission the Railway services.
 
 ```bash
 git pull
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 ```
+
+`pull` fetches whatever CI last pushed to GHCR for `backend`/`ui`; `up -d`
+recreates only the containers whose image actually changed. Neither step
+compiles anything on this VM.
 
 ## Auto-deploy
 
-There's no CI/CD pipeline wired up to this VM — merging to `main` on GitHub
-does **not** deploy anything by itself. `scripts/auto_deploy.sh` closes that
-gap with a cron-based poller instead of a push-triggered pipeline, so no SSH
-key needs to be shared with GitHub Actions.
+There's no push-triggered pipeline into this VM — GitHub Actions builds and
+publishes images to GHCR on every merge to `main` (`.github/workflows/publish.yml`),
+but nothing SSHes in to deploy them; no SSH key needs to be shared with
+GitHub Actions. `scripts/auto_deploy.sh` closes that last gap with a
+cron-based poller instead.
 
-Every run it does: `git fetch origin main`, compares SHAs, and if `main`
-moved, fast-forwards (`git merge --ff-only`) and rebuilds
-(`docker compose -f docker-compose.prod.yml up -d --build`). It skips the
-run instead of stacking up if a previous deploy is still building, and
-refuses to deploy over a dirty working tree instead of clobbering local
-changes.
+Every run it does: `git fetch origin main` (fast-forwards the checkout if
+it moved, so `docker-compose.prod.yml`/`Caddyfile` stay current — the
+images themselves come from GHCR, not this checkout), then unconditionally
+`docker compose pull backend ui` and, only if that actually pulled a new
+image, `docker compose up -d`. A `pull` against an unchanged tag is a cheap
+digest check, not a rebuild — safe to run every 5 minutes indefinitely, and
+it doesn't matter if the cron fires before CI has finished publishing; the
+next tick just picks it up. It skips the run instead of stacking up if a
+previous run is still going, and refuses to deploy over a dirty working
+tree instead of clobbering local changes.
 
 ```bash
 chmod +x scripts/auto_deploy.sh
@@ -132,9 +157,8 @@ chmod +x scripts/auto_deploy.sh
 ```
 
 Deploys land in `~/backups/deploy.log` (same directory the backup script
-already logs to). Expect up to a ~5 minute lag between merging to `main`
-and the change actually running — for anything you need live immediately,
-run the `Updating` command above by hand instead of waiting on the cron.
+already logs to). For anything you need live immediately rather than
+waiting on the cron, run the `Updating` commands above by hand.
 
 ## Backups
 
