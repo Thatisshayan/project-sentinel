@@ -3,12 +3,9 @@
 .aider*
 .env
 .env.MD
-PHASE2_*.md
 node_modules/
 backend/dist/
 rwstatus.json
-session-sentinel-phase1-build.md
-14.07.2026CurrentStateofRepo.md
 # --- Repo Governance additions (merged into .gitignore by apply script) ---
 .env
 .env.*

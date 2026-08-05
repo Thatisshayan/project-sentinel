@@ -13,7 +13,6 @@ const PRIORITIES: Record<string, string> = {
   'shiporex':            'medium',
   'aegis':               'medium',
   'mint':                'medium',
-  'agents-ops-board':    'low',
   'founder-social-club': 'low',
   'obsidian-studio':     'low',
   'obsidian-media':      'low',

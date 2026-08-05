@@ -35,6 +35,8 @@ import { registerDeadLetterEnqueuer } from './utils/safeFire';
 import { enqueueDeadLetter } from './queueClient';
 import { handleCommand, handleCallbackQuery } from './telegramCommands';
 import { bootstrapRuntime } from './startup';
+import dbClient from './dbClient';
+import { getRedisConnection, getBuildPollQueue } from './queueClient';
 
 const dsn = process.env['SENTRY_DSN'];
 const environment = process.env['NODE_ENV'] || 'development';
@@ -189,6 +191,45 @@ app.set('trust proxy', 1);
 
 app.use('/webhook', require('./webhook'));
 app.get('/health', require('./health'));
+app.get('/metrics', async (_req, res) => {
+  try {
+    const redis = getRedisConnection();
+    const queue = getBuildPollQueue();
+    const [auditCycles, dbPing, queueCounts, redisStatus] = await Promise.all([
+      dbClient.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE status='awaiting_approval') AS awaiting_approval,
+          COUNT(*) FILTER (WHERE status='executing')         AS executing,
+          COUNT(*) FILTER (WHERE status='complete'
+            AND created_at > NOW() - INTERVAL '7 days')      AS completed_7d
+        FROM audit_cycles
+      `).catch(() => null),
+      dbClient.query('SELECT 1').catch(() => null),
+      queue ? queue.getJobCounts().catch(() => null) : Promise.resolve(null),
+      redis ? redis.ping().catch(() => null) : Promise.resolve(null),
+    ]);
+
+    const row = auditCycles?.rows?.[0] || {};
+    const lines = [
+      '# HELP sentinel_audit_cycles_current audit cycle counts by status',
+      '# TYPE sentinel_audit_cycles_current gauge',
+      `sentinel_audit_cycles_current{status="awaiting_approval"} ${Number(row.awaiting_approval || 0)}`,
+      `sentinel_audit_cycles_current{status="executing"} ${Number(row.executing || 0)}`,
+      `sentinel_audit_cycles_current{status="completed_7d"} ${Number(row.completed_7d || 0)}`,
+      '# HELP sentinel_service_up 1 if the dependency responded, 0 otherwise',
+      '# TYPE sentinel_service_up gauge',
+      `sentinel_service_up{service="database"} ${dbPing ? 1 : 0}`,
+      `sentinel_service_up{service="redis"} ${redisStatus ? 1 : 0}`,
+      `sentinel_queue_waiting{queue="buildPoll"} ${Number(queueCounts?.['waiting'] || 0)}`,
+      `sentinel_queue_active{queue="buildPoll"} ${Number(queueCounts?.['active'] || 0)}`,
+      `sentinel_queue_delayed{queue="buildPoll"} ${Number(queueCounts?.['delayed'] || 0)}`,
+    ];
+    res.status(200).type('text/plain').send(lines.join('\n') + '\n');
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'Metrics endpoint failed');
+    res.status(500).type('text/plain').send('# sentinel_metrics endpoint error\n');
+  }
+});
 app.use('/api', require('./api'));
 
 app.post('/webhook/telegram', async (req: express.Request, res: express.Response) => {

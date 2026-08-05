@@ -80,6 +80,7 @@ export function SecurityView({ scores, issues, summary, loadError }: Props) {
           <button
             onClick={runScan}
             disabled={scanning}
+            aria-label="Run security scan for all repositories"
             className="text-[10px] px-3 py-1 rounded border border-s-ind/40 text-s-ind hover:bg-s-ind/10 transition-all disabled:opacity-40"
           >
             {scanning ? "Scanning…" : "Run All Scans"}
@@ -87,12 +88,12 @@ export function SecurityView({ scores, issues, summary, loadError }: Props) {
         }
       >
         {scores.length > 0 ? (
-          <div className="grid grid-cols-3 gap-px bg-s-border">
+          <div className="grid grid-cols-3 gap-px bg-s-border" role="table" aria-label="Repository security scores">
             {scores.map(r => {
               const color = scoreColor(r.score);
               const total = r.critical + r.high + r.medium + r.low;
               return (
-                <div key={r.repo} className="bg-s-bg p-3 hover:bg-white/[0.02] transition-colors">
+                <div key={r.repo} className="bg-s-bg p-3 hover:bg-white/[0.02] transition-colors" role="row">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[11px] font-medium font-mono truncate">{r.repo}</span>
                     <span className="text-sm font-extrabold font-mono ml-2 flex-shrink-0" style={{ color }}>{r.score}</span>
@@ -123,11 +124,12 @@ export function SecurityView({ scores, issues, summary, loadError }: Props) {
 
       {/* Issues table */}
       {issues.length > 0 && (
-        <PagePanel
+          <PagePanel
           title="Open Issues"
           action={
             <button
               onClick={() => issues.filter(i => i.status === "open").forEach(i => patch(i.id))}
+              aria-label="Patch all safe open security issues"
               className="text-[10px] px-3 py-1 rounded border border-s-green/40 text-s-green hover:bg-s-green/10 transition-all"
             >
               Patch All Safe
@@ -135,7 +137,7 @@ export function SecurityView({ scores, issues, summary, loadError }: Props) {
           }
         >
           {issues.map(issue => (
-            <div key={issue.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-s-border last:border-b-0 hover:bg-white/[0.02]">
+            <div key={issue.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-s-border last:border-b-0 hover:bg-white/[0.02]" role="row">
               <ColorBadge color={severityColor(issue.severity)} size="xs" uppercase>{issue.severity}</ColorBadge>
               <div className="flex-1 min-w-0">
                 <div className="text-xs truncate">{issue.title}</div>

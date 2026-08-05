@@ -1,6 +1,6 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
-import { callAnyProvider } from './ai/client';
+import { callAnyProvider, extractJsonObject, stripThinkBlocks } from './ai/client';
 import { repoFullName } from './repoResolver';
 import { getPortfolioSummary } from './portfolioAnalytics';
 import { getOpenPatterns, getDailyCost, getMonthlyCost } from './portfolioDb';
@@ -135,7 +135,7 @@ NATURAL LANGUAGE TRIGGERS:
 - "cost update"                      → action: show_costs
 
 REPO NAMES (always use exact spelling in the "repo" field — never invent camelCase):
-acc, tapcash, AlphonsoEcosystem, session-guard, costpilot, shiporex, aegis, mint, agents-ops-board, founder-social-club, obsidian-studio, obsidian-media, project-sentinel
+acc, tapcash, AlphonsoEcosystem, session-guard, costpilot, shiporex, aegis, mint, founder-social-club, obsidian-studio, obsidian-media, project-sentinel
 
 AGENT IDs: nvidia, qwen_coder, qwen_coder_dash, llama_fast, gemini, qwen_max, qwen_plus, qwen_turbo, deepseek, opencode
 
@@ -280,15 +280,10 @@ async function handleMessage(messageText: string, fromName: string, topicId: num
 
     let parsed: AiAction;
     try {
-      const cleaned = raw
-        .replace(/<think>[\s\S]*?<\/think>/gi, '')
-        .replace(/```json?|```/g, '')
-        .trim();
-      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
+      parsed = extractJsonObject<AiAction>(raw).parsed;
     } catch {
       // Strip think blocks so they don't leak into Telegram messages
-      const visibleRaw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      const visibleRaw = stripThinkBlocks(raw);
       parsed = { action: 'answer', message: visibleRaw };
     }
 

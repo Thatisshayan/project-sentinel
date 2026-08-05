@@ -2,7 +2,7 @@
 # Compiles TypeScript (src/**/*.ts -> dist/**/*.js). Needs devDependencies
 # (typescript, @swc/core, etc.) which the runtime stage below deliberately
 # does not install.
-FROM node:20-alpine AS builder
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder
 
 WORKDIR /app
 
@@ -10,10 +10,11 @@ COPY package*.json tsconfig.json ./
 RUN npm ci
 
 COPY src/ ./src/
+COPY migrations/ ./migrations/
 RUN npm run build
 
 # ── Runtime stage ───────────────────────────────────────────────────────────
-FROM node:20-alpine
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
 
 # Install Python and pip for Aider
 RUN apk add --no-cache python3 py3-pip git
@@ -51,6 +52,7 @@ RUN AIDER_MODELS_PY=$(python3 -c "import aider.models, os; print(os.path.abspath
 ENV NODE_OPTIONS="--max-old-space-size=256"
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/migrations ./migrations
 
 RUN addgroup -S sentinel && adduser -S sentinel -G sentinel
 USER sentinel

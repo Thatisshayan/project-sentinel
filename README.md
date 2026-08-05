@@ -7,6 +7,7 @@
 > "Implementation log" section first for anything Slack/agent-related.
 > Architecture/tech-debt tracking (TypeScript migration, error handling,
 > security hardening) lives separately in `STATUS.md` / `AGENTS.md`.
+> Archived handoffs and phase snapshots now live under `docs/archive/`.
 
 An autonomous DevOps AI that manages a portfolio of GitHub repositories for a solo founder. Sentinel monitors commits, audits code, generates improvement tasks, executes them via AI agents, opens PRs, and reports business intelligence — through **both Telegram and Slack**, and can dispatch work to a roster of external Slack-native AI agents alongside its own internal ones.
 
@@ -113,7 +114,7 @@ NVIDIA_API_KEY            NVIDIA NIM API key (primary AI provider)
 GEMINI_API_KEY / DASHSCOPE_API_KEY / DEEPSEEK_API_KEY
 ```
 
-### Slack (see `docs/2026-07-22-slack-agent-roster-plan.md`)
+### Slack (see `docs/2026-07-22-slack-agent-roster-plan.md`; archived handoff docs are in `docs/archive/`)
 ```
 SLACK_BOT_TOKEN           Bot token from the Slack app (docs/slack-app-manifest.json)
 SLACK_SIGNING_SECRET      Verifies inbound Slack requests
@@ -162,6 +163,8 @@ setup steps, including DNS, firewall, and env config, are in
 4. Create the Slack app from `docs/slack-app-manifest.json` (App Manifest tab at api.slack.com/apps), install it to your workspace, and set `SLACK_BOT_TOKEN`/`SLACK_SIGNING_SECRET`
 
 The Dockerfile installs Node.js 20, Python 3, Git, and aider. The app starts on port 3000 (Caddy reverse-proxies webhook/health routes to it — see `Caddyfile`).
+
+Backend schema changes are now managed through `backend/migrations/*.sql` via `npm run migrate` in `backend/` before startup bootstrap applies the same migration set.
 
 Always verify a deploy actually succeeded (`docker compose -f docker-compose.prod.yml ps` should show all services `Up`, and `curl -I https://<PUBLIC_DOMAIN>/health` should return 200) rather than assuming a clean `docker compose up` output means the app is actually serving traffic.
 
@@ -289,6 +292,39 @@ Verb-first, no `/sentinel` prefix needed (legacy `/sentinel <subcommand>` syntax
 | `memory` | Show last 10 conversation exchanges |
 | `pause` / `resume` | Pause/resume all automation — also gates Viktor's authority path |
 | `help` | Interactive command menu |
+
+---
+
+## Legacy Telegram Quick Reference
+
+The old manual’s Telegram behavior is still supported:
+
+- Slash commands still work with or without the legacy `/sentinel` prefix.
+- Natural language still routes to the right action, for example `audit tapcash` or `show me the costs`.
+- Replying to any bot or agent message sends that reply back to the same agent.
+- The agent room remains the shared coordination space for the internal bots.
+
+### Agent Room Rules
+
+- All internal agents post in `#agent-room`
+- Daily standup is at 9am Toronto
+- Weekly leaderboard is Sunday 10:30pm Toronto
+- General messages are routed to the best-fit agent automatically
+
+### Emergency Procedures
+
+| Situation | Command |
+|---|---|
+| Agent doing something wrong | `stop <repo>` |
+| Sprint about to execute something you do not want | `sprint skip` |
+| Auto-approve about to fire | `pause` |
+| Do not want Sentinel touching a repo | `lock <repo>` |
+| Stop everything | `pause` |
+
+### Quick Env Reminders
+
+- See the "Environment Variables" section above (`Required` / `Phase 2+` / `Optional`) for the canonical, current list — don't rely on any older env-var list elsewhere.
+- Agent bot tokens and topic IDs are configured through environment variables.
 
 ### Natural language (Telegram only — free-text AI routing)
 ```

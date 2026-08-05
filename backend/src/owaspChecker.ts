@@ -1,7 +1,7 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
 import logger from './logger';
 import { upsertOwaspItem } from './securityDb';
-import { callAnyProvider } from './ai/client';
+import { callAnyProvider, extractJsonArray } from './ai/client';
 
 interface OwaspItemDef {
   id: string;
@@ -71,12 +71,7 @@ Be conservative. Do not invent issues.`;
 
   try {
     const response = await callProviderForSecurity(prompt);
-    const clean    = response
-      .replace(/<think>[\s\S]*?<\/think>/gi, '')
-      .replace(/```json|```/g, '')
-      .trim();
-    const arrMatch = clean.match(/\[[\s\S]*\]/);
-    evaluation     = JSON.parse(arrMatch ? arrMatch[0] : clean);
+    evaluation = extractJsonArray<OwaspEvaluation>(response).parsed;
   } catch (err: any) {
     logger.warn({ err: err.message, repoName }, 'OWASP parse failed — using unknowns');
     evaluation = OWASP_ITEMS.map(item => ({

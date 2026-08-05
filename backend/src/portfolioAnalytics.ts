@@ -22,7 +22,7 @@ function buildRepoList(): Array<{ repoName: string; repoFullName: string }> {
     const names   = watched
       ? watched.split(',').map((s: string) => s.trim()).filter(Boolean)
       : ['acc','tapcash','AlphonsoEcosystem','session-guard','costpilot',
-         'shiporex','aegis','mint','agents-ops-board','founder-social-club',
+         'shiporex','aegis','mint','founder-social-club',
          'obsidian-studio','obsidian-media'];
     return names.map((repoName: string) => ({ repoName, repoFullName: makeFullName(repoName) }));
   } catch {
@@ -41,7 +41,6 @@ const DEFAULT_PRIORITIES: Record<string, string> = {
   'shiporex':            'medium',
   'aegis':               'medium',
   'mint':                'medium',
-  'agents-ops-board':    'low',
   'founder-social-club': 'low',
   'obsidian-studio':     'low',
   'obsidian-media':      'low',

@@ -29,6 +29,7 @@ GitHub (push/PR) ──webhook──▶ Sentinel Backend (Express/Node.js)
 | Module | Purpose |
 |--------|---------|
 | `index.ts` | Server entry, startup validation, worker bootstrap |
+| `migrate.ts` | Explicit migration entrypoint that applies `backend/migrations/*.sql` via `schema_migrations` tracking |
 | `webhook.ts` + `webhook/` | GitHub webhook handler — parses push/PR/CodeRabbit-comment events |
 | `auditOrchestrator.ts` | Runs code audits, stores tasks, triggers execution |
 | `claudeCodeAudit.ts` | AI-powered code audit via the shared provider chain (`ai/client.ts` — NVIDIA first; Claude only if `ANTHROPIC_API_KEY` is set, which it isn't by default) |
@@ -44,6 +45,13 @@ GitHub (push/PR) ──webhook──▶ Sentinel Backend (Express/Node.js)
 | `repoResolver.ts` | `GITHUB_ORG`-aware repo name resolution |
 | `aiOutputValidator.ts` | Structural validation for AI JSON outputs |
 | `integrationsStatus.ts` | Live health probes for GitHub/Telegram/Notion/self-hosted-VM health |
+
+### Ops endpoints
+
+| Route | Purpose |
+|-------|---------|
+| `/health` | JSON health snapshot for dependencies, queues, and audit-cycle counts |
+| `/metrics` | Prometheus-style counters for audit cycles, queue depth, and basic service up/down checks |
 
 ### UI (`ui/`)
 

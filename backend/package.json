@@ -8,6 +8,7 @@
     "dev": "ts-node --esm src/index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "migrate": "ts-node --esm src/migrate.ts",
     "test": "jest --runInBand --forceExit",
     "test:coverage": "jest --runInBand --forceExit --coverage",
     "test:integration": "echo 'Integration tests require Docker — run test-integration.yml workflow or install Docker locally'",

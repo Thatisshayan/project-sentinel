@@ -40,6 +40,55 @@ async function buildReportMessage(summary: PortfolioSummary, patterns: RepoPatte
   const totalBuildsPassed = metrics.reduce((s: number, m: PortfolioMetricRow) => s + (m.builds_passed || 0), 0);
   const totalBuildsFailed = metrics.reduce((s: number, m: PortfolioMetricRow) => s + (m.builds_failed || 0), 0);
 
+  const staleThresholdHours = parseInt(process.env['STALE_AUDIT_CYCLE_ALERT_HOURS'] || '24', 10);
+  const staleCyclesResult = await query(`
+    SELECT repo_full_name, status, created_at,
+           EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 AS age_hours
+    FROM audit_cycles
+    WHERE status IN ('awaiting_approval', 'executing')
+      AND created_at < NOW() - ($1 || ' hours')::interval
+    ORDER BY created_at ASC
+  `, [staleThresholdHours]);
+
+  const staleCycles = staleCyclesResult.rows as Array<{
+    repo_full_name: string;
+    status: string;
+    created_at: string;
+    age_hours: string | number;
+  }>;
+  const oldestStaleCycle = staleCycles[0];
+  const oldestStaleHours = oldestStaleCycle ? Number(oldestStaleCycle.age_hours) : 0;
+  const staleLine = oldestStaleCycle
+    ? [
+        `\n⏳ Stale audit cycles: ${staleCycles.length} pending/executing older than ${staleThresholdHours}h`,
+        `   Oldest: ${oldestStaleCycle.repo_full_name} (${Math.floor(oldestStaleHours / 24)}d ${Math.floor(oldestStaleHours % 24)}h old, ${oldestStaleCycle.status})`,
+      ].join('\n')
+    : '';
+
+  const backlogThreshold = parseInt(process.env['AUDIT_BACKLOG_ALERT_COUNT'] || '3', 10);
+  const backlogResult = await query(`
+    SELECT repo_full_name, COUNT(*) AS queued_count,
+           MIN(created_at) AS oldest_queued_at
+    FROM audit_tasks
+    WHERE status = 'queued'
+    GROUP BY repo_full_name
+    HAVING COUNT(*) >= $1
+    ORDER BY queued_count DESC, oldest_queued_at ASC
+  `, [backlogThreshold]);
+  const backlogRows = backlogResult.rows as Array<{
+    repo_full_name: string;
+    queued_count: string | number;
+    oldest_queued_at: string | null;
+  }>;
+  const backlogLine = backlogRows.length > 0
+    ? [
+        `\n📋 Audit backlog: ${backlogRows.length} repos have ${backlogThreshold}+ queued tasks`,
+        ...backlogRows.slice(0, 5).map((r) =>
+          `   · ${r.repo_full_name}: ${Number(r.queued_count)} queued${r.oldest_queued_at ? ` (oldest ${r.oldest_queued_at})` : ''}`
+        ),
+      ].join('\n')
+    : '';
+
   const patternLines = patterns.length > 0
     ? '\n🔍 Cross-repo patterns detected:\n' +
       patterns.slice(0, 3).map((p: RepoPatternRow) =>
@@ -64,6 +113,8 @@ async function buildReportMessage(summary: PortfolioSummary, patterns: RepoPatte
     `ACTIVITY (last 24h):`,
     `✅ ${totalBuildsPassed} builds passed  ❌ ${totalBuildsFailed} failed`,
     `🔧 ${totalTasksDone} tasks completed  📋 ${totalTasksQueued} queued`,
+    staleLine,
+    backlogLine,
     patternLines,
     costLine,
     ``,

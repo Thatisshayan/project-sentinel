@@ -16,8 +16,6 @@ updates:
       include: "scope"
     reviewers:
       - "AlphonsoEcosystem"
-    reviewers:
-      - "AlphonsoEcosystem"
     ignore:
       # Ignore major versions of dependencies that may have breaking changes
       - dependency-name: "*"
