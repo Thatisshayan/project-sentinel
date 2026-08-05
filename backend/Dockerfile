@@ -2,7 +2,7 @@
 # Compiles TypeScript (src/**/*.ts -> dist/**/*.js). Needs devDependencies
 # (typescript, @swc/core, etc.) which the runtime stage below deliberately
 # does not install.
-FROM node:20-alpine AS builder
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder
 
 WORKDIR /app
 
@@ -13,7 +13,7 @@ COPY src/ ./src/
 RUN npm run build
 
 # ── Runtime stage ───────────────────────────────────────────────────────────
-FROM node:20-alpine
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
 
 # Install Python and pip for Aider
 RUN apk add --no-cache python3 py3-pip git
