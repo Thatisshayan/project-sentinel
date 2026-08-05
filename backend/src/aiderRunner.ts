@@ -14,8 +14,11 @@ import type { AiderContext, CloneResult } from './types/debugFix';
 // AIDER_TIMEOUT_MINUTES when unset — that fallback must actually be
 // implemented here, or setting AIDER_TIMEOUT_MINUTES has no effect on this
 // path and every debug-fix run silently keeps the 30m default regardless.
-const TIMEOUT_MS = (): number =>
-  parseInt(process.env['DEBUG_TIMEOUT_MINUTES'] || process.env['AIDER_TIMEOUT_MINUTES'] || '30', 10) * 60 * 1000;
+const TIMEOUT_MS = (): number => {
+  const raw = process.env['DEBUG_TIMEOUT_MINUTES'] || process.env['AIDER_TIMEOUT_MINUTES'] || '30';
+  const minutes = Number(raw);
+  return Number.isInteger(minutes) && minutes > 0 ? minutes * 60 * 1000 : 30 * 60 * 1000;
+};
 
 // ── Build the message Aider receives ────────────────────────────────────────
 

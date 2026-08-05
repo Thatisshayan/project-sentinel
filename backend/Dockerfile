@@ -10,6 +10,7 @@ COPY package*.json tsconfig.json ./
 RUN npm ci
 
 COPY src/ ./src/
+COPY migrations/ ./migrations/
 RUN npm run build
 
 # ── Runtime stage ───────────────────────────────────────────────────────────
@@ -51,6 +52,7 @@ RUN AIDER_MODELS_PY=$(python3 -c "import aider.models, os; print(os.path.abspath
 ENV NODE_OPTIONS="--max-old-space-size=256"
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/migrations ./migrations
 
 RUN addgroup -S sentinel && adduser -S sentinel -G sentinel
 USER sentinel

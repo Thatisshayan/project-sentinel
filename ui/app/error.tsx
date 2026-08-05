@@ -15,7 +15,7 @@ export default function Error({
 
   return (
     <div className="flex h-full items-center justify-center p-8">
-      <div className="max-w-lg rounded-xl border border-s-red/40 bg-s-red/10 p-6 text-center">
+      <div role="alert" className="max-w-lg rounded-xl border border-s-red/40 bg-s-red/10 p-6 text-center">
         <div className="text-sm font-semibold text-s-red">Dashboard error</div>
         <p className="mt-3 text-sm text-s-muted">
           The page hit an unexpected error. Retry after the backend recovers, or refresh the page.

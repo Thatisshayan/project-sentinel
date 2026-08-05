@@ -96,10 +96,12 @@ async function query<T extends QueryResultRow = any>(text: string, params?: any[
     if (duration >= SLOW_QUERY_THRESHOLD_MS) {
       logger.warn({ duration, rows: result.rowCount, thresholdMs: SLOW_QUERY_THRESHOLD_MS, query: text.slice(0, 300) }, 'Slow DB query detected');
       const { sendTelegramMessage } = require('./telegramClient');
-      await sendTelegramMessage(
+      void sendTelegramMessage(
         `🐢 Slow DB query detected (${duration}ms >= ${SLOW_QUERY_THRESHOLD_MS}ms)\n\n${text.slice(0, 500)}`,
         null, null
-      ).catch(() => null);
+      ).catch((err: unknown) => {
+        logger.debug({ err }, 'Slow-query alert delivery failed');
+      });
     } else {
       logger.debug(
         { duration, rows: result.rowCount },

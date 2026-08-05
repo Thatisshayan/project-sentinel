@@ -1,6 +1,6 @@
 # Sentinel — Master Task List
 
-> **REBUILD IN PROGRESS — Phase 5/7 active.**
+> **REBUILD: Phases 0–7 complete.**
 > Canonical plan: `docs/superpowers/plans/2026-07-16-sentinel-rebuild.md`
 > Current status: `STATUS.md`
 > Tasks are prefixed `[PhaseN]` to indicate which phase they belong to.
@@ -80,7 +80,7 @@
 
 ---
 
-## 🧹 Phase 5 — Catch Pattern Elimination (IN PROGRESS)
+## 🧹 Phase 5 — Catch Pattern Elimination (COMPLETE)
 
 | # | Task | Priority | Status |
 |---|------|----------|--------|

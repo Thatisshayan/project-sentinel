@@ -22,13 +22,13 @@ const AGENT_NAME_TO_ID: Record<string, string> = Object.fromEntries(
 
 function Row({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-3 border-b border-s-border last:border-b-0">
-      <label className="min-w-0">
+    <label className="flex items-center justify-between gap-4 py-3 border-b border-s-border last:border-b-0">
+      <div className="min-w-0">
         <div className="text-sm font-medium">{label}</div>
         {desc && <div className="text-[11px] text-s-muted mt-0.5">{desc}</div>}
-      </label>
+      </div>
       <div className="flex-shrink-0 ml-4">{children}</div>
-    </div>
+    </label>
   );
 }
 

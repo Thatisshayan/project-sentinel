@@ -323,9 +323,8 @@ The old manual’s Telegram behavior is still supported:
 
 ### Quick Env Reminders
 
-- Required core env vars still include `GITHUB_WEBHOOK_SECRET`, `GITHUB_TOKEN`, `NOTION_API_KEY`, `NOTION_DATABASE_ID`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `DATABASE_URL`, and `REDIS_URL`.
-- One AI provider key is required, with `NVIDIA_API_KEY` preferred.
-- Agent bot tokens and topic IDs are still configured through environment variables.
+- See the "Environment Variables" section above (`Required` / `Phase 2+` / `Optional`) for the canonical, current list — don't rely on any older env-var list elsewhere.
+- Agent bot tokens and topic IDs are configured through environment variables.
 
 ### Natural language (Telegram only — free-text AI routing)
 ```

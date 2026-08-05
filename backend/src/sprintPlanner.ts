@@ -148,10 +148,15 @@ Respond with ONLY valid JSON:
 
   const raw = await callFreeAI(prompt);
 
+  let proposal: ReturnType<typeof validateSprintOutput>;
   try {
     const parsedJson = extractJsonObject<unknown>(raw).parsed;
-    const proposal = validateSprintOutput(parsedJson);
+    proposal = validateSprintOutput(parsedJson);
+  } catch (err) {
+    throw new Error(`Sprint proposal JSON parse failed: ${(err as Error).message}\nRaw: ${raw.slice(0, 200)}`);
+  }
 
+  {
     const avgHealth = metrics.length > 0
       ? metrics.reduce((s: number, m: PortfolioMetricRow) => s + parseFloat(m.health_score || '5'), 0) / metrics.length
       : 5.0;
@@ -239,8 +244,6 @@ Respond with ONLY valid JSON:
     }
 
     return { sprint, proposal };
-  } catch (err) {
-    throw new Error(`Sprint proposal JSON parse failed: ${(err as Error).message}\nRaw: ${raw.slice(0, 200)}`);
   }
 }
 
