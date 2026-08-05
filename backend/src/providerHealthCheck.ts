@@ -126,7 +126,7 @@ async function probeAIProviders(): Promise<string[]> {
       `${alertLines.length} key(s) have invalid API keys:\n` +
       `${alertLines.join('\n')}\n\n` +
       `Update the key(s) in backend/.env on the Oracle host and redeploy` +
-      ` (docker compose -f docker-compose.prod.yml up -d --build) to restore those agents.`,
+      ` (docker compose -f docker-compose.prod.yml up -d) to restore those agents.`,
       null, null
     ), { label: 'providerHealthCheck' })
 
