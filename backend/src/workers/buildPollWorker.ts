@@ -41,9 +41,12 @@ const MAX_POLL_ATTEMPTS = 20;
 // VM: 5 concurrent aider processes alone were enough to starve the running
 // backend/Caddy of CPU/memory and cause real request timeouts (2026-08-05).
 const DEBUG_WORKER_CONCURRENCY = (): number => {
-  const parsed = parseInt(process.env['DEBUG_WORKER_CONCURRENCY'] || '2', 10);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    logger.warn({ raw: process.env['DEBUG_WORKER_CONCURRENCY'] }, 'DEBUG_WORKER_CONCURRENCY invalid — falling back to 2');
+  const raw = process.env['DEBUG_WORKER_CONCURRENCY'];
+  const parsed = Number(raw);
+  if (raw === undefined || !Number.isInteger(parsed) || parsed <= 0) {
+    if (raw !== undefined) {
+      logger.warn({ raw }, 'DEBUG_WORKER_CONCURRENCY invalid — falling back to 2');
+    }
     return 2;
   }
   return parsed;
