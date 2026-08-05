@@ -2,13 +2,28 @@ import { spawn } from 'node:child_process';
 
 const port = process.env.PORT || '3010';
 const baseUrl = `http://127.0.0.1:${port}`;
+// `shell: true` means server.pid is the shell's pid, not `next start`'s —
+// killing only that leaves the actual server process (and its children)
+// running as an orphan. An orphaned server holding stdout/stderr open is
+// exactly what makes a CI step hang forever after this script has already
+// exited. `detached: true` puts the whole tree in its own process group so
+// `process.kill(-server.pid, ...)` (note the negative pid) can signal all
+// of it at once.
 const server = spawn('npm', ['--prefix', 'ui', 'run', 'start', '--', '--port', port], {
   stdio: ['ignore', 'pipe', 'pipe'],
   shell: true,
+  detached: true,
 });
 
+let stopped = false;
 const stop = () => {
-  if (!server.killed) server.kill();
+  if (stopped) return;
+  stopped = true;
+  try {
+    process.kill(-server.pid, 'SIGTERM');
+  } catch {
+    if (!server.killed) server.kill();
+  }
 };
 
 process.on('exit', stop);
