@@ -1,4 +1,4 @@
-Summary: Boardroom is the canonical governance surface. Hermes keeps local execution in sync, while Sentinel feeds audit signals back into the same system. Live snapshot generated 2026-08-07 from OBSIDIAN-TEAM-BOARDROOM ledger, projects, and decisions.
+Summary: Boardroom is the canonical governance surface. Hermes keeps local execution in sync, while Sentinel feeds audit signals back into the same system. Live snapshot generated 2026-08-14 from OBSIDIAN-TEAM-BOARDROOM ledger, projects, and decisions.
 health: 82
 board_decision: Make OBSIDIAN-TEAM-BOARDROOM the canonical Boardroom home
 
