@@ -6,6 +6,7 @@ import { updateNotionTaskStatus } from '../auditTaskWriter';
 import { resolveIssuesByPr } from '../securityDb';
 import { resolveDebugAttemptByPr } from '../dbClient';
 import projectDb from '../projectDb';
+import { getDefaultBranch } from '../repoDiscovery';
 
 const { query } = dbClient;
 
@@ -114,12 +115,16 @@ export async function processPREvent(payload: GitHubPREventPayload): Promise<voi
     // push-webhook path, so a stray Sentinel commit still can't trigger an
     // infinite self-audit loop. Rules 2/3 (queued-tasks / cooldown) still
     // apply normally, bounding how often this can actually fire.
+    const reAuditBranch = await getDefaultBranch(repoFullName).catch((err: any) => {
+      logger.warn({ err: err.message, repoFullName }, 'Could not resolve default branch for post-merge re-audit — falling back to main');
+      return 'main';
+    });
     const { triggerAudit } = require('../auditOrchestrator');
     fireAndForget(triggerAudit({
       repoFullName, repoName, projectName: repoName,
       commitSha:     pr.merge_commit_sha || `merge-pr-${prNumber}-${Date.now()}`,
       commitMessage: `Merge pull request #${prNumber}`,
-      branchName:    'main',
+      branchName:    reAuditBranch,
       authorName:    'Human (PR merge)',
       authorEmail:   '',
       topicId:       null,

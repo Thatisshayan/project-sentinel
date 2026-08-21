@@ -50,7 +50,8 @@ GitHub (push/PR) ──webhook──▶ Sentinel Backend (Express/Node.js)
 
 | Route | Purpose |
 |-------|---------|
-| `/health` | JSON health snapshot for dependencies, queues, and audit-cycle counts |
+| `/health` | Liveness endpoint with a JSON dependency snapshot; returns 200 while the process is alive, even if dependencies are degraded |
+| `/ready` | Readiness endpoint; returns 200 only when runtime bootstrap has completed and critical dependencies are available |
 | `/metrics` | Prometheus-style counters for audit cycles, queue depth, and basic service up/down checks |
 
 ### UI (`ui/`)

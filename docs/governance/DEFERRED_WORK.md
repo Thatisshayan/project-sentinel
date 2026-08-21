@@ -283,3 +283,31 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 - Run a dedicated dependency-risk review against the current lockfiles and surface any actionable package upgrades in a follow-up PR.
 - Add a true Docker-backed integration job when an environment with Docker is available.
 **Status**: Deferred — tracked for a follow-up batch.
+
+### D-029: Startup readiness gap — Express listens before runtime bootstrap completes
+**Scope**: `backend/src/index.ts` calls `app.listen()` before `bootstrapRuntime()`, while `bootstrapRuntime()` still performs schema init, worker startup, startup probes, agent-pool init, and recovery cleanup.
+**Resolution (2026-08-21)**:
+- Added explicit runtime state tracking in `backend/src/runtimeState.ts`.
+- `backend/src/index.ts` now waits for `bootstrapRuntime()` to complete before calling `app.listen()`.
+- Bootstrap failure now marks runtime failed and exits non-zero instead of leaving a half-alive process serving traffic.
+- Added route-level readiness coverage in `backend/test/health.test.js`.
+**Status**: **Completed** — see `audits/2026-08-21_Codex_CodebaseExecutive_Audit.md` and the Pass A implementation on 2026-08-21.
+
+### D-030: Health endpoint conflates liveness and readiness
+**Scope**: `backend/src/health.ts` always returns HTTP 200 even when database, Redis, Notion, or queue dependencies are degraded; the JSON body reports failure details but the transport status does not.
+**Resolution (2026-08-21)**:
+- `backend/src/health.ts` now exposes separate liveness and readiness handlers.
+- `/health` remains a liveness endpoint with dependency snapshot data.
+- `/ready` now fails closed with HTTP 503 when runtime bootstrap is incomplete or when critical dependencies (`database`, Redis queue path) are unavailable.
+- Updated `README.md` and `docs/ARCHITECTURE.md` to document the split.
+**Status**: **Completed** — see `audits/2026-08-21_Codex_CodebaseExecutive_Audit.md` and the Pass A implementation on 2026-08-21.
+
+### D-031: Default-branch handling is inconsistent across automation executors
+**Scope**: Core execution paths in `auditOrchestrator.ts`, `sprintOrchestrator.ts`, and `parallelExecutor.ts` still hardcode `'main'` for branch/base-branch behavior, while other paths already use `getDefaultBranch()`.
+**Reason deferred**: The change touches the core automation loop and should be done consistently, not piecemeal, to avoid partial repo-specific behavior changes.
+**Impact**: Repos whose default branch is not `main` can fail cloning, rebasing, or PR targeting in ways that are silent and portfolio-specific.
+**Proposed resolution**:
+- Introduce one canonical default-branch resolver for every automation entry point.
+- Thread resolved branch context through batch execution and PR creation instead of falling back to string literals.
+- Add tests covering non-`main` repos for audit, sprint, and parallel execution flows.
+**Status**: Deferred — raised by `audits/2026-08-21_Codex_CodebaseExecutive_Audit.md`.

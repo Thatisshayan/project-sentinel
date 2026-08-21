@@ -8,6 +8,7 @@ import { sanitizeLogs } from './riskAssessor';
 import { getBuilderConfig, getAiderEnv, getFallbackBuilder } from './builderRouter';
 import { acquireNvidiaKey } from './utils/nvidiaKeyPool';
 import loopGuard from './utils/loopGuard';
+import { buildGithubCloneUrl } from './utils/githubAuth';
 import type { AiderContext, CloneResult } from './types/debugFix';
 
 // .env.example documents DEBUG_TIMEOUT_MINUTES as falling back to
@@ -208,7 +209,7 @@ async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
     const projectMemoryModule = require('./projectMemory');
     context.projectMemoryText = await projectMemoryModule.getMemoryForPrompt(repoFullName!).catch(() => '');
 
-    const cloneUrl = `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`;
+    const cloneUrl = buildGithubCloneUrl(repoFullName!, 'debug fix clone');
     const git = simpleGit();
 
     // Clone with depth 1 for speed

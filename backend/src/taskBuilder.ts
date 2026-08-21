@@ -11,6 +11,7 @@ import loopGuard from './utils/loopGuard';
 import { updateAuditTask } from './auditDb';
 import { updateNotionTaskStatus } from './auditTaskWriter';
 import { execAsync } from './utils/execAsync';
+import { buildGithubCloneUrl } from './utils/githubAuth';
 import type { TaskResult, BatchContext, BatchResult, BuildableTask } from './types/taskBuilder';
 
 type BuilderConfig = ReturnType<typeof getBuilderConfig>;
@@ -60,7 +61,7 @@ async function executeBatch(tasks: BuildableTask[], context: BatchContext, build
     // batch — the branch only rolls over once a human merges (or rejects)
     // the PR (see processPREvent.ts clearing it on 'closed').
     const cloneBranch = existingBranch || baseBranchName;
-    const cloneUrl = `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`;
+    const cloneUrl = buildGithubCloneUrl(repoFullName, 'task execution clone');
     await simpleGit().clone(cloneUrl, tmpDir.name, [
       '--depth', '1', '--branch', cloneBranch,
     ]);

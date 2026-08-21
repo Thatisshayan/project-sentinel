@@ -10,6 +10,7 @@ import { createSecurityScan, updateSecurityScan, upsertSecurityScore } from './s
 import { scanDependencies } from './dependencyScanner';
 import { scanDiff } from './secretScanner';
 import { evaluateOwasp } from './owaspChecker';
+import { buildGithubCloneUrl } from './utils/githubAuth';
 
 interface ScanData {
   repoFullName: string;
@@ -61,10 +62,7 @@ async function runSecurityScan(data: ScanData) {
   try {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sentinel-sec-'));
     const git = simpleGit();
-    await git.clone(
-      `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`,
-      tmpDir, ['--depth', '2']
-    );
+    await git.clone(buildGithubCloneUrl(repoFullName, 'security scan clone'), tmpDir, ['--depth', '2']);
 
     const cloneGit = simpleGit(tmpDir);
     let diffText = '';

@@ -11,6 +11,7 @@ import { createPullRequest } from './prCreator';
 import { findNotionProject } from './notionClient';
 import { getBuilderConfig } from './builderRouter';
 import { isRepoLocked } from './repoLock';
+import { getDefaultBranch } from './repoDiscovery';
 import type { BuildableTask } from './types/taskBuilder';
 
 const MAX_PARALLEL = (): number => parseInt(process.env['MAX_PARALLEL_AGENTS'] || '3');
@@ -91,6 +92,10 @@ async function executeTaskParallel(task: ParallelTask, context: ExecutionContext
 
   try {
     const notionProject = await findNotionProject(repoName).catch(() => null);
+    const baseBranchName = await getDefaultBranch(repoFullName).catch((err: any) => {
+      logger.warn({ err: err.message, repoFullName }, 'Could not resolve default branch for parallel task — falling back to main');
+      return 'main';
+    });
 
     const batchResult = await executeBatch(
       [task],
@@ -98,7 +103,7 @@ async function executeTaskParallel(task: ParallelTask, context: ExecutionContext
         repoFullName,
         repoName,
         projectName: notionProject?.projectName || repoName,
-        branchName:  'main',
+        branchName:  baseBranchName,
         topicId,
       },
       agentId
@@ -108,7 +113,7 @@ async function executeTaskParallel(task: ParallelTask, context: ExecutionContext
       const { prUrl } = await createPullRequest({
         repoFullName,
         fixBranch:  batchResult.taskBranch,
-        baseBranch: 'main',
+        baseBranch: baseBranchName,
         context: {
           projectName:   notionProject?.projectName || repoName,
           repoName,

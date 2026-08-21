@@ -3,28 +3,26 @@ import { Request, Response } from 'express';
 import dbClient from './dbClient';
 const { query } = dbClient;
 import { getRedisConnection, getBuildPollQueue } from './queueClient';
+import { getRuntimeState } from './runtimeState';
 
-async function healthCheck(req: Request, res: Response): Promise<void> {
+interface DependencySnapshot {
+  services: Record<string, string>;
+  queues: Record<string, unknown>;
+  auditCycles: Record<string, unknown> | 'error';
+}
+
+async function collectDependencySnapshot(): Promise<DependencySnapshot> {
   const services: Record<string, string> = {
-    notion:   'unchecked',
+    notion: 'unchecked',
     telegram: 'unchecked',
     database: 'unchecked',
-    redis:    'unchecked',
+    redis: 'unchecked',
   };
   const queues: Record<string, unknown> = {
     buildPoll: 'unchecked',
   };
-  const health: Record<string, unknown> = {
-    status:     'ok',
-    timestamp:  new Date().toISOString(),
-    uptime:     Math.floor(process.uptime()),
-    phase:      3,
-    dryRunMode: process.env['DEBUGGER_DRY_RUN'] === 'true',
-    services,
-    queues,
-  };
+  let auditCycles: Record<string, unknown> | 'error' = 'error';
 
-  // Notion
   try {
     const { Client } = require('@notionhq/client');
     const client = new Client({ auth: process.env['NOTION_API_KEY'] });
@@ -35,7 +33,6 @@ async function healthCheck(req: Request, res: Response): Promise<void> {
     logger.warn({ err: err.message }, 'Health: Notion error');
   }
 
-  // Database
   try {
     await query('SELECT 1');
     services['database'] = 'ok';
@@ -44,7 +41,6 @@ async function healthCheck(req: Request, res: Response): Promise<void> {
     logger.warn({ err: err.message }, 'Health: DB error');
   }
 
-  // Redis
   try {
     const conn = getRedisConnection();
     if (!conn) {
@@ -58,25 +54,21 @@ async function healthCheck(req: Request, res: Response): Promise<void> {
     logger.warn({ err: err.message }, 'Health: Redis error');
   }
 
-  // Telegram
   services['telegram'] = (process.env['TELEGRAM_BOT_TOKEN'] && process.env['TELEGRAM_CHAT_ID'])
     ? 'configured'
     : 'not_configured';
 
-  // Queue counts
   try {
     const queue = getBuildPollQueue();
     if (!queue) {
       queues['buildPoll'] = 'not_configured';
     } else {
-      const counts = await queue.getJobCounts();
-      queues['buildPoll'] = counts;
+      queues['buildPoll'] = await queue.getJobCounts();
     }
-  } catch (err: any) {
+  } catch (_err: any) {
     queues['buildPoll'] = 'error';
   }
 
-  // Audit stats
   try {
     const r = await query(`
       SELECT
@@ -86,14 +78,69 @@ async function healthCheck(req: Request, res: Response): Promise<void> {
           AND created_at > NOW() - INTERVAL '7 days')      AS completed_7d
       FROM audit_cycles
     `);
-    health['auditCycles'] = r.rows[0] || {};
-  } catch (e: any) {
-    health['auditCycles'] = 'error';
+    auditCycles = r.rows[0] || {};
+  } catch (_err: any) {
+    auditCycles = 'error';
   }
 
-  // Always return 200 - container is healthy if Express is running
-  // Service dependencies reported in response but don't fail healthcheck
-  res.status(200).json(health);
+  return { services, queues, auditCycles };
 }
 
-export = healthCheck;
+function buildHealthPayload(status: string, snapshot: DependencySnapshot): Record<string, unknown> {
+  const runtime = getRuntimeState();
+  return {
+    status,
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor(process.uptime()),
+    phase: 3,
+    dryRunMode: process.env['DEBUGGER_DRY_RUN'] === 'true',
+    runtime,
+    services: snapshot.services,
+    queues: snapshot.queues,
+    auditCycles: snapshot.auditCycles,
+  };
+}
+
+function isReadinessBlocked(snapshot: DependencySnapshot): string | null {
+  const runtime = getRuntimeState();
+  if (runtime.status !== 'ready') {
+    return runtime.error
+      ? `runtime_${runtime.status}:${runtime.error}`
+      : `runtime_${runtime.status}`;
+  }
+  if (snapshot.services['database'] !== 'ok') {
+    return 'database_unavailable';
+  }
+  if (snapshot.services['redis'] === 'error') {
+    return 'redis_unavailable';
+  }
+  if (snapshot.queues['buildPoll'] === 'error') {
+    return 'build_poll_queue_unavailable';
+  }
+  return null;
+}
+
+export async function healthCheck(_req: Request, res: Response): Promise<void> {
+  const snapshot = await collectDependencySnapshot();
+  const degraded = snapshot.services['database'] !== 'ok'
+    || snapshot.services['redis'] === 'error'
+    || snapshot.queues['buildPoll'] === 'error';
+  const payload = buildHealthPayload(degraded ? 'degraded' : 'ok', snapshot);
+  res.status(200).json(payload);
+}
+
+export async function readinessCheck(_req: Request, res: Response): Promise<void> {
+  const snapshot = await collectDependencySnapshot();
+  const blockedBy = isReadinessBlocked(snapshot);
+  const payload = buildHealthPayload(blockedBy ? 'not_ready' : 'ready', snapshot);
+
+  if (blockedBy) {
+    res.status(503).json({
+      ...payload,
+      blockedBy,
+    });
+    return;
+  }
+
+  res.status(200).json(payload);
+}
