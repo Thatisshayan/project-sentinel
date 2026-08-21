@@ -303,11 +303,12 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 **Status**: **Completed** — see `audits/2026-08-21_Codex_CodebaseExecutive_Audit.md` and the Pass A implementation on 2026-08-21.
 
 ### D-031: Default-branch handling is inconsistent across automation executors
-**Scope**: Core execution paths in `auditOrchestrator.ts`, `sprintOrchestrator.ts`, and `parallelExecutor.ts` still hardcode `'main'` for branch/base-branch behavior, while other paths already use `getDefaultBranch()`.
-**Reason deferred**: The change touches the core automation loop and should be done consistently, not piecemeal, to avoid partial repo-specific behavior changes.
-**Impact**: Repos whose default branch is not `main` can fail cloning, rebasing, or PR targeting in ways that are silent and portfolio-specific.
-**Proposed resolution**:
-- Introduce one canonical default-branch resolver for every automation entry point.
-- Thread resolved branch context through batch execution and PR creation instead of falling back to string literals.
-- Add tests covering non-`main` repos for audit, sprint, and parallel execution flows.
-**Status**: Deferred — raised by `audits/2026-08-21_Codex_CodebaseExecutive_Audit.md`.
+**Scope**: Core execution paths in `auditOrchestrator.ts`, `sprintOrchestrator.ts`, `parallelExecutor.ts`, Telegram-triggered manual audits, and security patch PR targeting needed consistent default-branch resolution instead of scattered `'main'` assumptions.
+**Resolution (2026-08-21)**:
+- `auditOrchestrator.ts`, `sprintOrchestrator.ts`, `parallelExecutor.ts`, and `webhook/processPREvent.ts` now resolve repository default branches through `getDefaultBranch()`.
+- `securityPatcher.ts` now targets the repository's actual default branch when opening security patch PRs.
+- The `'main'` fallbacks that remain are limited to defense-in-depth paths when GitHub metadata lookup itself fails.
+**Remaining gap**:
+- No automated tests yet cover non-`main` repositories for these execution flows.
+- `backend/src/telegramCommands.ts` manual audit callback still hardcodes `'main'`; that block needs a cleanup pass first because the file contains a malformed carriage return in the callback line, which made the surgical patch unsafe in this pass.
+**Status**: **Partially completed** — production branch targeting is normalized across the main automation paths; test coverage and the Telegram callback cleanup remain deferred.
