@@ -362,3 +362,19 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 2. Add file/path and task-category guardrails so policy can distinguish routine code edits from sensitive changes.
 3. Surface policy-block reasons, last override, and actor/audit history in the operator UI.
 **Status**: Partially completed — foundational enforcement is shipped; the full policy engine remains deferred.
+
+### D-035: Residual npm audit findings after the 2026-08-22 GitHub vulnerability remediation pass
+**Scope**: The 29 open GitHub Dependabot alerts from the August 22, 2026 triage pass were remediated by upgrading `next`, `eslint-config-next`, `postcss`, `glob`, `@sentry/node`, and `js-yaml` resolutions. After that work, `npm audit --json` still reports a separate residual set not part of that original 29-alert backlog.
+**Current residuals**:
+- `ui`: 10 findings total (`1 low`, `2 moderate`, `7 high`) involving `next -> sharp`, `brace-expansion`, `body-parser`, `hono`, `@hono/node-server`, `fast-uri`, `ip-address`, `js-yaml`, and `nanoid`.
+- `backend`: 1 high-severity finding involving `brace-expansion`.
+**Why deferred**:
+- These are not the same vulnerabilities as the 29 GitHub alerts requested in the August 22 pass.
+- Some appear to require a further major `next` jump (`npm audit` recommends `next@16.3.2`) or broader transitive dependency cleanup that should be evaluated separately from the just-finished remediation.
+- The August 22 pass already included a Sentry major upgrade and a Next line upgrade; pushing further supply-chain movement without a dedicated compatibility pass would mix two risk envelopes.
+**Proposed resolution**:
+1. Run a dedicated follow-up supply-chain pass focused only on the residual `npm audit` set.
+2. Evaluate whether the `ui` findings should be handled by a controlled `next` 16 migration versus targeted transitive overrides where safe.
+3. Eliminate the backend `brace-expansion` residual by tracing the exact remaining transitive chain and upgrading or overriding it intentionally.
+4. Re-run `npm audit --json` and the repo verify path after that follow-up.
+**Status**: Deferred — tracked separately from the 29 GitHub alerts remediated on 2026-08-22.

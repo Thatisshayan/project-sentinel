@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/sentinel/sidebar";
 import { Topbar } from "@/components/sentinel/topbar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 
-const inter = Inter({
-  subsets: ["latin"],
+const inter = localFont({
+  src: "./fonts/GeistVF.woff",
   variable: "--font-inter",
+  weight: "100 900",
   display: "swap",
 });
 
