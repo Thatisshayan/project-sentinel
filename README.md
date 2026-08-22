@@ -154,7 +154,7 @@ TLS) on a single host — currently an Oracle Cloud Always Free VM. Full
 setup steps, including DNS, firewall, and env config, are in
 [`docs/ORACLE_DEPLOY.md`](docs/ORACLE_DEPLOY.md); short version:
 
-1. Clone the repo onto the host, fill in `backend/.env` and `ui/.env` from their `.env.example` files, and `docker login ghcr.io` (images are built in CI, not on the host — see `docs/ORACLE_DEPLOY.md`)
+1. Clone the repo onto the host, fill in `backend/.env` and `ui/.env` from their `.env.example` files, make sure `backend/.env` includes `GITHUB_TOKEN`, run `bash scripts/check_prod_runtime.sh`, and `docker login ghcr.io` (images are built in CI, not on the host — see `docs/ORACLE_DEPLOY.md`)
 2. `docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d`
 3. Set up GitHub webhooks for each repo (done automatically for repos onboarded after Slack existed; see `repoOnboarder.ts`):
    - URL: `https://<PUBLIC_DOMAIN>/webhook/github`
