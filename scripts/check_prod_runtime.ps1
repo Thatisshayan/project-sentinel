@@ -119,15 +119,27 @@ if ($hasProviderKey) {
   Fail 'backend/.env has no AI provider key; audits/chat/build fixes will not run'
 }
 
-if (Get-Command aider -ErrorAction SilentlyContinue) {
+# For the self-hosted Oracle deployment, aider runs inside the backend image,
+# not on the VM host. A missing host-side binary is therefore not a production
+# blocker. If the backend container is already running, verify aider there;
+# otherwise just note that the image is expected to supply it at runtime.
+$backendPsOutput = docker compose -f docker-compose.prod.yml ps backend 2>$null
+if ($LASTEXITCODE -eq 0 -and $backendPsOutput) {
+  docker compose -f docker-compose.prod.yml exec -T backend sh -lc 'aider --version' *> $null
+  if ($LASTEXITCODE -eq 0) {
+    Pass 'backend container aider command runs'
+  } else {
+    Warn 'backend container aider check failed; verify after the backend is up'
+  }
+} elseif (Get-Command aider -ErrorAction SilentlyContinue) {
   cmd /c "aider --version >nul 2>&1"
   if ($LASTEXITCODE -eq 0) {
-    Pass 'aider command runs'
+    Pass 'host aider command runs'
   } else {
-    Fail 'aider is installed but aider --version failed'
+    Warn 'host aider is installed but aider --version failed; backend image should still provide aider'
   }
 } else {
-  Fail 'aider command is not installed or not on PATH'
+  Warn 'host aider is not installed; acceptable for Docker deploy because the backend image bundles aider'
 }
 
 $dockerConfig = Join-Path $HOME '.docker/config.json'

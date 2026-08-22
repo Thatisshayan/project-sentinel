@@ -94,15 +94,29 @@ It fails closed on the common Oracle-host misses:
 - missing root `.env` values needed by `docker-compose.prod.yml`
 - mismatched `SENTINEL_UI_KEY` between backend/UI
 - no AI provider key configured
-- `aider --version` failing on the VM (for example because local application
-  control blocks the executable)
 - no visible `ghcr.io` Docker login entry
+
+The Oracle VM host itself does **not** need a global `aider` install for
+production. `aider` is bundled into the backend container image; the
+preflight only checks the container copy when the backend is already up.
 
 If you are preparing the env files on Windows before copying them to the VM,
 the equivalent local check is:
 
 ```powershell
 pwsh scripts/check_prod_runtime.ps1
+```
+
+To update one env key safely without risking a truncated file, use:
+
+```bash
+bash scripts/update_env_key.sh backend/.env GITHUB_TOKEN '<new-token>'
+```
+
+Windows equivalent:
+
+```powershell
+pwsh scripts/update_env_key.ps1 -EnvFile backend/.env -Key GITHUB_TOKEN -Value '<new-token>'
 ```
 
 Set a Postgres password (used only between containers, never exposed):
@@ -128,6 +142,19 @@ check:
 
 ```bash
 curl -I https://sentinel.yourdomain.com/health
+```
+
+Run the post-deploy smoke test from the repo root before you call the deploy
+complete:
+
+```bash
+bash scripts/prod_smoke.sh
+```
+
+Windows equivalent:
+
+```powershell
+pwsh scripts/prod_smoke.ps1
 ```
 
 ## 6. Re-point external webhooks

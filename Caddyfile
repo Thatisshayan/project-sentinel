@@ -1,6 +1,6 @@
 {$PUBLIC_DOMAIN} {
 	# True webhook/health endpoints go straight to the backend.
-	@backend path /webhook* /github /health
+	@backend path /webhook* /github /health /ready
 
 	handle @backend {
 		reverse_proxy backend:3000

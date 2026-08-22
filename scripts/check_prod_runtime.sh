@@ -136,14 +136,24 @@ else
   fail "backend/.env has no AI provider key; audits/chat/build fixes will not run"
 fi
 
-if command -v aider >/dev/null 2>&1; then
-  if aider --version >/dev/null 2>&1; then
-    pass "aider command runs"
+# For the self-hosted Oracle deployment, aider runs inside the backend image,
+# not on the VM host. A missing host-side binary is therefore not a production
+# blocker. If the backend container is already running, verify aider there;
+# otherwise just note that the image is expected to supply it at runtime.
+if docker compose -f docker-compose.prod.yml ps backend >/dev/null 2>&1; then
+  if docker compose -f docker-compose.prod.yml exec -T backend sh -lc 'aider --version' >/dev/null 2>&1; then
+    pass "backend container aider command runs"
   else
-    fail "aider is installed but aider --version failed"
+    warn "backend container aider check failed; verify after the backend is up"
+  fi
+elif command -v aider >/dev/null 2>&1; then
+  if aider --version >/dev/null 2>&1; then
+    pass "host aider command runs"
+  else
+    warn "host aider is installed but aider --version failed; backend image should still provide aider"
   fi
 else
-  fail "aider command is not installed or not on PATH"
+  warn "host aider is not installed; acceptable for Docker deploy because the backend image bundles aider"
 fi
 
 if [ -f "$HOME/.docker/config.json" ] && grep -q 'ghcr.io' "$HOME/.docker/config.json" 2>/dev/null; then

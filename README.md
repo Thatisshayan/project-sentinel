@@ -155,7 +155,7 @@ setup steps, including DNS, firewall, and env config, are in
 [`docs/ORACLE_DEPLOY.md`](docs/ORACLE_DEPLOY.md); short version:
 
 1. Clone the repo onto the host, fill in `backend/.env` and `ui/.env` from their `.env.example` files, make sure `backend/.env` includes `GITHUB_TOKEN`, run `bash scripts/check_prod_runtime.sh`, and `docker login ghcr.io` (images are built in CI, not on the host — see `docs/ORACLE_DEPLOY.md`)
-2. `docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d`
+2. `docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d && bash scripts/prod_smoke.sh`
 3. Set up GitHub webhooks for each repo (done automatically for repos onboarded after Slack existed; see `repoOnboarder.ts`):
    - URL: `https://<PUBLIC_DOMAIN>/webhook/github`
    - Events: **Push**, **Pull request**, **Pull request review comment** (the last one is how CodeRabbit's findings arrive)
