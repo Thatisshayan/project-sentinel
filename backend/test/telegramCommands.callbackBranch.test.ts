@@ -1,5 +1,5 @@
 jest.mock('../src/utils/safeFire', () => ({
-  safeFire: jest.fn(async (p: any) => {
+  safeFire: jest.fn(async (p: Promise<unknown>) => {
     try { await p; } catch { /* swallow */ }
   }),
   fireAndForget: jest.fn(),
@@ -12,19 +12,19 @@ jest.mock('../src/logger', () => ({
 
 const sendTelegramMessageMock = jest.fn().mockResolvedValue(undefined);
 jest.mock('../src/telegramClient', () => ({
-  sendTelegramMessage: (...args: any[]) => sendTelegramMessageMock(...args),
+  sendTelegramMessage: (...args: unknown[]) => sendTelegramMessageMock(...args),
 }));
 
 const triggerAuditMock = jest.fn().mockResolvedValue({ started: true });
 jest.mock('../src/auditOrchestrator', () => ({
   executeApprovedTasks: jest.fn(),
-  triggerAudit: (...args: any[]) => triggerAuditMock(...args),
+  triggerAudit: (...args: unknown[]) => triggerAuditMock(...args),
   processNextBatch: jest.fn(),
 }));
 
 const getDefaultBranchMock = jest.fn().mockResolvedValue('develop');
 jest.mock('../src/repoDiscovery', () => ({
-  getDefaultBranch: (...args: any[]) => getDefaultBranchMock(...args),
+  getDefaultBranch: (...args: unknown[]) => getDefaultBranchMock(...args),
 }));
 
 jest.mock('../src/repoResolver', () => ({

@@ -2,13 +2,13 @@ const axiosGetMock = jest.fn();
 const axiosPostMock = jest.fn();
 
 jest.mock('axios', () => ({
-  get: (...args: any[]) => axiosGetMock(...args),
-  post: (...args: any[]) => axiosPostMock(...args),
+  get: (...args: unknown[]) => axiosGetMock(...args),
+  post: (...args: unknown[]) => axiosPostMock(...args),
 }));
 
 const getRepoAutomationPolicyMock = jest.fn();
 jest.mock('../src/projectDb', () => ({
-  getRepoAutomationPolicy: (...args: any[]) => getRepoAutomationPolicyMock(...args),
+  getRepoAutomationPolicy: (...args: unknown[]) => getRepoAutomationPolicyMock(...args),
 }));
 
 const { createPullRequest } = require('../src/prCreator');

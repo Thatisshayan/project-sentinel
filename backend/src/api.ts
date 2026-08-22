@@ -16,12 +16,12 @@ import projectMemory from './projectMemory';
 import projectDb from './projectDb';
 import governanceStatus from './governanceStatus';
 import {
-  normalizeRepoAutomationPolicy,
   type RepoAutomationPolicy,
   type RepoAutomationPreset,
 } from './repoAutomationPolicy';
 
 const MEMORY_TYPES = ['dismissed_finding', 'convention', 'decision', 'note'] as const;
+type ProjectMemoryType = typeof MEMORY_TYPES[number];
 const MAX_MEMORY_CONTENT_LENGTH = 2000;
 // getMemoryEntries defaults to 20 (MAX_ENTRIES_IN_PROMPT), tuned for prompt
 // injection, not a management UI's full history view — pass an explicit,
@@ -207,6 +207,40 @@ function isValidRepoNameParam(name: unknown): name is string {
   return typeof name === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name);
 }
 
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Unknown error';
+}
+
+function getPolicyPreset(body: Record<string, unknown>): Exclude<RepoAutomationPreset, 'custom'> | null {
+  const preset = body['preset'];
+  if (preset === undefined) return null;
+  const allowedPresets: Exclude<RepoAutomationPreset, 'custom'>[] = [
+    'audit-only',
+    'propose-only',
+    'execute-no-push',
+    'full-auto',
+  ];
+  if (typeof preset !== 'string' || !allowedPresets.includes(preset as Exclude<RepoAutomationPreset, 'custom'>)) {
+    throw new Error('Unknown policy preset');
+  }
+  return preset as Exclude<RepoAutomationPreset, 'custom'>;
+}
+
+function getPolicyPatch(body: Record<string, unknown>): Partial<RepoAutomationPolicy> {
+  const patch: Partial<RepoAutomationPolicy> = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (key === 'preset' || key === 'changedBy') continue;
+    if (!['allowTaskExecution', 'allowPrOpen', 'allowPrUpdate', 'allowAutoPush'].includes(key)) {
+      throw new Error(`Unknown policy field: ${key}`);
+    }
+    if (typeof value !== 'boolean') {
+      throw new Error(`Policy field ${key} must be boolean`);
+    }
+    patch[key as keyof RepoAutomationPolicy] = value;
+  }
+  return patch;
+}
+
 router.get('/repo/:name/memory', async (req: Request, res: Response) => {
   const name = req.params['name'];
   if (!isValidRepoNameParam(name)) {
@@ -238,7 +272,7 @@ router.post('/repo/:name/memory', async (req: Request, res: Response) => {
     return;
   }
   try {
-    const entry = await projectMemory.addMemoryEntry(repoFullName(name), type as any, content, 'Dashboard');
+    const entry = await projectMemory.addMemoryEntry(repoFullName(name), type as ProjectMemoryType, content, 'Dashboard');
     res.status(201).json(entry);
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message }, 'POST /repo/:name/memory error');
@@ -253,44 +287,23 @@ router.post('/repo/:name/policy', async (req: Request, res: Response) => {
     return;
   }
 
-  const body = req.body ?? {};
-  const preset = body.preset;
-  if (preset !== undefined) {
-    const allowedPresets: Exclude<RepoAutomationPreset, 'custom'>[] = [
-      'audit-only',
-      'propose-only',
-      'execute-no-push',
-      'full-auto',
-    ];
-    if (typeof preset !== 'string' || !allowedPresets.includes(preset as Exclude<RepoAutomationPreset, 'custom'>)) {
-      res.status(400).json({ error: 'Unknown policy preset' });
-      return;
-    }
-  }
-  const policyPatch: Partial<RepoAutomationPolicy> = {};
-  for (const [key, value] of Object.entries(body)) {
-    if (key === 'preset' || key === 'changedBy') continue;
-    if (!['allowTaskExecution', 'allowPrOpen', 'allowPrUpdate', 'allowAutoPush'].includes(key)) {
-      res.status(400).json({ error: `Unknown policy field: ${key}` });
-      return;
-    }
-    if (typeof value !== 'boolean') {
-      res.status(400).json({ error: `Policy field ${key} must be boolean` });
-      return;
-    }
-    policyPatch[key as keyof RepoAutomationPolicy] = value;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  let preset: Exclude<RepoAutomationPreset, 'custom'> | null;
+  let policyPatch: Partial<RepoAutomationPolicy>;
+  try {
+    preset = getPolicyPreset(body);
+    policyPatch = getPolicyPatch(body);
+  } catch (err: unknown) {
+    res.status(400).json({ error: getErrorMessage(err) });
+    return;
   }
 
   try {
-    const existing = await projectDb.getRepoAutomationPolicy(name);
     const updated = await projectDb.setRepoAutomationPolicy(name, {
-      preset: (preset as Exclude<RepoAutomationPreset, 'custom'> | undefined) ?? null,
-      policy: preset ? undefined : normalizeRepoAutomationPolicy({
-        ...existing.policy,
-        ...policyPatch,
-      }),
-      changedBy: typeof body.changedBy === 'string' && body.changedBy.trim().length > 0
-        ? body.changedBy
+      preset,
+      policy: preset ? undefined : policyPatch,
+      changedBy: typeof body['changedBy'] === 'string' && body['changedBy'].trim().length > 0
+        ? body['changedBy']
         : 'Dashboard',
     });
     res.json(updated);
@@ -698,8 +711,8 @@ router.post('/system/pause', async (req: Request, res: Response) => {
       UPDATE agent_registry SET status='paused' WHERE status='idle'
     `);
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: getErrorMessage(err) });
   }
 });
 
@@ -709,8 +722,8 @@ router.post('/system/resume', async (req: Request, res: Response) => {
       UPDATE agent_registry SET status='idle' WHERE status='paused'
     `);
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: getErrorMessage(err) });
   }
 });
 

@@ -363,6 +363,17 @@ interface RepoPolicyAuditEntry {
   changedAt: string;
 }
 
+interface RepoPolicyAuditRow {
+  id: number;
+  repo_name: string;
+  changed_by: string;
+  preset_before: RepoAutomationPreset;
+  preset_after: RepoAutomationPreset;
+  policy_before: Partial<RepoAutomationPolicy> | null;
+  policy_after: Partial<RepoAutomationPolicy> | null;
+  changed_at: string;
+}
+
 async function getRepoAutomationPolicy(repoName: string): Promise<RepoAutomationPolicyState> {
   const id = toId(repoName);
   const r = await query(
@@ -392,25 +403,26 @@ async function getRepoAutomationPolicy(repoName: string): Promise<RepoAutomation
   }, row.repo_policy_preset);
 }
 
-async function setRepoAutomationPolicy(
-  repoName: string,
+function buildNextRepoAutomationPolicyState(
+  existing: RepoAutomationPolicyState,
   input: {
     policy?: Partial<RepoAutomationPolicy>;
     preset?: Exclude<RepoAutomationPreset, 'custom'> | null;
-    changedBy?: string | null;
   }
-): Promise<RepoAutomationPolicyState> {
-  const existing = await getRepoAutomationPolicy(repoName);
+): RepoAutomationPolicyState {
   const nextPolicy = input.preset
     ? applyRepoAutomationPreset(input.preset)
     : normalizeRepoAutomationPolicy({
         ...existing.policy,
         ...(input.policy ?? {}),
       });
-  const nextState = getRepoAutomationPolicyState(nextPolicy, input.preset ?? null);
-  const changed =
-    existing.preset !== nextState.preset ||
-    !policyEquals(existing.policy, nextState.policy);
+  return getRepoAutomationPolicyState(nextPolicy, input.preset ?? null);
+}
+
+async function persistRepoAutomationPolicyState(
+  repoName: string,
+  nextState: RepoAutomationPolicyState
+): Promise<void> {
   const id = toId(repoName);
   await query(`
     INSERT INTO projects (
@@ -436,24 +448,67 @@ async function setRepoAutomationPolicy(
     nextState.policy.allowPrUpdate,
     nextState.policy.allowAutoPush,
   ]);
+}
+
+async function appendRepoPolicyAuditEntry(
+  repoName: string,
+  changedBy: string,
+  existing: RepoAutomationPolicyState,
+  nextState: RepoAutomationPolicyState
+): Promise<void> {
+  await query(`
+    INSERT INTO repo_policy_audit_log (
+      repo_name, changed_by, preset_before, preset_after, policy_before, policy_after
+    )
+    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
+  `, [
+    repoName,
+    changedBy,
+    existing.preset,
+    nextState.preset,
+    JSON.stringify(existing.policy),
+    JSON.stringify(nextState.policy),
+  ]);
+}
+
+async function setRepoAutomationPolicy(
+  repoName: string,
+  input: {
+    policy?: Partial<RepoAutomationPolicy>;
+    preset?: Exclude<RepoAutomationPreset, 'custom'> | null;
+    changedBy?: string | null;
+  }
+): Promise<RepoAutomationPolicyState> {
+  const existing = await getRepoAutomationPolicy(repoName);
+  const nextState = buildNextRepoAutomationPolicyState(existing, input);
+  const changed =
+    existing.preset !== nextState.preset ||
+    !policyEquals(existing.policy, nextState.policy);
+  await persistRepoAutomationPolicyState(repoName, nextState);
 
   if (changed) {
-    await query(`
-      INSERT INTO repo_policy_audit_log (
-        repo_name, changed_by, preset_before, preset_after, policy_before, policy_after
-      )
-      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
-    `, [
+    await appendRepoPolicyAuditEntry(
       repoName,
       input.changedBy?.trim() || 'Unknown',
-      existing.preset,
-      nextState.preset,
-      JSON.stringify(existing.policy),
-      JSON.stringify(nextState.policy),
-    ]);
+      existing,
+      nextState
+    );
   }
 
   return nextState;
+}
+
+function mapRepoPolicyAuditEntry(row: RepoPolicyAuditRow): RepoPolicyAuditEntry {
+  return {
+    id: row.id,
+    repoName: row.repo_name,
+    changedBy: row.changed_by,
+    presetBefore: row.preset_before,
+    presetAfter: row.preset_after,
+    policyBefore: normalizeRepoAutomationPolicy(row.policy_before),
+    policyAfter: normalizeRepoAutomationPolicy(row.policy_after),
+    changedAt: row.changed_at,
+  };
 }
 
 async function getRepoPolicyAuditLog(repoName: string, limit = 20): Promise<RepoPolicyAuditEntry[]> {
@@ -466,16 +521,7 @@ async function getRepoPolicyAuditLog(repoName: string, limit = 20): Promise<Repo
     LIMIT $2
   `, [repoName, safeLimit]);
 
-  return r.rows.map((row: any) => ({
-    id: row.id,
-    repoName: row.repo_name,
-    changedBy: row.changed_by,
-    presetBefore: row.preset_before,
-    presetAfter: row.preset_after,
-    policyBefore: normalizeRepoAutomationPolicy(row.policy_before),
-    policyAfter: normalizeRepoAutomationPolicy(row.policy_after),
-    changedAt: row.changed_at,
-  }));
+  return r.rows.map((row) => mapRepoPolicyAuditEntry(row as RepoPolicyAuditRow));
 }
 
 export = {

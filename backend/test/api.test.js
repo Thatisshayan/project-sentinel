@@ -267,9 +267,6 @@ describe('POST /api/repo/:name/policy', () => {
       preset: null,
       policy: {
         allowTaskExecution: false,
-        allowPrOpen: true,
-        allowPrUpdate: true,
-        allowAutoPush: true,
       },
       changedBy: 'Dashboard',
     });

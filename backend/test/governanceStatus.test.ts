@@ -1,12 +1,12 @@
 const axiosGetMock = jest.fn();
 
 jest.mock('axios', () => ({
-  get: (...args: any[]) => axiosGetMock(...args),
+  get: (...args: unknown[]) => axiosGetMock(...args),
 }));
 
 const getDefaultBranchMock = jest.fn();
 jest.mock('../src/repoDiscovery', () => ({
-  getDefaultBranch: (...args: any[]) => getDefaultBranchMock(...args),
+  getDefaultBranch: (...args: unknown[]) => getDefaultBranchMock(...args),
 }));
 
 jest.mock('../src/repoResolver', () => ({

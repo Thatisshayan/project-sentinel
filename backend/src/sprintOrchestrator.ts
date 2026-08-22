@@ -290,8 +290,8 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
         commit_url: batchResult.commitUrl,
         pr_url: prUrl,
         pr_number: prUrl ? parseInt(prUrl.split('/').pop() as string) : null,
-      }).catch((err: any) => {
-        logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task');
+      }).catch((err: unknown) => {
+        logger.warn({ err: err instanceof Error ? err.message : String(err), auditTaskId: task.audit_task_id }, 'Failed to sync audit task');
         return null;
       });
       if (updatedAuditTask?.id) {
