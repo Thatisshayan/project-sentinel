@@ -1,4 +1,4 @@
-# Repo-adaptive governance verification (PowerShell / Windows).
+﻿# Repo-adaptive governance verification (PowerShell / Windows).
 # Mirrors scripts/verify.sh: secret-scan, doc-freshness, build, test, deploy-dry.
 # Scoped to $RepoRoot only (does NOT walk outside the repo).
 $ErrorActionPreference = 'Continue'
