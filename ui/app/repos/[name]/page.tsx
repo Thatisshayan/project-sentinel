@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { getRepoDetail, getRepoMemory, type AuditTask, type ProjectMemoryEntry, type RepoAspectState } from "@/lib/api";
+import { getRepoDetail, getRepoMemory, type AuditTask, type ProjectMemoryEntry, type RepoAspectState, type RepoAutomationPolicy } from "@/lib/api";
 import { mapPriority, relativeTime } from "@/lib/format";
 import { scoreColor, priorityColor } from "@/lib/theme";
 import { PagePanel } from "@/components/sentinel/page-panel";
@@ -9,6 +9,7 @@ import { ColorBadge } from "@/components/sentinel/color-badge";
 import { ApiErrorBanner } from "@/components/sentinel/empty-state";
 import { RepoTasksPanel } from "@/components/sentinel/repo-tasks-panel";
 import { RepoMemoryPanel } from "@/components/sentinel/repo-memory-panel";
+import { RepoPolicyPanel } from "@/components/sentinel/repo-policy-panel";
 
 interface RepoDetailData {
   repo_name: string;
@@ -18,6 +19,7 @@ interface RepoDetailData {
   last_commit_at: string | null;
   tasks: AuditTask[];
   aspect: RepoAspectState | null;
+  policy: RepoAutomationPolicy;
 }
 
 export default async function RepoDetailPage({ params }: { params: { name: string } }) {
@@ -91,6 +93,10 @@ export default async function RepoDetailPage({ params }: { params: { name: strin
 
         <PagePanel title={`Tasks (${detail.tasks.length})`}>
           <RepoTasksPanel tasks={detail.tasks} />
+        </PagePanel>
+
+        <PagePanel title="Automation Policy">
+          <RepoPolicyPanel repoName={name} policy={detail.policy} />
         </PagePanel>
 
         <PagePanel title="Project Memory">

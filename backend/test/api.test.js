@@ -15,6 +15,8 @@ jest.mock('../src/projectMemory', () => ({
 
 jest.mock('../src/projectDb', () => ({
   getAspectState: jest.fn(),
+  getRepoAutomationPolicy: jest.fn(),
+  setRepoAutomationPolicy: jest.fn(),
 }));
 
 jest.mock('../src/governanceStatus', () => ({
@@ -143,10 +145,22 @@ describe('GET /api/repo/:name', () => {
       .mockResolvedValueOnce({ rows: [] })                                            // tasks
       .mockResolvedValueOnce({ rows: [] });                                           // cycle
     projectDb.getAspectState.mockResolvedValueOnce({ aspect: 'security', sprintCount: 2 });
+    projectDb.getRepoAutomationPolicy.mockResolvedValueOnce({
+      allowTaskExecution: true,
+      allowPrOpen: true,
+      allowPrUpdate: true,
+      allowAutoPush: true,
+    });
 
     const res = await request(app).get('/api/repo/tapcash');
     expect(res.status).toBe(200);
     expect(res.body.aspect).toEqual({ aspect: 'security', sprintCount: 2 });
+    expect(res.body.policy).toEqual({
+      allowTaskExecution: true,
+      allowPrOpen: true,
+      allowPrUpdate: true,
+      allowAutoPush: true,
+    });
     expect(projectDb.getAspectState).toHaveBeenCalledWith('tapcash');
   });
 
@@ -156,6 +170,12 @@ describe('GET /api/repo/:name', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
     projectDb.getAspectState.mockResolvedValueOnce(null);
+    projectDb.getRepoAutomationPolicy.mockResolvedValueOnce({
+      allowTaskExecution: true,
+      allowPrOpen: true,
+      allowPrUpdate: true,
+      allowAutoPush: true,
+    });
 
     const res = await request(app).get('/api/repo/tapcash');
     expect(res.status).toBe(200);
@@ -199,6 +219,52 @@ describe('GET /api/governance/status', () => {
     const res = await request(app).get('/api/governance/status');
     expect(res.status).toBe(500);
     expect(res.body.error).toBe('boom');
+  });
+});
+
+describe('POST /api/repo/:name/policy', () => {
+  it('updates repo automation policy for a valid repo name', async () => {
+    projectDb.getRepoAutomationPolicy.mockResolvedValueOnce({
+      allowTaskExecution: true,
+      allowPrOpen: true,
+      allowPrUpdate: true,
+      allowAutoPush: true,
+    });
+    projectDb.setRepoAutomationPolicy.mockResolvedValueOnce({
+      allowTaskExecution: false,
+      allowPrOpen: true,
+      allowPrUpdate: true,
+      allowAutoPush: true,
+    });
+
+    const res = await request(app)
+      .post('/api/repo/tapcash/policy')
+      .send({ allowTaskExecution: false });
+
+    expect(res.status).toBe(200);
+    expect(res.body.allowTaskExecution).toBe(false);
+    expect(projectDb.setRepoAutomationPolicy).toHaveBeenCalledWith('tapcash', {
+      allowTaskExecution: false,
+      allowPrOpen: true,
+      allowPrUpdate: true,
+      allowAutoPush: true,
+    });
+  });
+
+  it('returns 400 for an unknown policy field', async () => {
+    const res = await request(app)
+      .post('/api/repo/tapcash/policy')
+      .send({ noSuchField: true });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for non-boolean values', async () => {
+    const res = await request(app)
+      .post('/api/repo/tapcash/policy')
+      .send({ allowTaskExecution: 'yes' });
+
+    expect(res.status).toBe(400);
   });
 });
 

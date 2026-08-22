@@ -12,6 +12,8 @@ import { updateAuditTask } from './auditDb';
 import { updateNotionTaskStatus } from './auditTaskWriter';
 import { execAsync } from './utils/execAsync';
 import { buildGithubCloneUrl } from './utils/githubAuth';
+import projectDb from './projectDb';
+import { getTaskExecutionPolicyBlockReason } from './repoAutomationPolicy';
 import type { TaskResult, BatchContext, BatchResult, BuildableTask } from './types/taskBuilder';
 
 type BuilderConfig = ReturnType<typeof getBuilderConfig>;
@@ -40,6 +42,20 @@ async function executeBatch(tasks: BuildableTask[], context: BatchContext, build
     repoFullName, tasks: tasks.length,
     builder: builderConfig.label, batch: batchNums, existingBranch: existingBranch || null,
   }, 'Starting batch execution');
+
+  const repoPolicy = await projectDb.getRepoAutomationPolicy(repoName).catch((err: unknown) => {
+    logger.warn({ err: err instanceof Error ? err.message : String(err), repoName },
+      'taskBuilder: could not resolve repo automation policy — proceeding with defaults');
+    return null;
+  });
+  const policyBlockReason = repoPolicy
+    ? getTaskExecutionPolicyBlockReason(repoPolicy, !!existingBranch)
+    : null;
+  if (policyBlockReason) {
+    logger.warn({ repoFullName, repoName, policyBlockReason, existingBranch: existingBranch || null },
+      'taskBuilder: execution blocked by repo policy');
+    return { status: 'error', reason: policyBlockReason };
+  }
 
   // D-027 item 6 (project memory) — fetched once per batch (not per task/
   // attempt) and threaded through context so every task's build prompt in

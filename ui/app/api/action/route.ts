@@ -48,6 +48,7 @@ const ALLOWED_PATH_PATTERNS: RegExp[] = [
   /^\/api\/settings\/update$/,
   /^\/api\/repo\/[\w.-]+\/memory$/,
   /^\/api\/repo\/[\w.-]+\/memory\/\d+$/,
+  /^\/api\/repo\/[\w.-]+\/policy$/,
 ];
 
 // The regex patterns' [\w.-]+ segments technically accept a literal "." or

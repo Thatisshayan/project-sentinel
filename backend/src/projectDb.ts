@@ -1,6 +1,7 @@
 import dbClient from './dbClient';
 import logger from './logger';
 import { ensureProject } from './boardroomDb';
+import { DEFAULT_REPO_AUTOMATION_POLICY, normalizeRepoAutomationPolicy, type RepoAutomationPolicy } from './repoAutomationPolicy';
 
 const { query } = dbClient;
 
@@ -39,6 +40,10 @@ async function initProjectSchema(): Promise<void> {
       active_task_branch    TEXT,
       active_pr_url         TEXT,
       active_pr_number      INTEGER,
+      allow_task_execution  BOOLEAN NOT NULL DEFAULT true,
+      allow_pr_open         BOOLEAN NOT NULL DEFAULT true,
+      allow_pr_update       BOOLEAN NOT NULL DEFAULT true,
+      allow_auto_push       BOOLEAN NOT NULL DEFAULT true,
       created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -51,6 +56,10 @@ async function initProjectSchema(): Promise<void> {
   await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_task_branch TEXT;`);
   await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_pr_url TEXT;`);
   await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_pr_number INTEGER;`);
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS allow_task_execution BOOLEAN NOT NULL DEFAULT true;`);
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS allow_pr_open BOOLEAN NOT NULL DEFAULT true;`);
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS allow_pr_update BOOLEAN NOT NULL DEFAULT true;`);
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS allow_auto_push BOOLEAN NOT NULL DEFAULT true;`);
 
   // D-027 item 5 (multi-aspect audit + scoring + rotation) — which aspect
   // (security, frontend, backend, ...) the repo's audits are currently
@@ -319,9 +328,58 @@ async function setAspectState(repoName: string, aspect: string, sprintCount: num
   `, [id, repoName, aspect, sprintCount]);
 }
 
+async function getRepoAutomationPolicy(repoName: string): Promise<RepoAutomationPolicy> {
+  const id = toId(repoName);
+  const r = await query(
+    'SELECT repo_name, allow_task_execution, allow_pr_open, allow_pr_update, allow_auto_push FROM projects WHERE id = $1',
+    [id]
+  );
+  const row = r.rows[0];
+  if (!row) return { ...DEFAULT_REPO_AUTOMATION_POLICY };
+  if (row.repo_name.toLowerCase() !== repoName.toLowerCase()) {
+    logger.error({ repoName, id, collidedWith: row.repo_name },
+      'toId collision — refusing to return repo automation policy for a different repo');
+    return { ...DEFAULT_REPO_AUTOMATION_POLICY };
+  }
+  return normalizeRepoAutomationPolicy({
+    allowTaskExecution: row.allow_task_execution,
+    allowPrOpen: row.allow_pr_open,
+    allowPrUpdate: row.allow_pr_update,
+    allowAutoPush: row.allow_auto_push,
+  });
+}
+
+async function setRepoAutomationPolicy(repoName: string, policy: Partial<RepoAutomationPolicy>): Promise<RepoAutomationPolicy> {
+  const merged = normalizeRepoAutomationPolicy(policy);
+  const id = toId(repoName);
+  await query(`
+    INSERT INTO projects (
+      id, repo_name, project_name,
+      allow_task_execution, allow_pr_open, allow_pr_update, allow_auto_push
+    )
+    VALUES ($1, $2, $2, $3, $4, $5, $6)
+    ON CONFLICT (id) DO UPDATE SET
+      allow_task_execution = EXCLUDED.allow_task_execution,
+      allow_pr_open        = EXCLUDED.allow_pr_open,
+      allow_pr_update      = EXCLUDED.allow_pr_update,
+      allow_auto_push      = EXCLUDED.allow_auto_push,
+      updated_at           = NOW()
+    WHERE projects.repo_name = $2
+  `, [
+    id,
+    repoName,
+    merged.allowTaskExecution,
+    merged.allowPrOpen,
+    merged.allowPrUpdate,
+    merged.allowAutoPush,
+  ]);
+  return merged;
+}
+
 export = {
   initProjectSchema, findProject, updateProject,
   appendProjectChangelog, updateProjectBuilderAgent, createProject,
   getActiveTaskBranch, setActiveTaskBranch, clearActiveTaskBranch,
   getAspectState, setAspectState,
+  getRepoAutomationPolicy, setRepoAutomationPolicy,
 };

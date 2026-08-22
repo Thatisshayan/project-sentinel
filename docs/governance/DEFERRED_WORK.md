@@ -346,3 +346,19 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 2. Require the actual gate checks that the repo documents (`secret-scan`, `build`, `test`, `doc-freshness`, `deploy-dry`, or the umbrella `gate` check if that is the intended single required status).
 3. Include admin enforcement so the protection cannot be bypassed casually.
 **Status**: Partially completed — visibility and tests are now in place, but the actual GitHub protection rule still needs to be configured operationally.
+
+### D-034: Repo automation policy is v1 only — no presets, sensitive-path guardrails, or approval classes yet
+**Scope**: The August 22, 2026 policy-control pass added real per-repo enforcement and dashboard toggles for four execution permissions: task execution, PR open, PR update, and auto-push.
+**Completed in this pass (2026-08-22)**:
+- Added persistent repo policy fields in `projects` and backend API support for reading/updating them.
+- Enforced the policy in the main automation loop (`auditOrchestrator.ts`, `taskBuilder.ts`) and in PR creation (`prCreator.ts`) so blocked actions stop before branch/PR mutation.
+- Added operator UI controls in the repo detail page.
+**Remaining gap**:
+- No higher-level presets yet (`audit-only`, `propose-only`, `PR-open allowed`, etc.).
+- No path-sensitive guardrails yet for auth, infra, secrets, dependency majors, or production workflow files.
+- No approval-class model yet (for example “allow normal code changes, but require human approval for infra/security-sensitive changes”).
+**Proposed resolution**:
+1. Introduce policy presets plus a normalized evaluator shared by task execution, PR creation, security patching, and sprint execution.
+2. Add file/path and task-category guardrails so policy can distinguish routine code edits from sensitive changes.
+3. Surface policy-block reasons, last override, and actor/audit history in the operator UI.
+**Status**: Partially completed — foundational enforcement is shipped; the full policy engine remains deferred.

@@ -222,8 +222,15 @@ export interface RepoAspectState {
   sprintCount: number;
 }
 
+export interface RepoAutomationPolicy {
+  allowTaskExecution: boolean;
+  allowPrOpen: boolean;
+  allowPrUpdate: boolean;
+  allowAutoPush: boolean;
+}
+
 export const getRepoDetail = (name: string) =>
-  api<RepoMetric & { tasks: AuditTask[]; lastCycle: object | null; aspect: RepoAspectState | null }>(`/repo/${name}`);
+  api<RepoMetric & { tasks: AuditTask[]; lastCycle: object | null; aspect: RepoAspectState | null; policy: RepoAutomationPolicy }>(`/repo/${name}`);
 
 export type ProjectMemoryType = 'dismissed_finding' | 'convention' | 'decision' | 'note';
 

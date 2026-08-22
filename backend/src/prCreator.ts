@@ -1,5 +1,6 @@
 import axios from 'axios';
 import logger from './logger';
+import projectDb from './projectDb';
 
 interface PRContext {
   projectName?: string;
@@ -63,8 +64,10 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
     Accept:        'application/vnd.github+json',
   };
   const base = baseBranch || 'main';
+  const repoShortName = repoName || repoFullName.split('/')[1] || repoFullName;
 
   try {
+    const policy = await projectDb.getRepoAutomationPolicy(repoShortName).catch(() => null);
     const existingRes = await axios.get(
       `https://api.github.com/repos/${repoFullName}/pulls`,
       {
@@ -77,9 +80,18 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
       }
     );
     if (existingRes.data.length > 0) {
+      if (policy && !policy.allowPrUpdate) {
+        logger.warn({ repoFullName, fixBranch, base }, 'Repo policy blocks updating an existing PR');
+        return { prUrl: null, prNumber: null };
+      }
       const existing = existingRes.data[0];
       logger.info({ prUrl: existing.html_url, prNumber: existing.number }, 'PR already exists — skipping creation');
       return { prUrl: existing.html_url, prNumber: existing.number };
+    }
+
+    if (policy && !policy.allowPrOpen) {
+      logger.warn({ repoFullName, fixBranch, base }, 'Repo policy blocks opening a new PR');
+      return { prUrl: null, prNumber: null };
     }
 
     const res = await axios.post(

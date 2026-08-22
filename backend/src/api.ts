@@ -15,6 +15,7 @@ import rateLimit from 'express-rate-limit';
 import projectMemory from './projectMemory';
 import projectDb from './projectDb';
 import governanceStatus from './governanceStatus';
+import { normalizeRepoAutomationPolicy, type RepoAutomationPolicy } from './repoAutomationPolicy';
 
 const MEMORY_TYPES = ['dismissed_finding', 'convention', 'decision', 'note'] as const;
 const MAX_MEMORY_CONTENT_LENGTH = 2000;
@@ -179,12 +180,14 @@ router.get('/repo/:name', async (req: Request, res: Response) => {
     // auditAspects.getCurrentAspect(), which persists a default aspect
     // state on first call and would be wrong to trigger from a GET.
     const aspect = await projectDb.getAspectState(name);
+    const policy = await projectDb.getRepoAutomationPolicy(name);
 
     res.json({
       ...metrics.rows[0],
       tasks: tasks.rows,
       lastCycle: cycle.rows[0] || null,
       aspect,
+      policy,
     });
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message }, 'GET /repo/:name error');
@@ -233,6 +236,40 @@ router.post('/repo/:name/memory', async (req: Request, res: Response) => {
     res.status(201).json(entry);
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message }, 'POST /repo/:name/memory error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/repo/:name/policy', async (req: Request, res: Response) => {
+  const name = req.params['name'];
+  if (!isValidRepoNameParam(name)) {
+    res.status(400).json({ error: 'Invalid repo name' });
+    return;
+  }
+
+  const body = req.body ?? {};
+  const policyPatch: Partial<RepoAutomationPolicy> = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (!['allowTaskExecution', 'allowPrOpen', 'allowPrUpdate', 'allowAutoPush'].includes(key)) {
+      res.status(400).json({ error: `Unknown policy field: ${key}` });
+      return;
+    }
+    if (typeof value !== 'boolean') {
+      res.status(400).json({ error: `Policy field ${key} must be boolean` });
+      return;
+    }
+    policyPatch[key as keyof RepoAutomationPolicy] = value;
+  }
+
+  try {
+    const existing = await projectDb.getRepoAutomationPolicy(name);
+    const updated = await projectDb.setRepoAutomationPolicy(name, normalizeRepoAutomationPolicy({
+      ...existing,
+      ...policyPatch,
+    }));
+    res.json(updated);
+  } catch (err: any) {
+    logger.error({ err: err.stack ?? err.message }, 'POST /repo/:name/policy error');
     res.status(500).json({ error: err.message });
   }
 });

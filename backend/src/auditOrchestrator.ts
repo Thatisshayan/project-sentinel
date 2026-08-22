@@ -30,6 +30,7 @@ import { AUDIT_APPROVAL_TIMEOUT_JOB, SELF_REVIEW_FALLBACK_JOB } from './workers/
 import { getErrorInfo } from './utils/error';
 import type { AuditResult, AuditTask } from './types/auditResult';
 import { getDefaultBranch } from './repoDiscovery';
+import { getTaskExecutionPolicyBlockReason } from './repoAutomationPolicy';
 
 const AUDIT_ENABLED      = (): boolean => process.env['AUDIT_AGENT_ENABLED']   !== 'false';
 const BUILDER_ENABLED    = (): boolean => process.env['BUILDER_AGENT_ENABLED'] !== 'false';
@@ -470,6 +471,20 @@ async function executeApprovedTasks(repoFullName: string, repoName: string, topi
     return;
   }
 
+  const executionPolicy = await projectDb.getRepoAutomationPolicy(repoName).catch((err: unknown) => {
+    const error = getErrorInfo(err);
+    logger.warn({ err: error.message, repoName }, 'Could not resolve repo automation policy — proceeding with defaults');
+    return null;
+  });
+  if (executionPolicy && !executionPolicy.allowTaskExecution) {
+    await safeFire(sendTelegramMessage(
+      `Task execution is disabled for ${repoName} by repo policy. Audits can still generate tasks, but Sentinel will not execute them until this policy is re-enabled.`,
+      repoName,
+      topicId
+    ), { label: 'auditOrchestrator' })
+    return;
+  }
+
   let active = await getActiveCycleForRepo(repoFullName);
 
   if (!active) {
@@ -541,6 +556,28 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
     return;
   }
 
+  const activeBranch = await projectDb.getActiveTaskBranch(repoName).catch((err: unknown) => {
+    const error = getErrorInfo(err);
+    logger.warn({ err: error.message, repoName }, 'Could not look up active task branch — starting a new one');
+    return null;
+  });
+  const repoPolicy = await projectDb.getRepoAutomationPolicy(repoName).catch((err: unknown) => {
+    const error = getErrorInfo(err);
+    logger.warn({ err: error.message, repoName }, 'Could not resolve repo automation policy during batch execution — proceeding with defaults');
+    return null;
+  });
+  const policyBlockReason = repoPolicy
+    ? getTaskExecutionPolicyBlockReason(repoPolicy, !!activeBranch?.branch)
+    : null;
+  if (policyBlockReason) {
+    await safeFire(sendTelegramMessage(
+      `Project Sentinel — Policy Blocked ⛔\n\nRepo: ${repoName}\n${policyBlockReason}`,
+      repoName,
+      topicId
+    ), { label: 'auditOrchestrator' })
+    return;
+  }
+
   for (const task of tasks) {
     await updateAuditTask(task.id, { status: 'in_progress' });
     await updateNotionTaskStatus(task.id, 'in_progress');
@@ -567,11 +604,6 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
   // Sentinel branch if one is already active (set below once a batch lands),
   // instead of opening a fresh branch/PR every single batch. Cleared in
   // processPREvent.ts once a human merges or closes the PR.
-  const activeBranch = await projectDb.getActiveTaskBranch(repoName).catch((err: unknown) => {
-    const error = getErrorInfo(err);
-    logger.warn({ err: error.message, repoName }, 'Could not look up active task branch — starting a new one');
-    return null;
-  });
   const baseBranchName = await getDefaultBranch(repoFullName).catch((err: unknown) => {
     const error = getErrorInfo(err);
     logger.warn({ err: error.message, repoFullName }, 'Could not resolve default branch for task execution — falling back to main');

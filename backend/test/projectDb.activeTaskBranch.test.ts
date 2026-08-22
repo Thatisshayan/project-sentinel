@@ -5,7 +5,13 @@ jest.mock('../src/dbClient', () => ({
 import projectDb from '../src/projectDb';
 import { query } from '../src/dbClient';
 
-const { getActiveTaskBranch, setActiveTaskBranch, clearActiveTaskBranch } = projectDb;
+const {
+  getActiveTaskBranch,
+  setActiveTaskBranch,
+  clearActiveTaskBranch,
+  getRepoAutomationPolicy,
+  setRepoAutomationPolicy,
+} = projectDb;
 
 describe('projectDb — active task branch (D-027 item 3: same-PR patch loop)', () => {
   beforeEach(() => {
@@ -72,5 +78,59 @@ describe('projectDb — active task branch (D-027 item 3: same-PR patch loop)', 
     expect(sql).toContain('active_pr_number = NULL');
     expect(sql).toContain('WHERE id = $1 AND repo_name = $2');
     expect(params).toEqual(['tapcash', 'tapcash']);
+  });
+
+  test('getRepoAutomationPolicy returns defaults when no row exists', async () => {
+    (query as jest.Mock).mockResolvedValue({ rows: [] });
+
+    const result = await getRepoAutomationPolicy('tapcash');
+
+    expect(result).toEqual({
+      allowTaskExecution: true,
+      allowPrOpen: true,
+      allowPrUpdate: true,
+      allowAutoPush: true,
+    });
+  });
+
+  test('getRepoAutomationPolicy returns stored policy when present', async () => {
+    (query as jest.Mock).mockResolvedValue({
+      rows: [{
+        repo_name: 'tapcash',
+        allow_task_execution: false,
+        allow_pr_open: true,
+        allow_pr_update: false,
+        allow_auto_push: true,
+      }],
+    });
+
+    const result = await getRepoAutomationPolicy('tapcash');
+
+    expect(result).toEqual({
+      allowTaskExecution: false,
+      allowPrOpen: true,
+      allowPrUpdate: false,
+      allowAutoPush: true,
+    });
+  });
+
+  test('setRepoAutomationPolicy upserts the policy fields with the repo_name guard', async () => {
+    (query as jest.Mock).mockResolvedValue({ rows: [] });
+
+    await setRepoAutomationPolicy('tapcash', {
+      allowTaskExecution: false,
+      allowPrOpen: true,
+      allowPrUpdate: false,
+      allowAutoPush: true,
+    });
+
+    expect(query).toHaveBeenCalledTimes(1);
+    const [sql, params] = (query as jest.Mock).mock.calls[0];
+    expect(sql).toContain('allow_task_execution');
+    expect(sql).toContain('allow_pr_open');
+    expect(sql).toContain('allow_pr_update');
+    expect(sql).toContain('allow_auto_push');
+    expect(sql).toContain('WHERE projects.repo_name = $2');
+    expect(params).toEqual(['tapcash', 'tapcash', false, true, false, true]);
   });
 });
