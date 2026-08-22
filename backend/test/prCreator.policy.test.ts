@@ -1,8 +1,6 @@
-const axiosGetMock = jest.fn();
 const axiosPostMock = jest.fn();
 
 jest.mock('axios', () => ({
-  get: (...args: unknown[]) => axiosGetMock(...args),
   post: (...args: unknown[]) => axiosPostMock(...args),
 }));
 
@@ -29,7 +27,17 @@ describe('prCreator policy enforcement', () => {
         allowAutoPush: true,
       },
     });
-    axiosGetMock.mockResolvedValue({ data: [] });
+    axiosPostMock.mockResolvedValue({
+      data: {
+        data: {
+          repository: {
+            pullRequests: {
+              nodes: [],
+            },
+          },
+        },
+      },
+    });
 
     const result = await createPullRequest({
       repoFullName: 'your-org/tapcash',
@@ -39,7 +47,7 @@ describe('prCreator policy enforcement', () => {
     });
 
     expect(result).toEqual({ prUrl: null, prNumber: null });
-    expect(axiosPostMock).not.toHaveBeenCalled();
+    expect(axiosPostMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not treat an existing PR as usable when repo policy disables pr_update', async () => {
@@ -52,8 +60,16 @@ describe('prCreator policy enforcement', () => {
         allowAutoPush: true,
       },
     });
-    axiosGetMock.mockResolvedValue({
-      data: [{ html_url: 'https://github.com/your-org/tapcash/pull/12', number: 12 }],
+    axiosPostMock.mockResolvedValue({
+      data: {
+        data: {
+          repository: {
+            pullRequests: {
+              nodes: [{ url: 'https://github.com/your-org/tapcash/pull/12', number: 12 }],
+            },
+          },
+        },
+      },
     });
 
     const result = await createPullRequest({
@@ -64,7 +80,7 @@ describe('prCreator policy enforcement', () => {
     });
 
     expect(result).toEqual({ prUrl: null, prNumber: null });
-    expect(axiosPostMock).not.toHaveBeenCalled();
+    expect(axiosPostMock).toHaveBeenCalledTimes(1);
   });
 
   it('refuses invalid repo targets before calling GitHub', async () => {
@@ -77,7 +93,6 @@ describe('prCreator policy enforcement', () => {
 
     expect(result).toEqual({ prUrl: null, prNumber: null });
     expect(getRepoAutomationPolicyMock).not.toHaveBeenCalled();
-    expect(axiosGetMock).not.toHaveBeenCalled();
     expect(axiosPostMock).not.toHaveBeenCalled();
   });
 });

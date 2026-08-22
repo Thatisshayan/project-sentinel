@@ -15,10 +15,20 @@ interface PRContext {
 interface GitHubRepoTarget {
   owner: string;
   repo: string;
-  pullsUrl: string;
 }
 
 const GITHUB_REPO_FULL_NAME_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const GITHUB_GRAPHQL_URL = 'https://api.github.com/graphql';
+
+interface GitHubGraphqlResponse<T> {
+  data?: T;
+  errors?: Array<{ message?: string }>;
+}
+
+interface ExistingPullRequestNode {
+  number: number;
+  url: string;
+}
 
 function buildPullRequestContent(context: PRContext): { title: string; body: string } {
   const { projectName, repoName, commitSha, attemptNumber, buildProvider, failureReason, kind } = context;
@@ -73,18 +83,41 @@ async function getExistingPullRequest(
   base: string,
   headers: { Authorization: string; Accept: string }
 ) {
-  const existingRes = await axios.get(
-    repoTarget.pullsUrl,
+  const existingRes = await axios.post<GitHubGraphqlResponse<{
+    repository: {
+      pullRequests: {
+        nodes: ExistingPullRequestNode[];
+      };
+    } | null;
+  }>>(
+    GITHUB_GRAPHQL_URL,
     {
-      headers,
-      params: {
-        head: `${repoTarget.owner}:${fixBranch}`,
+      query: `
+        query ExistingPullRequest($owner: String!, $repo: String!, $base: String!, $head: String!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequests(first: 1, states: OPEN, baseRefName: $base, headRefName: $head) {
+              nodes {
+                number
+                url
+              }
+            }
+          }
+        }
+      `,
+      variables: {
+        owner: repoTarget.owner,
+        repo: repoTarget.repo,
         base,
-        state: 'open',
+        head: fixBranch,
       },
     }
   );
-  return existingRes.data[0] ?? null;
+
+  if (existingRes.data.errors?.length) {
+    throw new Error(existingRes.data.errors.map((error) => error.message || 'Unknown GitHub GraphQL error').join('; '));
+  }
+
+  return existingRes.data.data?.repository?.pullRequests.nodes[0] ?? null;
 }
 
 async function loadRepoPolicy(repoShortName: string) {
@@ -130,7 +163,6 @@ function parseGitHubRepoTarget(repoFullName: string): GitHubRepoTarget | null {
   return {
     owner,
     repo,
-    pullsUrl: new URL(`/repos/${owner}/${repo}/pulls`, 'https://api.github.com').toString(),
   };
 }
 
@@ -166,20 +198,85 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
       return { prUrl: null, prNumber: null };
     }
 
-    const res = await axios.post(
-      repoTarget.pullsUrl,
-      { title, body, head: fixBranch, base },
+    const repoRes = await axios.post<GitHubGraphqlResponse<{
+      repository: {
+        id: string;
+      } | null;
+    }>>(
+      GITHUB_GRAPHQL_URL,
+      {
+        query: `
+          query RepositoryId($owner: String!, $repo: String!) {
+            repository(owner: $owner, name: $repo) {
+              id
+            }
+          }
+        `,
+        variables: {
+          owner: repoTarget.owner,
+          repo: repoTarget.repo,
+        },
+      },
       { headers }
     );
+    if (repoRes.data.errors?.length) {
+      throw new Error(repoRes.data.errors.map((error) => error.message || 'Unknown GitHub GraphQL error').join('; '));
+    }
+
+    const repositoryId = repoRes.data.data?.repository?.id;
+    if (!repositoryId) {
+      throw new Error(`GitHub repository not found for ${repoFullName}`);
+    }
+
+    const res = await axios.post<GitHubGraphqlResponse<{
+      createPullRequest: {
+        pullRequest: {
+          number: number;
+          url: string;
+        } | null;
+      } | null;
+    }>>(
+      GITHUB_GRAPHQL_URL,
+      {
+        query: `
+          mutation CreatePullRequest($input: CreatePullRequestInput!) {
+            createPullRequest(input: $input) {
+              pullRequest {
+                number
+                url
+              }
+            }
+          }
+        `,
+        variables: {
+          input: {
+            repositoryId,
+            baseRefName: base,
+            headRefName: fixBranch,
+            title,
+            body,
+          },
+        },
+      },
+      { headers }
+    );
+    if (res.data.errors?.length) {
+      throw new Error(res.data.errors.map((error) => error.message || 'Unknown GitHub GraphQL error').join('; '));
+    }
+
+    const pullRequest = res.data.data?.createPullRequest?.pullRequest;
+    if (!pullRequest) {
+      throw new Error('GitHub did not return a pull request payload');
+    }
 
     logger.info(
-      { prUrl: res.data.html_url, prNumber: res.data.number },
+      { prUrl: pullRequest.url, prNumber: pullRequest.number },
       'Pull request created'
     );
 
     return {
-      prUrl:    res.data.html_url,
-      prNumber: res.data.number,
+      prUrl:    pullRequest.url,
+      prNumber: pullRequest.number,
     };
   } catch (err: unknown) {
     const details = getGitHubErrorDetails(err);
