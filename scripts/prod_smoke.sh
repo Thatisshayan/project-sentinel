@@ -6,6 +6,7 @@ cd "$REPO_ROOT"
 
 FAILURES=0
 WARNINGS=0
+STARTUP_WAIT_SECONDS="${STARTUP_WAIT_SECONDS:-60}"
 
 pass() { echo "PASS: $1"; }
 warn() { echo "WARN: $1"; WARNINGS=$((WARNINGS + 1)); }
@@ -34,17 +35,83 @@ curl_status() {
   curl -sS -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || echo "000"
 }
 
+backend_compose_ps() {
+  docker compose -f docker-compose.prod.yml ps --format json backend 2>/dev/null || true
+}
+
+wait_for_backend_health() {
+  local attempts="$1"
+  local state=""
+  local health=""
+  local status=""
+
+  for _ in $(seq 1 "$attempts"); do
+    status="$(backend_compose_ps)"
+    if printf '%s' "$status" | grep -q '"Health":"healthy"'; then
+      echo "healthy"
+      return 0
+    fi
+    if ! printf '%s' "$status" | grep -q '"State":"running"'; then
+      echo "not-running"
+      return 1
+    fi
+    sleep 1
+  done
+
+  status="$(backend_compose_ps)"
+  if printf '%s' "$status" | grep -q '"Health":"healthy"'; then
+    echo "healthy"
+    return 0
+  fi
+  if printf '%s' "$status" | grep -q '"Health":"starting"'; then
+    echo "starting"
+    return 1
+  fi
+  if printf '%s' "$status" | grep -q '"State":"running"'; then
+    echo "running"
+    return 1
+  fi
+  echo "not-running"
+  return 1
+}
+
+probe_backend_http_status() {
+  local path="$1"
+  docker compose -f docker-compose.prod.yml exec -T backend sh -lc \
+    "node -e \"require('http').get('http://localhost:3000${path}', r => { console.log(r.statusCode); process.exit(0); }).on('error', () => process.exit(1))\"" \
+    2>/dev/null || true
+}
+
+wait_for_backend_http_status() {
+  local path="$1"
+  local expected="$2"
+  local attempts="$3"
+  local last_status="000"
+
+  for _ in $(seq 1 "$attempts"); do
+    last_status="$(probe_backend_http_status "$path")"
+    if [ "$last_status" = "$expected" ]; then
+      echo "$last_status"
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "${last_status:-000}"
+  return 1
+}
+
 if docker compose -f docker-compose.prod.yml ps >/dev/null 2>&1; then
   pass "docker compose responds"
 else
   fail "docker compose is not available for the production stack"
 fi
 
-backend_status="$(docker compose -f docker-compose.prod.yml ps --format json backend 2>/dev/null || true)"
-if printf '%s' "$backend_status" | grep -q '"Health":"healthy"'; then
+backend_health="$(wait_for_backend_health "$STARTUP_WAIT_SECONDS")"
+if [ "$backend_health" = "healthy" ]; then
   pass "backend container is healthy"
-elif printf '%s' "$backend_status" | grep -q '"State":"running"'; then
-  warn "backend container is running but not yet healthy"
+elif [ "$backend_health" = "starting" ] || [ "$backend_health" = "running" ]; then
+  warn "backend container is running but not yet healthy after ${STARTUP_WAIT_SECONDS}s"
 else
   fail "backend container is not running"
 fi
@@ -55,14 +122,14 @@ else
   fail "backend container aider command failed"
 fi
 
-internal_health_status="$(docker compose -f docker-compose.prod.yml exec -T backend sh -lc "node -e \"require('http').get('http://localhost:3000/health', r => { console.log(r.statusCode); process.exit(0); }).on('error', () => process.exit(1))\"" 2>/dev/null || true)"
+internal_health_status="$(wait_for_backend_http_status "/health" "200" "$STARTUP_WAIT_SECONDS")"
 if [ "$internal_health_status" = "200" ]; then
   pass "backend container /health returns 200"
 else
   fail "backend container /health returned ${internal_health_status:-000}"
 fi
 
-internal_ready_status="$(docker compose -f docker-compose.prod.yml exec -T backend sh -lc "node -e \"require('http').get('http://localhost:3000/ready', r => { console.log(r.statusCode); process.exit(0); }).on('error', () => process.exit(1))\"" 2>/dev/null || true)"
+internal_ready_status="$(wait_for_backend_http_status "/ready" "200" "$STARTUP_WAIT_SECONDS")"
 if [ "$internal_ready_status" = "200" ]; then
   pass "backend container /ready returns 200"
 else

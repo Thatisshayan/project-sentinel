@@ -314,22 +314,32 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 **Status**: **Partially completed** — production branch targeting is normalized across the main automation paths; test coverage and the Telegram callback cleanup remain deferred.
 
 ### D-032: Oracle production smoke follow-ups after August 22 runtime recovery
-**Scope**: During the August 22, 2026 production recovery pass, the Oracle VM runtime was repaired (valid `GITHUB_TOKEN`, restored `backend/.env`, backend restarted cleanly, new preflight/smoke scripts copied to the VM), but the new smoke test still found one core production gap and two optional integration/config gaps.
+**Scope**: During the August 22, 2026 production recovery pass, the Oracle VM runtime was repaired (valid `GITHUB_TOKEN`, restored `backend/.env`, backend restarted cleanly, new preflight/smoke scripts copied to the VM), then current `main` was published through CI and redeployed onto the VM.
 **Completed in this pass (2026-08-22)**:
 - Added safe env-file update helpers: `scripts/update_env_key.sh` and `scripts/update_env_key.ps1`.
 - Added post-deploy smoke verification: `scripts/prod_smoke.sh` and `scripts/prod_smoke.ps1`.
 - Updated `scripts/check_prod_runtime.*` so Docker production validates `aider` inside the backend container instead of incorrectly requiring a host-side install.
 - Updated `Caddyfile` to route `/ready` to the backend and synced the new scripts/docs/Caddyfile into the Oracle VM checkout.
 - Verified on the VM that `GITHUB_TOKEN` now authenticates successfully (`GitHub /user` returned HTTP 200), `aider` is available inside the backend container, and the production preflight passes fully on-host.
+- Merged the deploy-tooling PR, waited for the publish workflow on `main` to succeed, fast-forwarded the VM checkout to the merge commit, pulled the fresh GHCR images, and restarted `backend`, `ui`, and `caddy`.
+- Confirmed after redeploy that both public endpoints now succeed: `https://<PUBLIC_DOMAIN>/health` returns HTTP 200 and `https://<PUBLIC_DOMAIN>/ready` returns HTTP 200.
+- Tightened `scripts/prod_smoke.*` so they wait through backend warm-up instead of reporting false failures during the first seconds after `docker compose up`.
 **Remaining gap**:
-- The running backend image on the VM still returns HTTP 404 for `/ready` both internally (`backend` container on `localhost:3000/ready`) and externally through Caddy (`https://<PUBLIC_DOMAIN>/ready`). This is no longer a Caddy routing issue — the container itself returns 404. Local source defines `/ready`, so the most likely cause is that the currently published GHCR backend image predates the readiness-route work and needs a fresh CI image publish/deploy from current code.
 - `VERCEL_TOKEN` is not configured in the current VM `backend/.env`, so Vercel build polling is now disabled rather than failing with the earlier stale-token `403`. If Vercel status polling still matters, a valid token needs to be supplied intentionally.
 - `SLACK_BOT_ID` is not configured in the current VM `backend/.env`, so Slack echo-loop protection remains degraded even though the rest of the backend is healthy.
 **Why not done now**:
-- Rebuilding and publishing a new backend image directly from this branch/VM would bypass the repo's normal branch/PR/CI image-publish flow. The safe fix is to merge and publish current code through CI, then redeploy the VM so the container image actually contains the `/ready` route.
 - Vercel and Slack follow-ups are configuration decisions rather than code fixes; they need real token/ID values, not placeholder changes.
 **Proposed resolution**:
-1. Merge the current source that includes `/ready` support and the deploy-tooling updates, let CI publish a fresh backend image to GHCR, then redeploy the Oracle VM and rerun `bash scripts/prod_smoke.sh`.
-2. If Vercel build polling is still required, set a valid `VERCEL_TOKEN` with `bash scripts/update_env_key.sh backend/.env VERCEL_TOKEN '<token>'`, restart the backend, and rerun the smoke test.
-3. If Slack echo protection matters, set `SLACK_BOT_ID` in `backend/.env`, restart the backend, and confirm the warning disappears from backend logs.
-**Status**: **Partially completed** — production auth/runtime recovered and new deploy tooling is live on the VM; `/ready` still needs a fresh backend image publish, and Vercel/Slack remain optional config follow-ups.
+1. If Vercel build polling is still required, set a valid `VERCEL_TOKEN` with `bash scripts/update_env_key.sh backend/.env VERCEL_TOKEN '<token>'`, restart the backend, and rerun the smoke test.
+2. If Slack echo protection matters, set `SLACK_BOT_ID` in `backend/.env`, restart the backend, and confirm the warning disappears from backend logs.
+**Status**: **Partially completed** — production auth/runtime, `/ready`, and deploy tooling are fixed; only optional Vercel/Slack configuration follow-ups remain.
+
+### D-033: GitHub branch protection for `main` is not actually enforced
+**Scope**: Repository rules and branch-policy docs require protected `main` with PR-only merges, green required checks, and approval, but the GitHub branch-protection API currently reports no protection on `main`.
+**Evidence**: `gh api repos/Thatisshayan/project-sentinel/branches/main/protection` returned HTTP 404 during the August 22, 2026 deploy pass, which means branch protection is absent rather than merely misconfigured.
+**Impact**: The repo's governance rules say `main` is sacred, but GitHub is not enforcing that contract. A direct push or merge without required review/checks is technically still possible.
+**Proposed resolution**:
+1. Apply branch protection to `main` in GitHub Settings or via `gh api`, matching `docs/governance/BRANCH_POLICY.md`.
+2. Require the actual gate checks that the repo documents (`secret-scan`, `build`, `test`, `doc-freshness`, `deploy-dry`, or the umbrella `gate` check if that is the intended single required status).
+3. Include admin enforcement so the protection cannot be bypassed casually.
+**Status**: Deferred — operational governance gap, not a code defect.
