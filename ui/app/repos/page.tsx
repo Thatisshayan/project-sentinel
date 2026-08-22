@@ -6,6 +6,7 @@ import { RepoActions } from "@/components/sentinel/repo-actions";
 import type { Repo } from "@/lib/types";
 
 // No `export const revalidate` here — see app/agents/page.tsx for why.
+export const dynamic = "force-dynamic";
 
 export default async function ReposPage() {
   let repos: Repo[] = [];

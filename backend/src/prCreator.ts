@@ -67,7 +67,7 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
   const repoShortName = repoName || repoFullName.split('/')[1] || repoFullName;
 
   try {
-    const policy = await projectDb.getRepoAutomationPolicy(repoShortName).catch(() => null);
+    const policyState = await projectDb.getRepoAutomationPolicy(repoShortName).catch(() => null);
     const existingRes = await axios.get(
       `https://api.github.com/repos/${repoFullName}/pulls`,
       {
@@ -80,7 +80,7 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
       }
     );
     if (existingRes.data.length > 0) {
-      if (policy && !policy.allowPrUpdate) {
+      if (policyState && !policyState.policy.allowPrUpdate) {
         logger.warn({ repoFullName, fixBranch, base }, 'Repo policy blocks updating an existing PR');
         return { prUrl: null, prNumber: null };
       }
@@ -89,7 +89,7 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
       return { prUrl: existing.html_url, prNumber: existing.number };
     }
 
-    if (policy && !policy.allowPrOpen) {
+    if (policyState && !policyState.policy.allowPrOpen) {
       logger.warn({ repoFullName, fixBranch, base }, 'Repo policy blocks opening a new PR');
       return { prUrl: null, prNumber: null };
     }

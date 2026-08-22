@@ -15,8 +15,62 @@ import { enqueueScheduledJob } from './queueClient';
 import { ensureProject, recordEvent, upsertTask } from './boardroomDb';
 import { SPRINT_CONTINUE_JOB } from './workers/scheduledJobsWorker';
 import { getDefaultBranch } from './repoDiscovery';
+import projectDb from './projectDb';
+import { getTaskExecutionPolicyBlockReason } from './repoAutomationPolicy';
 
 const SPRINT_CONTINUE_DELAY_MS = 10000;
+
+async function pauseSprintForPolicyBlock(
+  sprintId: number,
+  task: {
+    id: number;
+    audit_task_id?: number | null;
+    execution_order: number;
+    task_title: string;
+    repo_name: string;
+  },
+  sprintTotalTasks: number,
+  topicId: number | null,
+  failureReason: string
+): Promise<void> {
+  await updateSprintTask(task.id, {
+    status: 'failed',
+    failure_reason: failureReason,
+  });
+
+  if (task.audit_task_id) {
+    await updateAuditTask(task.audit_task_id, {
+      status: 'failed',
+      failure_reason: failureReason,
+    }).catch((err: any) => {
+      logger.warn({ err: err.message, auditTaskId: task.audit_task_id }, 'Failed to sync audit task after sprint policy block');
+      return null;
+    });
+  }
+
+  const freshSprint = await getSprintById(sprintId);
+  if (!freshSprint) {
+    logger.error({ sprintId, taskId: task.id }, 'Sprint row missing when recording policy block — pausing without a counter update');
+    await updateSprint(sprintId, { status: 'paused' });
+  } else {
+    await updateSprint(sprintId, {
+      status: 'paused',
+      failed_tasks: freshSprint.failed_tasks + 1,
+    });
+  }
+
+  await safeFire(sendTelegramMessage([
+    `Sprint Paused ⏸️ — Repo Policy Blocked Execution`,
+    ``,
+    `Task ${task.execution_order}/${sprintTotalTasks} — ${task.task_title}`,
+    `Repo: ${task.repo_name}`,
+    `Reason: ${failureReason}`,
+    ``,
+    `Adjust the repo policy, then:`,
+    `/sentinel resume-sprint  — skip this task and continue`,
+    `/sentinel skip-sprint    — abandon this sprint`,
+  ].join('\n'), task.repo_name, topicId), { label: 'sprintOrchestrator' })
+}
 
 // ── Approve ───────────────────────────────────────────────────────────────────
 
@@ -70,6 +124,32 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
 
   if (!task) {
     await completeSprint(sprintId, topicId);
+    return;
+  }
+
+  const activeBranch = await projectDb.getActiveTaskBranch(task.repo_name).catch((err: unknown) => {
+    logger.warn({ err: err instanceof Error ? err.message : String(err), repoName: task.repo_name },
+      'Could not resolve active branch for sprint policy check — assuming none');
+    return null;
+  });
+  const repoPolicy = await projectDb.getRepoAutomationPolicy(task.repo_name).catch((err: unknown) => {
+    logger.warn({ err: err instanceof Error ? err.message : String(err), repoName: task.repo_name },
+      'Could not resolve repo automation policy for sprint task — proceeding with defaults');
+    return null;
+  });
+  const policyBlockReason = repoPolicy
+    ? getTaskExecutionPolicyBlockReason(repoPolicy.policy, !!activeBranch?.branch)
+    : null;
+  if (policyBlockReason) {
+    logger.warn({ sprintId, taskId: task.id, repoName: task.repo_name, policyBlockReason },
+      'Sprint task blocked by repo policy');
+    await pauseSprintForPolicyBlock(
+      sprintId,
+      task,
+      sprint.total_tasks,
+      topicId,
+      policyBlockReason
+    );
     return;
   }
 

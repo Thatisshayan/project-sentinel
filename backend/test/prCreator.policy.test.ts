@@ -21,10 +21,13 @@ describe('prCreator policy enforcement', () => {
 
   it('does not open a new PR when repo policy disables pr_open', async () => {
     getRepoAutomationPolicyMock.mockResolvedValue({
-      allowTaskExecution: true,
-      allowPrOpen: false,
-      allowPrUpdate: true,
-      allowAutoPush: true,
+      preset: 'custom',
+      policy: {
+        allowTaskExecution: true,
+        allowPrOpen: false,
+        allowPrUpdate: true,
+        allowAutoPush: true,
+      },
     });
     axiosGetMock.mockResolvedValue({ data: [] });
 
@@ -41,10 +44,13 @@ describe('prCreator policy enforcement', () => {
 
   it('does not treat an existing PR as usable when repo policy disables pr_update', async () => {
     getRepoAutomationPolicyMock.mockResolvedValue({
-      allowTaskExecution: true,
-      allowPrOpen: true,
-      allowPrUpdate: false,
-      allowAutoPush: true,
+      preset: 'custom',
+      policy: {
+        allowTaskExecution: true,
+        allowPrOpen: true,
+        allowPrUpdate: false,
+        allowAutoPush: true,
+      },
     });
     axiosGetMock.mockResolvedValue({
       data: [{ html_url: 'https://github.com/your-org/tapcash/pull/12', number: 12 }],

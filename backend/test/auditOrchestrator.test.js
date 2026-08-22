@@ -69,10 +69,13 @@ jest.mock('../src/projectDb', () => ({
   getAspectState: jest.fn().mockResolvedValue(null),
   setAspectState: jest.fn().mockResolvedValue(undefined),
   getRepoAutomationPolicy: jest.fn().mockResolvedValue({
-    allowTaskExecution: true,
-    allowPrOpen: true,
-    allowPrUpdate: true,
-    allowAutoPush: true,
+    preset: 'full-auto',
+    policy: {
+      allowTaskExecution: true,
+      allowPrOpen: true,
+      allowPrUpdate: true,
+      allowAutoPush: true,
+    },
   }),
 }));
 
@@ -309,10 +312,13 @@ describe('executeApprovedTasks', () => {
 
   test('notifies and exits early when repo policy disables task execution', async () => {
     projectDb.getRepoAutomationPolicy.mockResolvedValueOnce({
-      allowTaskExecution: false,
-      allowPrOpen: true,
-      allowPrUpdate: true,
-      allowAutoPush: true,
+      preset: 'custom',
+      policy: {
+        allowTaskExecution: false,
+        allowPrOpen: true,
+        allowPrUpdate: true,
+        allowAutoPush: true,
+      },
     });
 
     await executeApprovedTasks('your-org/tapcash', 'tapcash', null);
@@ -398,10 +404,13 @@ describe('processNextBatch', () => {
       { id: 't1', task_number: 1, title: 'Fix lint', builder_agent: 'nvidia', batch_number: 1 },
     ]);
     projectDb.getRepoAutomationPolicy.mockResolvedValueOnce({
-      allowTaskExecution: true,
-      allowPrOpen: false,
-      allowPrUpdate: true,
-      allowAutoPush: true,
+      preset: 'custom',
+      policy: {
+        allowTaskExecution: true,
+        allowPrOpen: false,
+        allowPrUpdate: true,
+        allowAutoPush: true,
+      },
     });
     projectDb.getActiveTaskBranch.mockResolvedValueOnce(null);
 

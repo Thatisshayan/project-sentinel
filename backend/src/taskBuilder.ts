@@ -49,7 +49,7 @@ async function executeBatch(tasks: BuildableTask[], context: BatchContext, build
     return null;
   });
   const policyBlockReason = repoPolicy
-    ? getTaskExecutionPolicyBlockReason(repoPolicy, !!existingBranch)
+    ? getTaskExecutionPolicyBlockReason(repoPolicy.policy, !!existingBranch)
     : null;
   if (policyBlockReason) {
     logger.warn({ repoFullName, repoName, policyBlockReason, existingBranch: existingBranch || null },

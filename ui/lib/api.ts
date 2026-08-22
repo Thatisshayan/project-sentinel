@@ -229,8 +229,31 @@ export interface RepoAutomationPolicy {
   allowAutoPush: boolean;
 }
 
+export type RepoAutomationPreset =
+  | 'audit-only'
+  | 'propose-only'
+  | 'execute-no-push'
+  | 'full-auto'
+  | 'custom';
+
+export interface RepoPolicyAuditEntry {
+  id: number;
+  repoName: string;
+  changedBy: string;
+  presetBefore: RepoAutomationPreset;
+  presetAfter: RepoAutomationPreset;
+  policyBefore: RepoAutomationPolicy;
+  policyAfter: RepoAutomationPolicy;
+  changedAt: string;
+}
+
+export interface RepoAutomationPolicyState {
+  preset: RepoAutomationPreset;
+  policy: RepoAutomationPolicy;
+}
+
 export const getRepoDetail = (name: string) =>
-  api<RepoMetric & { tasks: AuditTask[]; lastCycle: object | null; aspect: RepoAspectState | null; policy: RepoAutomationPolicy }>(`/repo/${name}`);
+  api<RepoMetric & { tasks: AuditTask[]; lastCycle: object | null; aspect: RepoAspectState | null; policy: RepoAutomationPolicyState; policyAuditLog: RepoPolicyAuditEntry[] }>(`/repo/${name}`);
 
 export type ProjectMemoryType = 'dismissed_finding' | 'convention' | 'decision' | 'note';
 

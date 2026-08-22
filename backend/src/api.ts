@@ -15,7 +15,11 @@ import rateLimit from 'express-rate-limit';
 import projectMemory from './projectMemory';
 import projectDb from './projectDb';
 import governanceStatus from './governanceStatus';
-import { normalizeRepoAutomationPolicy, type RepoAutomationPolicy } from './repoAutomationPolicy';
+import {
+  normalizeRepoAutomationPolicy,
+  type RepoAutomationPolicy,
+  type RepoAutomationPreset,
+} from './repoAutomationPolicy';
 
 const MEMORY_TYPES = ['dismissed_finding', 'convention', 'decision', 'note'] as const;
 const MAX_MEMORY_CONTENT_LENGTH = 2000;
@@ -181,6 +185,7 @@ router.get('/repo/:name', async (req: Request, res: Response) => {
     // state on first call and would be wrong to trigger from a GET.
     const aspect = await projectDb.getAspectState(name);
     const policy = await projectDb.getRepoAutomationPolicy(name);
+    const policyAuditLog = await projectDb.getRepoPolicyAuditLog(name, 10);
 
     res.json({
       ...metrics.rows[0],
@@ -188,6 +193,7 @@ router.get('/repo/:name', async (req: Request, res: Response) => {
       lastCycle: cycle.rows[0] || null,
       aspect,
       policy,
+      policyAuditLog,
     });
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message }, 'GET /repo/:name error');
@@ -248,8 +254,22 @@ router.post('/repo/:name/policy', async (req: Request, res: Response) => {
   }
 
   const body = req.body ?? {};
+  const preset = body.preset;
+  if (preset !== undefined) {
+    const allowedPresets: Exclude<RepoAutomationPreset, 'custom'>[] = [
+      'audit-only',
+      'propose-only',
+      'execute-no-push',
+      'full-auto',
+    ];
+    if (typeof preset !== 'string' || !allowedPresets.includes(preset as Exclude<RepoAutomationPreset, 'custom'>)) {
+      res.status(400).json({ error: 'Unknown policy preset' });
+      return;
+    }
+  }
   const policyPatch: Partial<RepoAutomationPolicy> = {};
   for (const [key, value] of Object.entries(body)) {
+    if (key === 'preset' || key === 'changedBy') continue;
     if (!['allowTaskExecution', 'allowPrOpen', 'allowPrUpdate', 'allowAutoPush'].includes(key)) {
       res.status(400).json({ error: `Unknown policy field: ${key}` });
       return;
@@ -263,10 +283,16 @@ router.post('/repo/:name/policy', async (req: Request, res: Response) => {
 
   try {
     const existing = await projectDb.getRepoAutomationPolicy(name);
-    const updated = await projectDb.setRepoAutomationPolicy(name, normalizeRepoAutomationPolicy({
-      ...existing,
-      ...policyPatch,
-    }));
+    const updated = await projectDb.setRepoAutomationPolicy(name, {
+      preset: (preset as Exclude<RepoAutomationPreset, 'custom'> | undefined) ?? null,
+      policy: preset ? undefined : normalizeRepoAutomationPolicy({
+        ...existing.policy,
+        ...policyPatch,
+      }),
+      changedBy: typeof body.changedBy === 'string' && body.changedBy.trim().length > 0
+        ? body.changedBy
+        : 'Dashboard',
+    });
     res.json(updated);
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message }, 'POST /repo/:name/policy error');

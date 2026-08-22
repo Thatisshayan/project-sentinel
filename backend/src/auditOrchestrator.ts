@@ -476,7 +476,7 @@ async function executeApprovedTasks(repoFullName: string, repoName: string, topi
     logger.warn({ err: error.message, repoName }, 'Could not resolve repo automation policy — proceeding with defaults');
     return null;
   });
-  if (executionPolicy && !executionPolicy.allowTaskExecution) {
+  if (executionPolicy && !executionPolicy.policy.allowTaskExecution) {
     await safeFire(sendTelegramMessage(
       `Task execution is disabled for ${repoName} by repo policy. Audits can still generate tasks, but Sentinel will not execute them until this policy is re-enabled.`,
       repoName,
@@ -567,7 +567,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
     return null;
   });
   const policyBlockReason = repoPolicy
-    ? getTaskExecutionPolicyBlockReason(repoPolicy, !!activeBranch?.branch)
+    ? getTaskExecutionPolicyBlockReason(repoPolicy.policy, !!activeBranch?.branch)
     : null;
   if (policyBlockReason) {
     await safeFire(sendTelegramMessage(

@@ -347,21 +347,22 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 3. Include admin enforcement so the protection cannot be bypassed casually.
 **Status**: Partially completed — visibility and tests are now in place, but the actual GitHub protection rule still needs to be configured operationally.
 
-### D-034: Repo automation policy is v1 only — no presets, sensitive-path guardrails, or approval classes yet
-**Scope**: The August 22, 2026 policy-control pass added real per-repo enforcement and dashboard toggles for four execution permissions: task execution, PR open, PR update, and auto-push.
+### D-034: Repo automation policy still needs sensitive-path guardrails and approval classes
+**Scope**: The August 22, 2026 policy-control work now ships real per-repo enforcement, named presets, dashboard history, and consistent blocking across the primary mutation paths.
 **Completed in this pass (2026-08-22)**:
-- Added persistent repo policy fields in `projects` and backend API support for reading/updating them.
-- Enforced the policy in the main automation loop (`auditOrchestrator.ts`, `taskBuilder.ts`) and in PR creation (`prCreator.ts`) so blocked actions stop before branch/PR mutation.
-- Added operator UI controls in the repo detail page.
+- Added persistent repo policy fields in `projects`, a stored `repo_policy_preset`, and a `repo_policy_audit_log` table recording actor, before/after preset, before/after policy, and timestamp.
+- Added policy presets: `audit-only`, `propose-only`, `execute-no-push`, and `full-auto`, plus backend API support for preset application and state normalization.
+- Surfaced preset selection and recent policy audit history in the repo detail UI.
+- Extended enforcement beyond the main audit loop to sprint execution and security patching, so blocked repos now stop before those mutation paths push branches or open PRs.
 **Remaining gap**:
-- No higher-level presets yet (`audit-only`, `propose-only`, `PR-open allowed`, etc.).
 - No path-sensitive guardrails yet for auth, infra, secrets, dependency majors, or production workflow files.
 - No approval-class model yet (for example “allow normal code changes, but require human approval for infra/security-sensitive changes”).
+- No richer diff view in the policy audit log yet; the UI currently shows actor, preset transition, and timestamp, not a field-by-field change summary.
 **Proposed resolution**:
-1. Introduce policy presets plus a normalized evaluator shared by task execution, PR creation, security patching, and sprint execution.
-2. Add file/path and task-category guardrails so policy can distinguish routine code edits from sensitive changes.
-3. Surface policy-block reasons, last override, and actor/audit history in the operator UI.
-**Status**: Partially completed — foundational enforcement is shipped; the full policy engine remains deferred.
+1. Add file/path and task-category guardrails so policy can distinguish routine code edits from sensitive changes.
+2. Introduce approval classes or policy scopes for security/infra/high-risk edits that need stricter human checkpoints than ordinary code changes.
+3. Extend the UI audit history to show per-field diffs and the repo/action context that triggered each policy change.
+**Status**: Partially completed — presets, audit logging, and consistent enforcement are shipped; the higher-sensitivity policy model remains deferred.
 
 ### D-035: Residual npm audit findings after the 2026-08-22 GitHub vulnerability remediation pass
 **Scope**: The 29 open GitHub Dependabot alerts from the August 22, 2026 triage pass were remediated by upgrading `next`, `eslint-config-next`, `postcss`, `glob`, `@sentry/node`, and `js-yaml` resolutions. After that work, `npm audit --json` still reports a separate residual set not part of that original 29-alert backlog.

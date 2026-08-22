@@ -1,6 +1,14 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { getRepoDetail, getRepoMemory, type AuditTask, type ProjectMemoryEntry, type RepoAspectState, type RepoAutomationPolicy } from "@/lib/api";
+import {
+  getRepoDetail,
+  getRepoMemory,
+  type AuditTask,
+  type ProjectMemoryEntry,
+  type RepoAspectState,
+  type RepoAutomationPolicyState,
+  type RepoPolicyAuditEntry,
+} from "@/lib/api";
 import { mapPriority, relativeTime } from "@/lib/format";
 import { scoreColor, priorityColor } from "@/lib/theme";
 import { PagePanel } from "@/components/sentinel/page-panel";
@@ -19,11 +27,14 @@ interface RepoDetailData {
   last_commit_at: string | null;
   tasks: AuditTask[];
   aspect: RepoAspectState | null;
-  policy: RepoAutomationPolicy;
+  policy: RepoAutomationPolicyState;
+  policyAuditLog: RepoPolicyAuditEntry[];
 }
 
-export default async function RepoDetailPage({ params }: { params: { name: string } }) {
-  const { name } = params;
+export const dynamic = "force-dynamic";
+
+export default async function RepoDetailPage({ params }: { params: Promise<{ name: string }> }) {
+  const { name } = await params;
 
   // Independent try/catch (not a single Promise.all) — repo detail/tasks and
   // project memory are separate endpoints, and a memory-only failure
@@ -96,7 +107,7 @@ export default async function RepoDetailPage({ params }: { params: { name: strin
         </PagePanel>
 
         <PagePanel title="Automation Policy">
-          <RepoPolicyPanel repoName={name} policy={detail.policy} />
+          <RepoPolicyPanel repoName={name} policyState={detail.policy} auditLog={detail.policyAuditLog} />
         </PagePanel>
 
         <PagePanel title="Project Memory">

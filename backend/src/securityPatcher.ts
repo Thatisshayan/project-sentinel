@@ -11,6 +11,8 @@ import { sendTelegramMessage } from './telegramClient';
 import { markIssuesPatchPending } from './securityDb';
 import { buildGithubCloneUrl, requireGithubToken } from './utils/githubAuth';
 import type { SecurityIssueRow } from './types/securityRow';
+import projectDb from './projectDb';
+import { getTaskExecutionPolicyBlockReason } from './repoAutomationPolicy';
 
 const SENSITIVE_PATHS: string[] = [
   'auth','middleware','stripe','paypal','payout',
@@ -56,6 +58,27 @@ async function applySecurityPatches(repoFullName: string, repoName: string, issu
 
   if (autoFixable.length === 0) {
     logger.info({ repoFullName }, 'No auto-fixable issues');
+    return;
+  }
+
+  const repoPolicy = await projectDb.getRepoAutomationPolicy(repoName).catch((err: unknown) => {
+    logger.warn({ err: err instanceof Error ? err.message : String(err), repoName },
+      'Could not resolve repo automation policy for security patch flow — proceeding with defaults');
+    return null;
+  });
+  const policyBlockReason = repoPolicy
+    ? getTaskExecutionPolicyBlockReason(repoPolicy.policy, false)
+    : null;
+  if (policyBlockReason) {
+    logger.warn({ repoFullName, repoName, policyBlockReason }, 'Security patch blocked by repo policy');
+    await safeFire(sendTelegramMessage([
+      `Security Patch Blocked ⛔`,
+      ``,
+      `Repo: ${repoName}`,
+      `Reason: ${policyBlockReason}`,
+      ``,
+      `Update the repo automation policy before retrying /sentinel security-patch ${repoName}.`,
+    ].join('\n'), repoName, topicId), { label: 'securityPatcher' });
     return;
   }
 

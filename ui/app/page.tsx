@@ -8,6 +8,7 @@ import { BudgetPanel } from "@/components/sentinel/budget-panel";
 import type { Repo, FeedEntry } from "@/lib/types";
 
 const COL = "18px 1fr 96px 72px 76px 28px";
+export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
   let repos: Repo[] = [];
