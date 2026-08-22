@@ -110,7 +110,8 @@ async function getExistingPullRequest(
         base,
         head: fixBranch,
       },
-    }
+    },
+    { headers }
   );
 
   if (existingRes.data.errors?.length) {
@@ -179,7 +180,7 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
     return { prUrl: null, prNumber: null };
   }
 
-  const repoShortName = context.repoName || repoTarget.repo;
+  const repoShortName = repoTarget.repo;
 
   try {
     const policyState = await loadRepoPolicy(repoShortName);
@@ -189,8 +190,8 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
         logger.warn({ repoFullName, fixBranch, base }, 'Repo policy blocks updating an existing PR');
         return { prUrl: null, prNumber: null };
       }
-      logger.info({ prUrl: existing.html_url, prNumber: existing.number }, 'PR already exists — skipping creation');
-      return { prUrl: existing.html_url, prNumber: existing.number };
+      logger.info({ prUrl: existing.url, prNumber: existing.number }, 'PR already exists — skipping creation');
+      return { prUrl: existing.url, prNumber: existing.number };
     }
 
     if (policyState && !policyState.policy.allowPrOpen) {
