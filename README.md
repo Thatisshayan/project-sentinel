@@ -154,19 +154,19 @@ TLS) on a single host — currently an Oracle Cloud Always Free VM. Full
 setup steps, including DNS, firewall, and env config, are in
 [`docs/ORACLE_DEPLOY.md`](docs/ORACLE_DEPLOY.md); short version:
 
-1. Clone the repo onto the host, fill in `backend/.env` and `ui/.env` from their `.env.example` files, and `docker login ghcr.io` (images are built in CI, not on the host — see `docs/ORACLE_DEPLOY.md`)
-2. `docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d`
+1. Clone the repo onto the host, fill in `backend/.env` and `ui/.env` from their `.env.example` files, make sure `backend/.env` includes `GITHUB_TOKEN`, run `bash scripts/check_prod_runtime.sh`, and `docker login ghcr.io` (images are built in CI, not on the host — see `docs/ORACLE_DEPLOY.md`)
+2. `docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d && bash scripts/prod_smoke.sh`
 3. Set up GitHub webhooks for each repo (done automatically for repos onboarded after Slack existed; see `repoOnboarder.ts`):
    - URL: `https://<PUBLIC_DOMAIN>/webhook/github`
    - Events: **Push**, **Pull request**, **Pull request review comment** (the last one is how CodeRabbit's findings arrive)
    - Secret: same as `GITHUB_WEBHOOK_SECRET`
 4. Create the Slack app from `docs/slack-app-manifest.json` (App Manifest tab at api.slack.com/apps), install it to your workspace, and set `SLACK_BOT_TOKEN`/`SLACK_SIGNING_SECRET`
 
-The Dockerfile installs Node.js 20, Python 3, Git, and aider. The app starts on port 3000 (Caddy reverse-proxies webhook/health routes to it — see `Caddyfile`).
+The Dockerfile installs Node.js 20, Python 3, Git, and aider. The app starts on port 3000 after runtime bootstrap completes (schema init, workers, startup probes). Caddy reverse-proxies webhook and health/readiness routes to it — see `Caddyfile`.
 
 Backend schema changes are now managed through `backend/migrations/*.sql` via `npm run migrate` in `backend/` before startup bootstrap applies the same migration set.
 
-Always verify a deploy actually succeeded (`docker compose -f docker-compose.prod.yml ps` should show all services `Up`, and `curl -I https://<PUBLIC_DOMAIN>/health` should return 200) rather than assuming a clean `docker compose up` output means the app is actually serving traffic.
+Always verify a deploy actually succeeded rather than assuming a clean `docker compose up` output means the app is actually serving traffic: `docker compose -f docker-compose.prod.yml ps` should show all services `Up`, `curl -I https://<PUBLIC_DOMAIN>/health` should return 200 (liveness), and `curl -I https://<PUBLIC_DOMAIN>/ready` should return 200 (readiness).
 
 ---
 

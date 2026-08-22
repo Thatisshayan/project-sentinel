@@ -9,6 +9,7 @@ import { buildChildEnv } from './utils/childEnv';
 import projectMemory from './projectMemory';
 import { callAnyProvider } from './ai/client';
 import { nvidiaPoolSize } from './utils/nvidiaKeyPool';
+import { buildGithubCloneUrl } from './utils/githubAuth';
 import type { AuditResult, AuditTask } from './types/auditResult';
 
 const AUDIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -335,7 +336,7 @@ async function runAudit(payload: AuditPayload): Promise<AuditResult> {
   try {
     logger.info({ repoFullName }, 'Cloning repo for audit');
 
-    const cloneUrl = `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`;
+    const cloneUrl = buildGithubCloneUrl(repoFullName, 'audit clone');
     await simpleGit().clone(cloneUrl, tmpDir.name, [
       '--depth', '1',
       '--branch', payload.branchName || 'main',

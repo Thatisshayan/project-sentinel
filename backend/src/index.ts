@@ -37,6 +37,8 @@ import { handleCommand, handleCallbackQuery } from './telegramCommands';
 import { bootstrapRuntime } from './startup';
 import dbClient from './dbClient';
 import { getRedisConnection, getBuildPollQueue } from './queueClient';
+import { healthCheck, readinessCheck } from './health';
+import { markRuntimeBooting, markRuntimeFailed, markRuntimeReady } from './runtimeState';
 
 const dsn = process.env['SENTRY_DSN'];
 const environment = process.env['NODE_ENV'] || 'development';
@@ -190,7 +192,8 @@ app.use(express.urlencoded({
 app.set('trust proxy', 1);
 
 app.use('/webhook', require('./webhook'));
-app.get('/health', require('./health'));
+app.get('/health', healthCheck);
+app.get('/ready', readinessCheck);
 app.get('/metrics', async (_req, res) => {
   try {
     const redis = getRedisConnection();
@@ -423,16 +426,29 @@ app.use(async (err: unknown, req: express.Request, res: express.Response, _next:
 
 const PORT = parseInt(process.env['PORT'] || '3000', 10);
 
-app.listen(PORT, () => {
-  logger.info({
-    port:    PORT,
-    env:     process.env['NODE_ENV'] || 'development',
-    phase:   2,
-  }, '🛡️ Sentinel backend started');
-});
+async function startServer(): Promise<void> {
+  markRuntimeBooting();
+  await bootstrapRuntime();
 
-bootstrapRuntime().catch((err: any) => {
-  logger.error({ err: err.stack ?? err.message }, 'Failed to initialise Phase 2 components');
+  await new Promise<void>((resolve, reject) => {
+    const server = app.listen(PORT, () => {
+      markRuntimeReady();
+      logger.info({
+        port: PORT,
+        env: process.env['NODE_ENV'] || 'development',
+        phase: 2,
+      }, '🛡️ Sentinel backend started');
+      resolve();
+    });
+    server.on('error', reject);
+  });
+}
+
+startServer().catch((err: any) => {
+  const reason = err?.stack ?? err?.message ?? 'Unknown bootstrap failure';
+  markRuntimeFailed(err?.message ?? 'Unknown bootstrap failure');
+  logger.fatal({ err: reason }, 'Failed to initialise Sentinel runtime');
+  process.exit(1);
 });
 
 // Centralized unhandled promise rejection handler

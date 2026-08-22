@@ -62,6 +62,9 @@ private, so the VM needs its own read-only credential to pull them:
 Fill in `backend/.env` with your real values (Slack, Telegram, GitHub,
 Notion, AI provider keys, etc. — see the comments in the file). Notably:
 
+- `GITHUB_TOKEN` — required on the VM, in `backend/.env`, not just in your
+  local shell. Sentinel uses it for private repo clone/push, repo discovery,
+  PR creation, GitHub Actions polling, and webhook registration.
 - `PUBLIC_DOMAIN` — the hostname from step 1, e.g. `sentinel.yourdomain.com`
   (no `https://`, no trailing slash). This drives both the webhook URL
   printed during repo onboarding and the Caddy TLS certificate.
@@ -76,6 +79,44 @@ Fill in `ui/.env`:
 ```
 SENTINEL_API_URL=http://backend:3000
 SENTINEL_UI_KEY=<same value as backend/.env>
+```
+
+Before bringing the stack up, run the production preflight from the repo
+root:
+
+```bash
+bash scripts/check_prod_runtime.sh
+```
+
+It fails closed on the common Oracle-host misses:
+
+- `GITHUB_TOKEN` absent from `backend/.env`
+- missing root `.env` values needed by `docker-compose.prod.yml`
+- mismatched `SENTINEL_UI_KEY` between backend/UI
+- no AI provider key configured
+- no visible `ghcr.io` Docker login entry
+
+The Oracle VM host itself does **not** need a global `aider` install for
+production. `aider` is bundled into the backend container image; the
+preflight only checks the container copy when the backend is already up.
+
+If you are preparing the env files on Windows before copying them to the VM,
+the equivalent local check is:
+
+```powershell
+pwsh scripts/check_prod_runtime.ps1
+```
+
+To update one env key safely without risking a truncated file, use:
+
+```bash
+bash scripts/update_env_key.sh backend/.env GITHUB_TOKEN '<new-token>'
+```
+
+Windows equivalent:
+
+```powershell
+pwsh scripts/update_env_key.ps1 -EnvFile backend/.env -Key GITHUB_TOKEN -Value '<new-token>'
 ```
 
 Set a Postgres password (used only between containers, never exposed):
@@ -101,6 +142,19 @@ check:
 
 ```bash
 curl -I https://sentinel.yourdomain.com/health
+```
+
+Run the post-deploy smoke test from the repo root before you call the deploy
+complete:
+
+```bash
+bash scripts/prod_smoke.sh
+```
+
+Windows equivalent:
+
+```powershell
+pwsh scripts/prod_smoke.ps1
 ```
 
 ## 6. Re-point external webhooks

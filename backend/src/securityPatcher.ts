@@ -6,8 +6,10 @@ import fs from 'fs';
 import axios from 'axios';
 import simpleGit from 'simple-git';
 import logger from './logger';
+import { getDefaultBranch } from './repoDiscovery';
 import { sendTelegramMessage } from './telegramClient';
 import { markIssuesPatchPending } from './securityDb';
+import { buildGithubCloneUrl, requireGithubToken } from './utils/githubAuth';
 import type { SecurityIssueRow } from './types/securityRow';
 
 const SENSITIVE_PATHS: string[] = [
@@ -18,19 +20,21 @@ const SENSITIVE_PATHS: string[] = [
 interface PRParams {
   repoFullName: string;
   branchName: string;
+  baseBranch: string;
   title: string;
   body: string;
 }
 
 // Direct GitHub API call — prCreator.js has a debug-fix-specific signature
-async function openSecurityPR({ repoFullName, branchName, title, body }: PRParams): Promise<string | null> {
+async function openSecurityPR({ repoFullName, branchName, baseBranch, title, body }: PRParams): Promise<string | null> {
   try {
+    const token = requireGithubToken('security PR creation');
     const res = await axios.post(
       `https://api.github.com/repos/${repoFullName}/pulls`,
-      { title, body, head: branchName, base: 'main' },
+      { title, body, head: branchName, base: baseBranch },
       {
         headers: {
-          Authorization: `Bearer ${process.env['GITHUB_TOKEN']}`,
+          Authorization: `Bearer ${token}`,
           Accept:        'application/vnd.github+json',
         },
       }
@@ -60,9 +64,9 @@ async function applySecurityPatches(repoFullName: string, repoName: string, issu
   try {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sentinel-patch-'));
     const git = simpleGit();
-    await git.clone(
-      `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`, tmpDir
-    );
+    const baseBranch = await getDefaultBranch(repoFullName).catch(() => 'main');
+    const cloneUrl = buildGithubCloneUrl(repoFullName, 'security patch clone');
+    await git.clone(cloneUrl, tmpDir);
 
     const cloneGit   = simpleGit(tmpDir);
     await cloneGit.addConfig('user.email', 'sentinel@project-sentinel.app');
@@ -83,13 +87,10 @@ async function applySecurityPatches(repoFullName: string, repoName: string, issu
       `[sentinel] security: npm audit fix (${autoFixable.length} vulnerabilities)\n\n` +
       autoFixable.map(i => `- ${i.title}`).join('\n')
     );
-    await cloneGit.push([
-      `https://${process.env['GITHUB_TOKEN']}@github.com/${repoFullName}.git`,
-      branchName,
-    ]);
+    await cloneGit.push([cloneUrl, branchName]);
 
     const prUrl = await openSecurityPR({
-      repoFullName, branchName,
+      repoFullName, branchName, baseBranch,
       title: `[Sentinel Security] Fix ${autoFixable.length} npm vulnerabilities`,
       body: [
         '## Sentinel Security Patch',

@@ -14,6 +14,7 @@ import { updateNotionTaskStatus } from './auditTaskWriter';
 import { enqueueScheduledJob } from './queueClient';
 import { ensureProject, recordEvent, upsertTask } from './boardroomDb';
 import { SPRINT_CONTINUE_JOB } from './workers/scheduledJobsWorker';
+import { getDefaultBranch } from './repoDiscovery';
 
 const SPRINT_CONTINUE_DELAY_MS = 10000;
 
@@ -86,6 +87,10 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
   await recordEvent({ projectId: task.repo_full_name, eventType: 'sprint_started', sourceSystem: 'sprintOrchestrator', sourceRef: String(sprintId), payload: { sprintId: sprint.id, taskId: task.id, title: task.task_title } }).catch(() => null);
 
   const notionProject = await findNotionProject(task.repo_name).catch(() => null);
+  const baseBranchName = await getDefaultBranch(task.repo_full_name).catch((err: any) => {
+    logger.warn({ err: err.message, repoFullName: task.repo_full_name }, 'Could not resolve default branch for sprint task — falling back to main');
+    return 'main';
+  });
 
   // Map sprint_task to the shape executeBatch expects
   const batchTask = {
@@ -106,7 +111,7 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
       repoFullName: task.repo_full_name,
       repoName:     task.repo_name,
       projectName:  notionProject?.projectName || task.repo_name,
-      branchName:   'main',
+      branchName:   baseBranchName,
       topicId,
     },
     task.builder_agent
@@ -116,7 +121,7 @@ async function executeNextSprintTask(sprintId: number, topicId: number | null): 
     const { prUrl } = await createPullRequest({
       repoFullName: task.repo_full_name,
       fixBranch:    batchResult.taskBranch,
-      baseBranch:   'main',
+      baseBranch:   baseBranchName,
       context: {
         projectName:   notionProject?.projectName || task.repo_name,
         repoName:      task.repo_name,

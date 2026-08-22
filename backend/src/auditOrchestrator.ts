@@ -29,6 +29,7 @@ import { enqueueScheduledJob } from './queueClient';
 import { AUDIT_APPROVAL_TIMEOUT_JOB, SELF_REVIEW_FALLBACK_JOB } from './workers/scheduledJobsWorker';
 import { getErrorInfo } from './utils/error';
 import type { AuditResult, AuditTask } from './types/auditResult';
+import { getDefaultBranch } from './repoDiscovery';
 
 const AUDIT_ENABLED      = (): boolean => process.env['AUDIT_AGENT_ENABLED']   !== 'false';
 const BUILDER_ENABLED    = (): boolean => process.env['BUILDER_AGENT_ENABLED'] !== 'false';
@@ -259,9 +260,9 @@ async function triggerAudit(payload: TriggerAuditPayload): Promise<TriggerAuditR
       process.env['AUDIT_MODEL'] || 'nvidia',
       'audit',
       'medium',
-      () => runAudit({
+        async () => runAudit({
         repoFullName, repoName, projectName,
-        commitSha, branchName: branchName || 'main',
+        commitSha, branchName: branchName || await getDefaultBranch(repoFullName).catch(() => 'main'),
         aspect: aspectState?.aspect,
       })
     );
@@ -571,11 +572,16 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
     logger.warn({ err: error.message, repoName }, 'Could not look up active task branch — starting a new one');
     return null;
   });
+  const baseBranchName = await getDefaultBranch(repoFullName).catch((err: unknown) => {
+    const error = getErrorInfo(err);
+    logger.warn({ err: error.message, repoFullName }, 'Could not resolve default branch for task execution — falling back to main');
+    return 'main';
+  });
 
   const batchContext = {
     repoFullName, repoName,
     projectName: notionProject?.projectName || repoName,
-    branchName:  'main',
+    branchName:  baseBranchName,
     existingBranch: activeBranch?.branch,
     topicId,
   };
@@ -602,7 +608,7 @@ async function processNextBatch(repoFullName: string, repoName: string, topicId:
     const { prUrl, prNumber } = await createPullRequest({
       repoFullName,
       fixBranch:  batchResult.taskBranch,
-      baseBranch: 'main',
+      baseBranch: baseBranchName,
       context: {
         projectName:   notionProject?.projectName || repoName,
         repoName, commitSha: batchResult.commitSha,

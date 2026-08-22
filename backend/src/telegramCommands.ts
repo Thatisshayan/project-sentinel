@@ -37,6 +37,7 @@ import { showMainMenu } from './telegramMenus';
 import { sendDailyReport } from './dailyReport';
 import { getCostReport } from './costTracker';
 import { detectAgentReply, handleAgentReply } from './agentReplies';
+import { getDefaultBranch } from './repoDiscovery';
 import {
   getPendingConflict,
   resolvePendingConflict,

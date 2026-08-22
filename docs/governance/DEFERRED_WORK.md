@@ -283,3 +283,53 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 - Run a dedicated dependency-risk review against the current lockfiles and surface any actionable package upgrades in a follow-up PR.
 - Add a true Docker-backed integration job when an environment with Docker is available.
 **Status**: Deferred — tracked for a follow-up batch.
+
+### D-029: Startup readiness gap — Express listens before runtime bootstrap completes
+**Scope**: `backend/src/index.ts` calls `app.listen()` before `bootstrapRuntime()`, while `bootstrapRuntime()` still performs schema init, worker startup, startup probes, agent-pool init, and recovery cleanup.
+**Resolution (2026-08-21)**:
+- Added explicit runtime state tracking in `backend/src/runtimeState.ts`.
+- `backend/src/index.ts` now waits for `bootstrapRuntime()` to complete before calling `app.listen()`.
+- Bootstrap failure now marks runtime failed and exits non-zero instead of leaving a half-alive process serving traffic.
+- Added route-level readiness coverage in `backend/test/health.test.js`.
+**Status**: **Completed** — see `audits/2026-08-21_Codex_CodebaseExecutive_Audit.md` and the Pass A implementation on 2026-08-21.
+
+### D-030: Health endpoint conflates liveness and readiness
+**Scope**: `backend/src/health.ts` always returns HTTP 200 even when database, Redis, Notion, or queue dependencies are degraded; the JSON body reports failure details but the transport status does not.
+**Resolution (2026-08-21)**:
+- `backend/src/health.ts` now exposes separate liveness and readiness handlers.
+- `/health` remains a liveness endpoint with dependency snapshot data.
+- `/ready` now fails closed with HTTP 503 when runtime bootstrap is incomplete or when critical dependencies (`database`, Redis queue path) are unavailable.
+- Updated `README.md` and `docs/ARCHITECTURE.md` to document the split.
+**Status**: **Completed** — see `audits/2026-08-21_Codex_CodebaseExecutive_Audit.md` and the Pass A implementation on 2026-08-21.
+
+### D-031: Default-branch handling is inconsistent across automation executors
+**Scope**: Core execution paths in `auditOrchestrator.ts`, `sprintOrchestrator.ts`, `parallelExecutor.ts`, Telegram-triggered manual audits, and security patch PR targeting needed consistent default-branch resolution instead of scattered `'main'` assumptions.
+**Resolution (2026-08-21)**:
+- `auditOrchestrator.ts`, `sprintOrchestrator.ts`, `parallelExecutor.ts`, and `webhook/processPREvent.ts` now resolve repository default branches through `getDefaultBranch()`.
+- `securityPatcher.ts` now targets the repository's actual default branch when opening security patch PRs.
+- The `'main'` fallbacks that remain are limited to defense-in-depth paths when GitHub metadata lookup itself fails.
+**Remaining gap**:
+- No automated tests yet cover non-`main` repositories for these execution flows.
+- `backend/src/telegramCommands.ts` manual audit callback still hardcodes `'main'`; that block needs a cleanup pass first because the file contains a malformed carriage return in the callback line, which made the surgical patch unsafe in this pass.
+**Status**: **Partially completed** — production branch targeting is normalized across the main automation paths; test coverage and the Telegram callback cleanup remain deferred.
+
+### D-032: Oracle production smoke follow-ups after August 22 runtime recovery
+**Scope**: During the August 22, 2026 production recovery pass, the Oracle VM runtime was repaired (valid `GITHUB_TOKEN`, restored `backend/.env`, backend restarted cleanly, new preflight/smoke scripts copied to the VM), but the new smoke test still found one core production gap and two optional integration/config gaps.
+**Completed in this pass (2026-08-22)**:
+- Added safe env-file update helpers: `scripts/update_env_key.sh` and `scripts/update_env_key.ps1`.
+- Added post-deploy smoke verification: `scripts/prod_smoke.sh` and `scripts/prod_smoke.ps1`.
+- Updated `scripts/check_prod_runtime.*` so Docker production validates `aider` inside the backend container instead of incorrectly requiring a host-side install.
+- Updated `Caddyfile` to route `/ready` to the backend and synced the new scripts/docs/Caddyfile into the Oracle VM checkout.
+- Verified on the VM that `GITHUB_TOKEN` now authenticates successfully (`GitHub /user` returned HTTP 200), `aider` is available inside the backend container, and the production preflight passes fully on-host.
+**Remaining gap**:
+- The running backend image on the VM still returns HTTP 404 for `/ready` both internally (`backend` container on `localhost:3000/ready`) and externally through Caddy (`https://<PUBLIC_DOMAIN>/ready`). This is no longer a Caddy routing issue — the container itself returns 404. Local source defines `/ready`, so the most likely cause is that the currently published GHCR backend image predates the readiness-route work and needs a fresh CI image publish/deploy from current code.
+- `VERCEL_TOKEN` is not configured in the current VM `backend/.env`, so Vercel build polling is now disabled rather than failing with the earlier stale-token `403`. If Vercel status polling still matters, a valid token needs to be supplied intentionally.
+- `SLACK_BOT_ID` is not configured in the current VM `backend/.env`, so Slack echo-loop protection remains degraded even though the rest of the backend is healthy.
+**Why not done now**:
+- Rebuilding and publishing a new backend image directly from this branch/VM would bypass the repo's normal branch/PR/CI image-publish flow. The safe fix is to merge and publish current code through CI, then redeploy the VM so the container image actually contains the `/ready` route.
+- Vercel and Slack follow-ups are configuration decisions rather than code fixes; they need real token/ID values, not placeholder changes.
+**Proposed resolution**:
+1. Merge the current source that includes `/ready` support and the deploy-tooling updates, let CI publish a fresh backend image to GHCR, then redeploy the Oracle VM and rerun `bash scripts/prod_smoke.sh`.
+2. If Vercel build polling is still required, set a valid `VERCEL_TOKEN` with `bash scripts/update_env_key.sh backend/.env VERCEL_TOKEN '<token>'`, restart the backend, and rerun the smoke test.
+3. If Slack echo protection matters, set `SLACK_BOT_ID` in `backend/.env`, restart the backend, and confirm the warning disappears from backend logs.
+**Status**: **Partially completed** — production auth/runtime recovered and new deploy tooling is live on the VM; `/ready` still needs a fresh backend image publish, and Vercel/Slack remain optional config follow-ups.
