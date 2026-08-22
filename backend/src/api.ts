@@ -14,6 +14,7 @@ import { timingSafeEqual } from './utils/timingSafeCompare';
 import rateLimit from 'express-rate-limit';
 import projectMemory from './projectMemory';
 import projectDb from './projectDb';
+import governanceStatus from './governanceStatus';
 
 const MEMORY_TYPES = ['dismissed_finding', 'convention', 'decision', 'note'] as const;
 const MAX_MEMORY_CONTENT_LENGTH = 2000;
@@ -117,6 +118,15 @@ router.get('/portfolio', async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message }, 'GET /portfolio error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/governance/status', async (req: Request, res: Response) => {
+  try {
+    const status = await governanceStatus.getGovernanceStatus();
+    res.json(status);
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });

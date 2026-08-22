@@ -337,9 +337,12 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 ### D-033: GitHub branch protection for `main` is not actually enforced
 **Scope**: Repository rules and branch-policy docs require protected `main` with PR-only merges, green required checks, and approval, but the GitHub branch-protection API currently reports no protection on `main`.
 **Evidence**: `gh api repos/Thatisshayan/project-sentinel/branches/main/protection` returned HTTP 404 during the August 22, 2026 deploy pass, which means branch protection is absent rather than merely misconfigured.
+**Completed in this pass (2026-08-22)**:
+- Added a backend governance-status endpoint and surfaced its result in the operator UI (overview/topbar/settings), so branch-protection drift is now visible inside Sentinel instead of living only in docs and chat.
+- Added automated coverage for the governance-status contract and the Telegram inline-audit branch-resolution regression that remained from D-031.
 **Impact**: The repo's governance rules say `main` is sacred, but GitHub is not enforcing that contract. A direct push or merge without required review/checks is technically still possible.
 **Proposed resolution**:
 1. Apply branch protection to `main` in GitHub Settings or via `gh api`, matching `docs/governance/BRANCH_POLICY.md`.
 2. Require the actual gate checks that the repo documents (`secret-scan`, `build`, `test`, `doc-freshness`, `deploy-dry`, or the umbrella `gate` check if that is the intended single required status).
 3. Include admin enforcement so the protection cannot be bypassed casually.
-**Status**: Deferred — operational governance gap, not a code defect.
+**Status**: Partially completed — visibility and tests are now in place, but the actual GitHub protection rule still needs to be configured operationally.

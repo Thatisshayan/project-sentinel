@@ -183,9 +183,26 @@ export interface PortfolioData {
   healthDelta: number | null;
 }
 
+export interface GovernanceStatus {
+  repoFullName: string;
+  branch: string;
+  status: 'healthy' | 'drift' | 'unconfigured';
+  branchProtectionConfigured: boolean;
+  enforceAdmins: boolean | null;
+  requirePullRequestReviews: boolean | null;
+  dismissStaleReviews: boolean | null;
+  requireUpToDateBranches: boolean | null;
+  allowForcePushes: boolean | null;
+  allowDeletions: boolean | null;
+  requiredStatusChecks: string[];
+  missingRequiredChecks: string[];
+  drift: string[];
+}
+
 // ── Fetchers ──────────────────────────────────────────────────────────────────
 
 export const getPortfolio = () => api<PortfolioData>('/portfolio');
+export const getGovernanceStatus = () => api<GovernanceStatus>('/governance/status');
 
 export const getAgents = () => api<AgentRow[]>('/agents');
 

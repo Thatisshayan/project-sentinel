@@ -11,9 +11,10 @@ export async function GET(req: NextRequest) {
 
   try {
     const headers = { ...(key ? { "x-sentinel-key": key } : {}) };
-    const [portfolioRes, securityRes] = await Promise.all([
+    const [portfolioRes, securityRes, governanceRes] = await Promise.all([
       fetch(`${base}/api/portfolio`, { headers, next: { revalidate: 15 } }),
       fetch(`${base}/api/security/portfolio`, { headers, next: { revalidate: 15 } }).catch(() => null),
+      fetch(`${base}/api/governance/status`, { headers, next: { revalidate: 30 } }).catch(() => null),
     ]);
     if (!portfolioRes.ok) throw new Error(`${portfolioRes.status}`);
     const data = await portfolioRes.json();
@@ -29,12 +30,22 @@ export async function GET(req: NextRequest) {
       securityIssueCount = secData?.issues?.length ?? 0;
     }
 
+    let governanceStatus: "healthy" | "drift" | "unconfigured" = "unconfigured";
+    let governanceDriftCount = 0;
+    if (governanceRes && governanceRes.ok) {
+      const governanceData = await governanceRes.json().catch(() => null);
+      governanceStatus = governanceData?.status ?? "unconfigured";
+      governanceDriftCount = governanceData?.drift?.length ?? 0;
+    }
+
     return NextResponse.json({
       avgHealth:    Math.min(100, avgHealth),
       workingCount: agents.filter((a: any) => a.status === "working").length,
       repoCount:    repos.length,
       agentCount:   agents.length,
       securityIssueCount,
+      governanceStatus,
+      governanceDriftCount,
       monthlyCost:  data.monthlyCost ?? 0,
       budgetLimit:  30,
     });

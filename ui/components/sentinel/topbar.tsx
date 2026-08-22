@@ -20,6 +20,8 @@ interface Stats {
   agentCount: number;
   monthlyCost: number;
   budgetLimit: number;
+  governanceStatus: "healthy" | "drift" | "unconfigured";
+  governanceDriftCount: number;
 }
 
 export function Topbar() {
@@ -46,6 +48,16 @@ export function Topbar() {
   const total   = stats?.agentCount ?? null;
   const cost    = stats?.monthlyCost ?? null;
   const limit   = stats?.budgetLimit ?? 30;
+  const governanceStatus = stats?.governanceStatus ?? "unconfigured";
+  const governanceDriftCount = stats?.governanceDriftCount ?? 0;
+  const governanceColor =
+    governanceStatus === "healthy" ? "#22C55E" :
+    governanceStatus === "drift" ? "#EF4444" :
+    "#F59E0B";
+  const governanceLabel =
+    governanceStatus === "healthy" ? "Governed" :
+    governanceStatus === "drift" ? `${governanceDriftCount} drift` :
+    "Unchecked";
 
   return (
     <header className="h-[52px] flex-shrink-0 flex items-center gap-3 px-5 bg-s-surface border-b border-s-border relative overflow-hidden">
@@ -78,6 +90,13 @@ export function Topbar() {
         ) : (
           <span className="text-[9px] font-mono text-s-dim">loading…</span>
         )}
+
+        <Divider />
+
+        <div className="flex items-center gap-1.5 text-[11px]">
+          <span className="text-s-muted">Governance</span>
+          <span className="font-mono font-bold" style={{ color: governanceColor }}>{governanceLabel}</span>
+        </div>
 
         <Divider />
 

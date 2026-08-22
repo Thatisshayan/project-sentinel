@@ -1,4 +1,4 @@
-import { getPortfolio, getAgentRoomMessages } from "@/lib/api";
+import { getPortfolio, getAgentRoomMessages, getGovernanceStatus } from "@/lib/api";
 import { scoreColor, agentColorForLabel } from "@/lib/theme";
 import { mapBuild, mapPriority, relativeTime } from "@/lib/format";
 import { StatStrip } from "@/components/sentinel/stat-strip";
@@ -16,11 +16,13 @@ export default async function OverviewPage() {
   let tasksQueued = 0;
   let workingCount = 0;
   let healthDelta: number | null = null;
+  let governanceDriftCount = 0;
 
   try {
-    const [portfolio, messages] = await Promise.all([
+    const [portfolio, messages, governance] = await Promise.all([
       getPortfolio(),
       getAgentRoomMessages(20),
+      getGovernanceStatus(),
     ]);
 
     repos = portfolio.repos.map(r => {
@@ -51,6 +53,7 @@ export default async function OverviewPage() {
     tasksQueued = portfolio.tasksQueued;
     healthDelta = portfolio.healthDelta ?? null;
     workingCount = portfolio.agents.filter(a => a.status === 'working').length;
+    governanceDriftCount = governance.drift.length;
   } catch {
     // API unavailable — show empty state, don't show fake data
   }
@@ -68,6 +71,7 @@ export default async function OverviewPage() {
         { label: "Avg Health",    value: avgHealth,    suffix: "",  color: scoreColor(avgHealth), sub: healthDeltaSub },
         { label: "Active Agents", value: workingCount, suffix: "",  color: "#6366F1", sub: `${repos.length} repos` },
         { label: "Tasks Queued",  value: tasksQueued,  suffix: "",  color: "#00D4FF", sub: `across ${repos.length} repos` },
+        { label: "Governance",   value: governanceDriftCount, suffix: "", color: governanceDriftCount === 0 ? "#22C55E" : "#EF4444", sub: governanceDriftCount === 0 ? "branch policy aligned" : "control-plane drift items" },
         { label: "Monthly Cost",  value: Math.round(monthlyCost * 100) / 100, suffix: "", color: "#F59E0B", sub: `$${(30 - monthlyCost).toFixed(2)} remaining` },
         { label: "Budget Used",   value: budgetPct,   suffix: "%", color: budgetPct >= 80 ? "#EF4444" : "#F59E0B", sub: `$${monthlyCost.toFixed(2)} / $30` },
       ]} />

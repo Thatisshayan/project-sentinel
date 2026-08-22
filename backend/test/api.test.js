@@ -17,9 +17,14 @@ jest.mock('../src/projectDb', () => ({
   getAspectState: jest.fn(),
 }));
 
+jest.mock('../src/governanceStatus', () => ({
+  getGovernanceStatus: jest.fn(),
+}));
+
 const { query }  = require('../src/dbClient');
 const projectMemory = require('../src/projectMemory');
 const projectDb  = require('../src/projectDb');
+const governanceStatus = require('../src/governanceStatus');
 const request    = require('supertest');
 const express    = require('express');
 const apiRouter  = require('../src/api');
@@ -160,6 +165,40 @@ describe('GET /api/repo/:name', () => {
   it('returns 400 for an invalid repo name', async () => {
     const res = await request(app).get('/api/repo/..%2Fetc');
     expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /api/governance/status', () => {
+  it('returns the governance snapshot from governanceStatus', async () => {
+    governanceStatus.getGovernanceStatus.mockResolvedValueOnce({
+      repoFullName: 'your-org/project-sentinel',
+      branch: 'main',
+      status: 'drift',
+      branchProtectionConfigured: false,
+      enforceAdmins: false,
+      requirePullRequestReviews: false,
+      dismissStaleReviews: false,
+      requireUpToDateBranches: false,
+      allowForcePushes: true,
+      allowDeletions: true,
+      requiredStatusChecks: [],
+      missingRequiredChecks: ['gate'],
+      drift: ['Branch protection is not configured on main.'],
+    });
+
+    const res = await request(app).get('/api/governance/status');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('drift');
+    expect(res.body.repoFullName).toBe('your-org/project-sentinel');
+    expect(res.body.drift).toContain('Branch protection is not configured on main.');
+  });
+
+  it('returns 500 when governance status lookup throws', async () => {
+    governanceStatus.getGovernanceStatus.mockRejectedValueOnce(new Error('boom'));
+
+    const res = await request(app).get('/api/governance/status');
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('boom');
   });
 });
 
