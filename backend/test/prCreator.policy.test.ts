@@ -66,4 +66,18 @@ describe('prCreator policy enforcement', () => {
     expect(result).toEqual({ prUrl: null, prNumber: null });
     expect(axiosPostMock).not.toHaveBeenCalled();
   });
+
+  it('refuses invalid repo targets before calling GitHub', async () => {
+    const result = await createPullRequest({
+      repoFullName: 'https://github.com/your-org/tapcash',
+      fixBranch: 'sentinel/work-123',
+      baseBranch: 'main',
+      context: { repoName: 'tapcash', kind: 'task' },
+    });
+
+    expect(result).toEqual({ prUrl: null, prNumber: null });
+    expect(getRepoAutomationPolicyMock).not.toHaveBeenCalled();
+    expect(axiosGetMock).not.toHaveBeenCalled();
+    expect(axiosPostMock).not.toHaveBeenCalled();
+  });
 });

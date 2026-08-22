@@ -12,6 +12,14 @@ interface PRContext {
   kind?: 'task' | 'fix';
 }
 
+interface GitHubRepoTarget {
+  owner: string;
+  repo: string;
+  pullsUrl: string;
+}
+
+const GITHUB_REPO_FULL_NAME_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
 function buildPullRequestContent(context: PRContext): { title: string; body: string } {
   const { projectName, repoName, commitSha, attemptNumber, buildProvider, failureReason, kind } = context;
   const shortSha = (commitSha || '').substring(0, 7);
@@ -60,17 +68,17 @@ function buildPullRequestContent(context: PRContext): { title: string; body: str
 }
 
 async function getExistingPullRequest(
-  repoFullName: string,
+  repoTarget: GitHubRepoTarget,
   fixBranch: string,
   base: string,
   headers: { Authorization: string; Accept: string }
 ) {
   const existingRes = await axios.get(
-    `https://api.github.com/repos/${repoFullName}/pulls`,
+    repoTarget.pullsUrl,
     {
       headers,
       params: {
-        head: `${repoFullName.split('/')[0]}:${fixBranch}`,
+        head: `${repoTarget.owner}:${fixBranch}`,
         base,
         state: 'open',
       },
@@ -109,6 +117,23 @@ function getGitHubErrorDetails(err: unknown): {
   };
 }
 
+function parseGitHubRepoTarget(repoFullName: string): GitHubRepoTarget | null {
+  if (!GITHUB_REPO_FULL_NAME_PATTERN.test(repoFullName)) {
+    return null;
+  }
+
+  const [owner, repo] = repoFullName.split('/');
+  if (!owner || !repo) {
+    return null;
+  }
+
+  return {
+    owner,
+    repo,
+    pullsUrl: new URL(`/repos/${owner}/${repo}/pulls`, 'https://api.github.com').toString(),
+  };
+}
+
 async function createPullRequest({ repoFullName, fixBranch, baseBranch, context }: { repoFullName: string; fixBranch: string; baseBranch?: string; context: PRContext }): Promise<{ prUrl: string | null; prNumber: number | null }> {
   const { title, body } = buildPullRequestContent(context);
   const headers = {
@@ -116,11 +141,17 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
     Accept:        'application/vnd.github+json',
   };
   const base = baseBranch || 'main';
-  const repoShortName = context.repoName || repoFullName.split('/')[1] || repoFullName;
+  const repoTarget = parseGitHubRepoTarget(repoFullName);
+  if (!repoTarget) {
+    logger.error({ repoFullName }, 'Refusing to create PR for invalid GitHub repo target');
+    return { prUrl: null, prNumber: null };
+  }
+
+  const repoShortName = context.repoName || repoTarget.repo;
 
   try {
     const policyState = await loadRepoPolicy(repoShortName);
-    const existing = await getExistingPullRequest(repoFullName, fixBranch, base, headers);
+    const existing = await getExistingPullRequest(repoTarget, fixBranch, base, headers);
     if (existing) {
       if (policyState && !policyState.policy.allowPrUpdate) {
         logger.warn({ repoFullName, fixBranch, base }, 'Repo policy blocks updating an existing PR');
@@ -136,7 +167,7 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
     }
 
     const res = await axios.post(
-      `https://api.github.com/repos/${repoFullName}/pulls`,
+      repoTarget.pullsUrl,
       { title, body, head: fixBranch, base },
       { headers }
     );
