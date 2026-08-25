@@ -63,6 +63,22 @@ jest.mock('../src/dbClient', () => ({
   query: jest.fn().mockResolvedValue({ rows: [{ count: '0' }] }),
 }));
 
+jest.mock('../src/projectDb', () => ({
+  getActiveTaskBranch: jest.fn().mockResolvedValue(null),
+  setActiveTaskBranch: jest.fn().mockResolvedValue(undefined),
+  getAspectState: jest.fn().mockResolvedValue(null),
+  setAspectState: jest.fn().mockResolvedValue(undefined),
+  getRepoAutomationPolicy: jest.fn().mockResolvedValue({
+    preset: 'full-auto',
+    policy: {
+      allowTaskExecution: true,
+      allowPrOpen: true,
+      allowPrUpdate: true,
+      allowAutoPush: true,
+    },
+  }),
+}));
+
 const {
   triggerAudit,
   executeApprovedTasks,
@@ -80,9 +96,10 @@ const {
   createAuditCycle, updateAuditCycle,
   getActiveCycleForRepo, getLastCompletedAudit, getPreviousHealthScore,
   getQueuedTaskCount, getNextBatch,
-  countTasksExecutedToday, markTasksDoneForBranch,
+  countTasksExecutedToday, markTasksDoneForBranch, updateAuditTask,
 } = require('../src/auditDb');
 const { query } = require('../src/dbClient');
+const projectDb = require('../src/projectDb');
 
 const basePayload = {
   repoFullName:  'your-org/tapcash',
@@ -228,11 +245,9 @@ describe('triggerAudit — happy path', () => {
     runAudit.mockResolvedValue({
       ...auditResult, aspectHealthScore: 6, aspectEffectSummary: 'Users are exposed to a login brute-force risk.',
     });
-    query.mockImplementation((sql) => {
-      if (sql.includes('current_audit_aspect')) {
-        return Promise.resolve({ rows: [{ repo_name: 'tapcash', current_audit_aspect: 'security', aspect_sprint_count: 1 }] });
-      }
-      return Promise.resolve({ rows: [{ count: '0' }] });
+    projectDb.getAspectState.mockResolvedValue({
+      aspect: 'security',
+      sprintCount: 1,
     });
 
     await triggerAudit(basePayload);
@@ -241,20 +256,20 @@ describe('triggerAudit — happy path', () => {
     expect(auditText).toContain('🎯 Aspect focus: security (sprint 2/3)');
     expect(auditText).toContain('Aspect score: 6/10');
     expect(auditText).toContain('Effect: Users are exposed to a login brute-force risk.');
+    expect(projectDb.setAspectState).toHaveBeenCalledWith('tapcash', 'security', 2);
   });
 
   test('D-027 item 5: reports rotation to the next aspect on the 3rd sprint', async () => {
-    query.mockImplementation((sql) => {
-      if (sql.includes('current_audit_aspect')) {
-        return Promise.resolve({ rows: [{ repo_name: 'tapcash', current_audit_aspect: 'security', aspect_sprint_count: 2 }] });
-      }
-      return Promise.resolve({ rows: [{ count: '0' }] });
+    projectDb.getAspectState.mockResolvedValue({
+      aspect: 'security',
+      sprintCount: 2,
     });
 
     await triggerAudit(basePayload);
 
     const auditText = sendMenu.mock.calls[0][2];
     expect(auditText).toContain('sprint 3/3 — rotating to "functionality" next');
+    expect(projectDb.setAspectState).toHaveBeenCalledWith('tapcash', 'functionality', 0);
   });
 
   test('shows a downward trend arrow when health score dropped since the last audit', async () => {
@@ -293,6 +308,27 @@ describe('executeApprovedTasks', () => {
     expect(getActiveCycleForRepo).not.toHaveBeenCalled();
 
     delete process.env.BUILDER_AGENT_ENABLED;
+  });
+
+  test('notifies and exits early when repo policy disables task execution', async () => {
+    projectDb.getRepoAutomationPolicy.mockResolvedValueOnce({
+      preset: 'custom',
+      policy: {
+        allowTaskExecution: false,
+        allowPrOpen: true,
+        allowPrUpdate: true,
+        allowAutoPush: true,
+      },
+    });
+
+    await executeApprovedTasks('your-org/tapcash', 'tapcash', null);
+
+    expect(sendTelegramMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Task execution is disabled for tapcash by repo policy'),
+      'tapcash',
+      null
+    );
+    expect(getActiveCycleForRepo).not.toHaveBeenCalled();
   });
 
   test('notifies when no active cycle and no queued tasks', async () => {
@@ -360,6 +396,31 @@ describe('processNextBatch', () => {
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       expect.stringContaining('All Safe Tasks Complete'),
       'tapcash', null
+    );
+  });
+
+  test('stops before marking tasks in progress when repo policy blocks a new PR batch', async () => {
+    getNextBatch.mockResolvedValue([
+      { id: 't1', task_number: 1, title: 'Fix lint', builder_agent: 'nvidia', batch_number: 1 },
+    ]);
+    projectDb.getRepoAutomationPolicy.mockResolvedValueOnce({
+      preset: 'custom',
+      policy: {
+        allowTaskExecution: true,
+        allowPrOpen: false,
+        allowPrUpdate: true,
+        allowAutoPush: true,
+      },
+    });
+    projectDb.getActiveTaskBranch.mockResolvedValueOnce(null);
+
+    await processNextBatch('your-org/tapcash', 'tapcash', null);
+
+    expect(updateAuditTask).not.toHaveBeenCalled();
+    expect(sendTelegramMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Opening a new Sentinel PR is disabled by repo policy.'),
+      'tapcash',
+      null
     );
   });
 

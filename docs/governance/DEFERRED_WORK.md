@@ -314,22 +314,68 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 **Status**: **Partially completed** — production branch targeting is normalized across the main automation paths; test coverage and the Telegram callback cleanup remain deferred.
 
 ### D-032: Oracle production smoke follow-ups after August 22 runtime recovery
-**Scope**: During the August 22, 2026 production recovery pass, the Oracle VM runtime was repaired (valid `GITHUB_TOKEN`, restored `backend/.env`, backend restarted cleanly, new preflight/smoke scripts copied to the VM), but the new smoke test still found one core production gap and two optional integration/config gaps.
+**Scope**: During the August 22, 2026 production recovery pass, the Oracle VM runtime was repaired (valid `GITHUB_TOKEN`, restored `backend/.env`, backend restarted cleanly, new preflight/smoke scripts copied to the VM), then current `main` was published through CI and redeployed onto the VM.
 **Completed in this pass (2026-08-22)**:
 - Added safe env-file update helpers: `scripts/update_env_key.sh` and `scripts/update_env_key.ps1`.
 - Added post-deploy smoke verification: `scripts/prod_smoke.sh` and `scripts/prod_smoke.ps1`.
 - Updated `scripts/check_prod_runtime.*` so Docker production validates `aider` inside the backend container instead of incorrectly requiring a host-side install.
 - Updated `Caddyfile` to route `/ready` to the backend and synced the new scripts/docs/Caddyfile into the Oracle VM checkout.
 - Verified on the VM that `GITHUB_TOKEN` now authenticates successfully (`GitHub /user` returned HTTP 200), `aider` is available inside the backend container, and the production preflight passes fully on-host.
+- Merged the deploy-tooling PR, waited for the publish workflow on `main` to succeed, fast-forwarded the VM checkout to the merge commit, pulled the fresh GHCR images, and restarted `backend`, `ui`, and `caddy`.
+- Confirmed after redeploy that both public endpoints now succeed: `https://<PUBLIC_DOMAIN>/health` returns HTTP 200 and `https://<PUBLIC_DOMAIN>/ready` returns HTTP 200.
+- Tightened `scripts/prod_smoke.*` so they wait through backend warm-up instead of reporting false failures during the first seconds after `docker compose up`.
 **Remaining gap**:
-- The running backend image on the VM still returns HTTP 404 for `/ready` both internally (`backend` container on `localhost:3000/ready`) and externally through Caddy (`https://<PUBLIC_DOMAIN>/ready`). This is no longer a Caddy routing issue — the container itself returns 404. Local source defines `/ready`, so the most likely cause is that the currently published GHCR backend image predates the readiness-route work and needs a fresh CI image publish/deploy from current code.
 - `VERCEL_TOKEN` is not configured in the current VM `backend/.env`, so Vercel build polling is now disabled rather than failing with the earlier stale-token `403`. If Vercel status polling still matters, a valid token needs to be supplied intentionally.
 - `SLACK_BOT_ID` is not configured in the current VM `backend/.env`, so Slack echo-loop protection remains degraded even though the rest of the backend is healthy.
 **Why not done now**:
-- Rebuilding and publishing a new backend image directly from this branch/VM would bypass the repo's normal branch/PR/CI image-publish flow. The safe fix is to merge and publish current code through CI, then redeploy the VM so the container image actually contains the `/ready` route.
 - Vercel and Slack follow-ups are configuration decisions rather than code fixes; they need real token/ID values, not placeholder changes.
 **Proposed resolution**:
-1. Merge the current source that includes `/ready` support and the deploy-tooling updates, let CI publish a fresh backend image to GHCR, then redeploy the Oracle VM and rerun `bash scripts/prod_smoke.sh`.
-2. If Vercel build polling is still required, set a valid `VERCEL_TOKEN` with `bash scripts/update_env_key.sh backend/.env VERCEL_TOKEN '<token>'`, restart the backend, and rerun the smoke test.
-3. If Slack echo protection matters, set `SLACK_BOT_ID` in `backend/.env`, restart the backend, and confirm the warning disappears from backend logs.
-**Status**: **Partially completed** — production auth/runtime recovered and new deploy tooling is live on the VM; `/ready` still needs a fresh backend image publish, and Vercel/Slack remain optional config follow-ups.
+1. If Vercel build polling is still required, set a valid `VERCEL_TOKEN` with `bash scripts/update_env_key.sh backend/.env VERCEL_TOKEN '<token>'`, restart the backend, and rerun the smoke test.
+2. If Slack echo protection matters, set `SLACK_BOT_ID` in `backend/.env`, restart the backend, and confirm the warning disappears from backend logs.
+**Status**: **Partially completed** — production auth/runtime, `/ready`, and deploy tooling are fixed; only optional Vercel/Slack configuration follow-ups remain.
+
+### D-033: GitHub branch protection for `main` is not actually enforced
+**Scope**: Repository rules and branch-policy docs require protected `main` with PR-only merges, green required checks, and approval, but the GitHub branch-protection API currently reports no protection on `main`.
+**Evidence**: `gh api repos/Thatisshayan/project-sentinel/branches/main/protection` returned HTTP 404 during the August 22, 2026 deploy pass, which means branch protection is absent rather than merely misconfigured.
+**Completed in this pass (2026-08-22)**:
+- Added a backend governance-status endpoint and surfaced its result in the operator UI (overview/topbar/settings), so branch-protection drift is now visible inside Sentinel instead of living only in docs and chat.
+- Added automated coverage for the governance-status contract and the Telegram inline-audit branch-resolution regression that remained from D-031.
+**Impact**: The repo's governance rules say `main` is sacred, but GitHub is not enforcing that contract. A direct push or merge without required review/checks is technically still possible.
+**Proposed resolution**:
+1. Apply branch protection to `main` in GitHub Settings or via `gh api`, matching `docs/governance/BRANCH_POLICY.md`.
+2. Require the actual gate checks that the repo documents (`secret-scan`, `build`, `test`, `doc-freshness`, `deploy-dry`, or the umbrella `gate` check if that is the intended single required status).
+3. Include admin enforcement so the protection cannot be bypassed casually.
+**Status**: Partially completed — visibility and tests are now in place, but the actual GitHub protection rule still needs to be configured operationally.
+
+### D-034: Repo automation policy still needs sensitive-path guardrails and approval classes
+**Scope**: The August 22, 2026 policy-control work now ships real per-repo enforcement, named presets, dashboard history, and consistent blocking across the primary mutation paths.
+**Completed in this pass (2026-08-22)**:
+- Added persistent repo policy fields in `projects`, a stored `repo_policy_preset`, and a `repo_policy_audit_log` table recording actor, before/after preset, before/after policy, and timestamp.
+- Added policy presets: `audit-only`, `propose-only`, `execute-no-push`, and `full-auto`, plus backend API support for preset application and state normalization.
+- Surfaced preset selection and recent policy audit history in the repo detail UI.
+- Extended enforcement beyond the main audit loop to sprint execution and security patching, so blocked repos now stop before those mutation paths push branches or open PRs.
+**Remaining gap**:
+- No path-sensitive guardrails yet for auth, infra, secrets, dependency majors, or production workflow files.
+- No approval-class model yet (for example “allow normal code changes, but require human approval for infra/security-sensitive changes”).
+- No richer diff view in the policy audit log yet; the UI currently shows actor, preset transition, and timestamp, not a field-by-field change summary.
+**Proposed resolution**:
+1. Add file/path and task-category guardrails so policy can distinguish routine code edits from sensitive changes.
+2. Introduce approval classes or policy scopes for security/infra/high-risk edits that need stricter human checkpoints than ordinary code changes.
+3. Extend the UI audit history to show per-field diffs and the repo/action context that triggered each policy change.
+**Status**: Partially completed — presets, audit logging, and consistent enforcement are shipped; the higher-sensitivity policy model remains deferred.
+
+### D-035: Residual npm audit findings after the 2026-08-22 GitHub vulnerability remediation pass
+**Scope**: The 29 open GitHub Dependabot alerts from the August 22, 2026 triage pass were remediated by upgrading `next`, `eslint-config-next`, `postcss`, `glob`, `@sentry/node`, and `js-yaml` resolutions. After that work, `npm audit --json` still reports a separate residual set not part of that original 29-alert backlog.
+**Current residuals**:
+- `ui`: 10 findings total (`1 low`, `2 moderate`, `7 high`) involving `next -> sharp`, `brace-expansion`, `body-parser`, `hono`, `@hono/node-server`, `fast-uri`, `ip-address`, `js-yaml`, and `nanoid`.
+- `backend`: 1 high-severity finding involving `brace-expansion`.
+**Why deferred**:
+- These are not the same vulnerabilities as the 29 GitHub alerts requested in the August 22 pass.
+- Some appear to require a further major `next` jump (`npm audit` recommends `next@16.3.2`) or broader transitive dependency cleanup that should be evaluated separately from the just-finished remediation.
+- The August 22 pass already included a Sentry major upgrade and a Next line upgrade; pushing further supply-chain movement without a dedicated compatibility pass would mix two risk envelopes.
+**Proposed resolution**:
+1. Run a dedicated follow-up supply-chain pass focused only on the residual `npm audit` set.
+2. Evaluate whether the `ui` findings should be handled by a controlled `next` 16 migration versus targeted transitive overrides where safe.
+3. Eliminate the backend `brace-expansion` residual by tracing the exact remaining transitive chain and upgrading or overriding it intentionally.
+4. Re-run `npm audit --json` and the repo verify path after that follow-up.
+**Status**: Deferred — tracked separately from the 29 GitHub alerts remediated on 2026-08-22.

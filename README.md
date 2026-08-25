@@ -173,7 +173,9 @@ Always verify a deploy actually succeeded rather than assuming a clean `docker c
 ## Dashboard (UI)
 
 `ui/` is a Next.js 14 (App Router) dashboard — portfolio overview, per-repo detail,
-agent status, sprint board, security scores, and a live agent-room terminal. It
+agent status, sprint board, security scores, governance drift visibility for the
+Sentinel control repo, per-repo automation policy controls with presets and
+change history, and a live agent-room terminal. It
 never talks to the backend directly from the browser; all data flows through
 Next.js's own server-side routes, which proxy to the backend's `/api/*` routes.
 

@@ -1,6 +1,16 @@
 import dbClient from './dbClient';
 import logger from './logger';
 import { ensureProject } from './boardroomDb';
+import {
+  DEFAULT_REPO_AUTOMATION_POLICY,
+  applyRepoAutomationPreset,
+  getRepoAutomationPolicyState,
+  normalizeRepoAutomationPolicy,
+  policyEquals,
+  type RepoAutomationPolicy,
+  type RepoAutomationPolicyState,
+  type RepoAutomationPreset,
+} from './repoAutomationPolicy';
 
 const { query } = dbClient;
 
@@ -39,6 +49,11 @@ async function initProjectSchema(): Promise<void> {
       active_task_branch    TEXT,
       active_pr_url         TEXT,
       active_pr_number      INTEGER,
+      repo_policy_preset    TEXT NOT NULL DEFAULT 'full-auto',
+      allow_task_execution  BOOLEAN NOT NULL DEFAULT true,
+      allow_pr_open         BOOLEAN NOT NULL DEFAULT true,
+      allow_pr_update       BOOLEAN NOT NULL DEFAULT true,
+      allow_auto_push       BOOLEAN NOT NULL DEFAULT true,
       created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -51,6 +66,11 @@ async function initProjectSchema(): Promise<void> {
   await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_task_branch TEXT;`);
   await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_pr_url TEXT;`);
   await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_pr_number INTEGER;`);
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS repo_policy_preset TEXT NOT NULL DEFAULT 'full-auto';`);
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS allow_task_execution BOOLEAN NOT NULL DEFAULT true;`);
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS allow_pr_open BOOLEAN NOT NULL DEFAULT true;`);
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS allow_pr_update BOOLEAN NOT NULL DEFAULT true;`);
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS allow_auto_push BOOLEAN NOT NULL DEFAULT true;`);
 
   // D-027 item 5 (multi-aspect audit + scoring + rotation) — which aspect
   // (security, frontend, backend, ...) the repo's audits are currently
@@ -65,6 +85,19 @@ async function initProjectSchema(): Promise<void> {
       project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       entry       TEXT NOT NULL,
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS repo_policy_audit_log (
+      id             SERIAL PRIMARY KEY,
+      repo_name      TEXT NOT NULL,
+      changed_by     TEXT NOT NULL,
+      preset_before  TEXT NOT NULL,
+      preset_after   TEXT NOT NULL,
+      policy_before  JSONB NOT NULL,
+      policy_after   JSONB NOT NULL,
+      changed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
 
@@ -319,9 +352,182 @@ async function setAspectState(repoName: string, aspect: string, sprintCount: num
   `, [id, repoName, aspect, sprintCount]);
 }
 
+interface RepoPolicyAuditEntry {
+  id: number;
+  repoName: string;
+  changedBy: string;
+  presetBefore: RepoAutomationPreset;
+  presetAfter: RepoAutomationPreset;
+  policyBefore: RepoAutomationPolicy;
+  policyAfter: RepoAutomationPolicy;
+  changedAt: string;
+}
+
+interface RepoPolicyAuditRow {
+  id: number;
+  repo_name: string;
+  changed_by: string;
+  preset_before: RepoAutomationPreset;
+  preset_after: RepoAutomationPreset;
+  policy_before: Partial<RepoAutomationPolicy> | null;
+  policy_after: Partial<RepoAutomationPolicy> | null;
+  changed_at: string;
+}
+
+async function getRepoAutomationPolicy(repoName: string): Promise<RepoAutomationPolicyState> {
+  const id = toId(repoName);
+  const r = await query(
+    'SELECT repo_name, repo_policy_preset, allow_task_execution, allow_pr_open, allow_pr_update, allow_auto_push FROM projects WHERE id = $1',
+    [id]
+  );
+  const row = r.rows[0];
+  if (!row) {
+    return {
+      preset: 'full-auto',
+      policy: { ...DEFAULT_REPO_AUTOMATION_POLICY },
+    };
+  }
+  if (row.repo_name.toLowerCase() !== repoName.toLowerCase()) {
+    logger.error({ repoName, id, collidedWith: row.repo_name },
+      'toId collision — refusing to return repo automation policy for a different repo');
+    return {
+      preset: 'full-auto',
+      policy: { ...DEFAULT_REPO_AUTOMATION_POLICY },
+    };
+  }
+  return getRepoAutomationPolicyState({
+    allowTaskExecution: row.allow_task_execution,
+    allowPrOpen: row.allow_pr_open,
+    allowPrUpdate: row.allow_pr_update,
+    allowAutoPush: row.allow_auto_push,
+  }, row.repo_policy_preset);
+}
+
+function buildNextRepoAutomationPolicyState(
+  existing: RepoAutomationPolicyState,
+  input: {
+    policy?: Partial<RepoAutomationPolicy>;
+    preset?: Exclude<RepoAutomationPreset, 'custom'> | null;
+  }
+): RepoAutomationPolicyState {
+  const nextPolicy = input.preset
+    ? applyRepoAutomationPreset(input.preset)
+    : normalizeRepoAutomationPolicy({
+        ...existing.policy,
+        ...(input.policy ?? {}),
+      });
+  return getRepoAutomationPolicyState(nextPolicy, input.preset ?? null);
+}
+
+async function persistRepoAutomationPolicyState(
+  repoName: string,
+  nextState: RepoAutomationPolicyState
+): Promise<void> {
+  const id = toId(repoName);
+  await query(`
+    INSERT INTO projects (
+      id, repo_name, project_name,
+      repo_policy_preset,
+      allow_task_execution, allow_pr_open, allow_pr_update, allow_auto_push
+    )
+    VALUES ($1, $2, $2, $3, $4, $5, $6, $7)
+    ON CONFLICT (id) DO UPDATE SET
+      repo_policy_preset   = EXCLUDED.repo_policy_preset,
+      allow_task_execution = EXCLUDED.allow_task_execution,
+      allow_pr_open        = EXCLUDED.allow_pr_open,
+      allow_pr_update      = EXCLUDED.allow_pr_update,
+      allow_auto_push      = EXCLUDED.allow_auto_push,
+      updated_at           = NOW()
+    WHERE projects.repo_name = $2
+  `, [
+    id,
+    repoName,
+    nextState.preset,
+    nextState.policy.allowTaskExecution,
+    nextState.policy.allowPrOpen,
+    nextState.policy.allowPrUpdate,
+    nextState.policy.allowAutoPush,
+  ]);
+}
+
+async function appendRepoPolicyAuditEntry(
+  repoName: string,
+  changedBy: string,
+  existing: RepoAutomationPolicyState,
+  nextState: RepoAutomationPolicyState
+): Promise<void> {
+  await query(`
+    INSERT INTO repo_policy_audit_log (
+      repo_name, changed_by, preset_before, preset_after, policy_before, policy_after
+    )
+    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
+  `, [
+    repoName,
+    changedBy,
+    existing.preset,
+    nextState.preset,
+    JSON.stringify(existing.policy),
+    JSON.stringify(nextState.policy),
+  ]);
+}
+
+async function setRepoAutomationPolicy(
+  repoName: string,
+  input: {
+    policy?: Partial<RepoAutomationPolicy>;
+    preset?: Exclude<RepoAutomationPreset, 'custom'> | null;
+    changedBy?: string | null;
+  }
+): Promise<RepoAutomationPolicyState> {
+  const existing = await getRepoAutomationPolicy(repoName);
+  const nextState = buildNextRepoAutomationPolicyState(existing, input);
+  const changed =
+    existing.preset !== nextState.preset ||
+    !policyEquals(existing.policy, nextState.policy);
+  await persistRepoAutomationPolicyState(repoName, nextState);
+
+  if (changed) {
+    await appendRepoPolicyAuditEntry(
+      repoName,
+      input.changedBy?.trim() || 'Unknown',
+      existing,
+      nextState
+    );
+  }
+
+  return nextState;
+}
+
+function mapRepoPolicyAuditEntry(row: RepoPolicyAuditRow): RepoPolicyAuditEntry {
+  return {
+    id: row.id,
+    repoName: row.repo_name,
+    changedBy: row.changed_by,
+    presetBefore: row.preset_before,
+    presetAfter: row.preset_after,
+    policyBefore: normalizeRepoAutomationPolicy(row.policy_before),
+    policyAfter: normalizeRepoAutomationPolicy(row.policy_after),
+    changedAt: row.changed_at,
+  };
+}
+
+async function getRepoPolicyAuditLog(repoName: string, limit = 20): Promise<RepoPolicyAuditEntry[]> {
+  const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 20;
+  const r = await query(`
+    SELECT id, repo_name, changed_by, preset_before, preset_after, policy_before, policy_after, changed_at
+    FROM repo_policy_audit_log
+    WHERE repo_name = $1
+    ORDER BY changed_at DESC, id DESC
+    LIMIT $2
+  `, [repoName, safeLimit]);
+
+  return r.rows.map((row) => mapRepoPolicyAuditEntry(row as RepoPolicyAuditRow));
+}
+
 export = {
   initProjectSchema, findProject, updateProject,
   appendProjectChangelog, updateProjectBuilderAgent, createProject,
   getActiveTaskBranch, setActiveTaskBranch, clearActiveTaskBranch,
   getAspectState, setAspectState,
+  getRepoAutomationPolicy, setRepoAutomationPolicy, getRepoPolicyAuditLog,
 };

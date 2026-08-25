@@ -20,6 +20,30 @@ interface Stats {
   agentCount: number;
   monthlyCost: number;
   budgetLimit: number;
+  governanceStatus: "healthy" | "drift" | "unconfigured";
+  governanceDriftCount: number;
+}
+
+function getGovernancePresentation(stats: Stats | null) {
+  const governanceStatus = stats?.governanceStatus ?? "unconfigured";
+  const governanceDriftCount = stats?.governanceDriftCount ?? 0;
+  return {
+    color:
+      governanceStatus === "healthy" ? "#22C55E" :
+      governanceStatus === "drift" ? "#EF4444" :
+      "#F59E0B",
+    label:
+      governanceStatus === "healthy" ? "Governed" :
+      governanceStatus === "drift" ? `${governanceDriftCount} drift` :
+      "Unchecked",
+  };
+}
+
+async function fetchTopbarStats(): Promise<Stats | null> {
+  const response = await fetch("/api/stats");
+  if (!response.ok) return null;
+  const data = await response.json();
+  return data && !("error" in data) ? (data as Stats) : null;
 }
 
 export function Topbar() {
@@ -28,15 +52,15 @@ export function Topbar() {
   const [stats, setStats] = useState<Stats | null>(null);
 
   useEffect(() => {
-    fetch("/api/stats")
-      .then(r => r.ok ? r.json() : null)
-      .then((d: Stats | null) => { if (d && !("error" in d)) setStats(d); })
-      .catch(() => {});
-    const id = setInterval(() => {
-      fetch("/api/stats")
-        .then(r => r.ok ? r.json() : null)
-        .then((d: Stats | null) => { if (d && !("error" in d)) setStats(d); })
+    const refreshStats = () => {
+      fetchTopbarStats()
+        .then((data) => { if (data) setStats(data); })
         .catch(() => {});
+    };
+
+    refreshStats();
+    const id = setInterval(() => {
+      refreshStats();
     }, 30000);
     return () => clearInterval(id);
   }, []);
@@ -46,6 +70,7 @@ export function Topbar() {
   const total   = stats?.agentCount ?? null;
   const cost    = stats?.monthlyCost ?? null;
   const limit   = stats?.budgetLimit ?? 30;
+  const governance = getGovernancePresentation(stats);
 
   return (
     <header className="h-[52px] flex-shrink-0 flex items-center gap-3 px-5 bg-s-surface border-b border-s-border relative overflow-hidden">
@@ -78,6 +103,13 @@ export function Topbar() {
         ) : (
           <span className="text-[9px] font-mono text-s-dim">loading…</span>
         )}
+
+        <Divider />
+
+        <div className="flex items-center gap-1.5 text-[11px]">
+          <span className="text-s-muted">Governance</span>
+          <span className="font-mono font-bold" style={{ color: governance.color }}>{governance.label}</span>
+        </div>
 
         <Divider />
 

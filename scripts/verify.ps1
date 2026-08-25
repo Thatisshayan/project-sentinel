@@ -1,4 +1,4 @@
-# Repo-adaptive governance verification (PowerShell / Windows).
+﻿# Repo-adaptive governance verification (PowerShell / Windows).
 # Mirrors scripts/verify.sh: secret-scan, doc-freshness, build, test, deploy-dry.
 # Scoped to $RepoRoot only (does NOT walk outside the repo).
 $ErrorActionPreference = 'Continue'
@@ -25,7 +25,7 @@ if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
   if ($LASTEXITCODE -ne 0) { Err "secret-scan" "gitleaks found secrets" }
 } elseif ($env:CI -eq "true" -or $env:GITHUB_ACTIONS) {
   if (Get-Command docker -ErrorAction SilentlyContinue) {
-    docker run --rm -v "${REPO_ROOT}:/repo:ro" -w /repo "$GitleaksImage" detect --no-banner --redact
+    docker run --rm -v "${RepoRoot}:/repo:ro" -w /repo "$GitleaksImage" detect --no-banner --redact
     if ($LASTEXITCODE -eq 0) { Notice "secret-scan" "no secrets found (dockerized gitleaks v8.30.1)" }
     elseif ($LASTEXITCODE -eq 1) { Err "secret-scan" "dockerized gitleaks found secrets" }
     else { Err "secret-scan" "dockerized gitleaks exited with code $LASTEXITCODE (scanner/runtime error)" }

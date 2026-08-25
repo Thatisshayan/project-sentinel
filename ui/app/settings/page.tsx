@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Switch } from "@/components/ui/switch";
 import { callAction } from "@/lib/actions";
+import type { GovernanceStatus } from "@/lib/api";
 
 // Map backend canonical IDs to frontend display names and vice versa
 const AGENT_ID_MAP: Record<string, string> = {
@@ -59,9 +60,12 @@ export default function SettingsPage() {
   const [resuming, setResuming] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [governance, setGovernance] = useState<GovernanceStatus | null>(null);
+  const [governanceError, setGovernanceError] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings();
+    loadGovernance();
   }, []);
 
   const loadSettings = async () => {
@@ -82,6 +86,21 @@ export default function SettingsPage() {
       console.error("Failed to load settings:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadGovernance = async () => {
+    try {
+      const response = await fetch("/api/governance");
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error || `Governance check failed (${response.status})`);
+      }
+      setGovernance(body);
+      setGovernanceError(null);
+    } catch (err) {
+      console.error("Failed to load governance:", err);
+      setGovernanceError(err instanceof Error ? err.message : "Failed to load governance");
     }
   };
 
@@ -198,6 +217,38 @@ export default function SettingsPage() {
         <Row label="Email digest" desc="Daily summary via Resend">
           <Switch checked={email} onCheckedChange={setEmail} />
         </Row>
+      </Section>
+
+      <Section title="Governance">
+        <Row
+          label="Branch protection"
+          desc={governance?.repoFullName ? `${governance.repoFullName} / ${governance.branch}` : "Control-plane branch policy status"}
+        >
+          <span
+            className={`text-[11px] rounded px-2 py-1 border ${
+              governance?.status === "healthy"
+                ? "border-s-green/40 text-s-green"
+                : governance?.status === "drift"
+                  ? "border-s-red/40 text-s-red"
+                  : "border-s-amber/40 text-s-amber"
+            }`}
+          >
+            {governance?.status === "healthy" ? "Aligned" : governance?.status === "drift" ? "Drift detected" : "Unchecked"}
+          </span>
+        </Row>
+        {governanceError ? (
+          <div className="px-4 py-3 text-[11px] text-s-red">{governanceError}</div>
+        ) : (
+          <div className="px-4 py-3 text-[11px] text-s-muted space-y-1">
+            {(governance?.drift ?? []).length === 0 ? (
+              <div>Branch protection matches the documented `main` policy.</div>
+            ) : (
+              (governance?.drift ?? []).map((item) => (
+                <div key={item}>- {item}</div>
+              ))
+            )}
+          </div>
+        )}
       </Section>
 
       <div className="mb-4 flex items-center gap-3">

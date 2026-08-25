@@ -4,6 +4,7 @@ Set-Location $RepoRoot
 
 $Failures = 0
 $Warnings = 0
+$StartupWaitSeconds = if ($env:STARTUP_WAIT_SECONDS) { [int]$env:STARTUP_WAIT_SECONDS } else { 60 }
 
 function Pass($Message) { Write-Host "PASS: $Message" }
 function Warn($Message) { Write-Host "WARN: $Message"; $script:Warnings++ }
@@ -32,6 +33,49 @@ function Get-HttpStatus([string]$Url, [hashtable]$Headers = @{}) {
   }
 }
 
+function Get-BackendComposeStatus {
+  return docker compose -f docker-compose.prod.yml ps --format json backend 2>$null
+}
+
+function Wait-ForBackendHealth([int]$TimeoutSeconds) {
+  for ($i = 0; $i -lt $TimeoutSeconds; $i++) {
+    $status = Get-BackendComposeStatus
+    if ($status -match '"Health":"healthy"') {
+      return 'healthy'
+    }
+    if ($status -notmatch '"State":"running"') {
+      return 'not-running'
+    }
+    Start-Sleep -Seconds 1
+  }
+
+  $status = Get-BackendComposeStatus
+  if ($status -match '"Health":"healthy"') { return 'healthy' }
+  if ($status -match '"Health":"starting"') { return 'starting' }
+  if ($status -match '"State":"running"') { return 'running' }
+  return 'not-running'
+}
+
+function Get-BackendHttpStatus([string]$Path) {
+  return docker compose -f docker-compose.prod.yml exec -T backend sh -lc "node -e \"require('http').get('http://localhost:3000$Path', r => { console.log(r.statusCode); process.exit(0); }).on('error', () => process.exit(1))\"" 2>$null
+}
+
+function Wait-ForBackendHttpStatus([string]$Path, [string]$Expected, [int]$TimeoutSeconds) {
+  $lastStatus = '000'
+  for ($i = 0; $i -lt $TimeoutSeconds; $i++) {
+    $lastStatus = (Get-BackendHttpStatus $Path | Out-String).Trim()
+    if ($lastStatus -eq $Expected) {
+      return $lastStatus
+    }
+    Start-Sleep -Seconds 1
+  }
+
+  if ([string]::IsNullOrWhiteSpace($lastStatus)) {
+    return '000'
+  }
+  return $lastStatus
+}
+
 docker compose -f docker-compose.prod.yml ps *> $null
 if ($LASTEXITCODE -eq 0) {
   Pass 'docker compose responds'
@@ -39,11 +83,11 @@ if ($LASTEXITCODE -eq 0) {
   Fail 'docker compose is not available for the production stack'
 }
 
-$backendPsOutput = docker compose -f docker-compose.prod.yml ps --format json backend 2>$null
-if ($backendPsOutput -match '"Health":"healthy"') {
+$backendHealth = Wait-ForBackendHealth $StartupWaitSeconds
+if ($backendHealth -eq 'healthy') {
   Pass 'backend container is healthy'
-} elseif ($backendPsOutput -match '"State":"running"') {
-  Warn 'backend container is running but not yet healthy'
+} elseif ($backendHealth -in @('starting', 'running')) {
+  Warn "backend container is running but not yet healthy after $($StartupWaitSeconds)s"
 } else {
   Fail 'backend container is not running'
 }
@@ -55,18 +99,18 @@ if ($LASTEXITCODE -eq 0) {
   Fail 'backend container aider command failed'
 }
 
-$internalHealth = docker compose -f docker-compose.prod.yml exec -T backend sh -lc "node -e \"require('http').get('http://localhost:3000/health', r => { console.log(r.statusCode); process.exit(0); }).on('error', () => process.exit(1))\"" 2>$null
-if (($internalHealth | Out-String).Trim() -eq '200') {
+$internalHealth = Wait-ForBackendHttpStatus '/health' '200' $StartupWaitSeconds
+if ($internalHealth -eq '200') {
   Pass 'backend container /health returns 200'
 } else {
-  Fail "backend container /health returned $($internalHealth | Out-String).Trim()"
+  Fail "backend container /health returned $internalHealth"
 }
 
-$internalReady = docker compose -f docker-compose.prod.yml exec -T backend sh -lc "node -e \"require('http').get('http://localhost:3000/ready', r => { console.log(r.statusCode); process.exit(0); }).on('error', () => process.exit(1))\"" 2>$null
-if (($internalReady | Out-String).Trim() -eq '200') {
+$internalReady = Wait-ForBackendHttpStatus '/ready' '200' $StartupWaitSeconds
+if ($internalReady -eq '200') {
   Pass 'backend container /ready returns 200'
 } else {
-  Fail "backend container /ready returned $($internalReady | Out-String).Trim()"
+  Fail "backend container /ready returned $internalReady"
 }
 
 $publicDomain = Get-EnvValue '.env' 'PUBLIC_DOMAIN'

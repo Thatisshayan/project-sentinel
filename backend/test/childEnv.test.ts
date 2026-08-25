@@ -55,6 +55,7 @@ describe('buildChildEnv', () => {
 
   it('omits undefined allowlisted keys', () => {
     process.env = { ...ORIGINAL } as NodeJS.ProcessEnv;
+    delete process.env['NVIDIA_API_KEY'];
     const scoped = buildChildEnv();
     // No NVIDIA_API_KEY set -> should be absent, not undefined-valued leak
     expect('NVIDIA_API_KEY' in scoped).toBe(false);

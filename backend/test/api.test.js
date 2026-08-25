@@ -15,11 +15,19 @@ jest.mock('../src/projectMemory', () => ({
 
 jest.mock('../src/projectDb', () => ({
   getAspectState: jest.fn(),
+  getRepoAutomationPolicy: jest.fn(),
+  setRepoAutomationPolicy: jest.fn(),
+  getRepoPolicyAuditLog: jest.fn(),
+}));
+
+jest.mock('../src/governanceStatus', () => ({
+  getGovernanceStatus: jest.fn(),
 }));
 
 const { query }  = require('../src/dbClient');
 const projectMemory = require('../src/projectMemory');
 const projectDb  = require('../src/projectDb');
+const governanceStatus = require('../src/governanceStatus');
 const request    = require('supertest');
 const express    = require('express');
 const apiRouter  = require('../src/api');
@@ -138,11 +146,32 @@ describe('GET /api/repo/:name', () => {
       .mockResolvedValueOnce({ rows: [] })                                            // tasks
       .mockResolvedValueOnce({ rows: [] });                                           // cycle
     projectDb.getAspectState.mockResolvedValueOnce({ aspect: 'security', sprintCount: 2 });
+    projectDb.getRepoAutomationPolicy.mockResolvedValueOnce({
+      preset: 'full-auto',
+      policy: {
+        allowTaskExecution: true,
+        allowPrOpen: true,
+        allowPrUpdate: true,
+        allowAutoPush: true,
+      },
+    });
+    projectDb.getRepoPolicyAuditLog.mockResolvedValueOnce([{ id: 1, changedBy: 'Dashboard' }]);
 
     const res = await request(app).get('/api/repo/tapcash');
     expect(res.status).toBe(200);
     expect(res.body.aspect).toEqual({ aspect: 'security', sprintCount: 2 });
+    expect(res.body.policy).toEqual({
+      preset: 'full-auto',
+      policy: {
+        allowTaskExecution: true,
+        allowPrOpen: true,
+        allowPrUpdate: true,
+        allowAutoPush: true,
+      },
+    });
+    expect(res.body.policyAuditLog).toEqual([{ id: 1, changedBy: 'Dashboard' }]);
     expect(projectDb.getAspectState).toHaveBeenCalledWith('tapcash');
+    expect(projectDb.getRepoPolicyAuditLog).toHaveBeenCalledWith('tapcash', 10);
   });
 
   it('returns aspect: null when no aspect state exists yet', async () => {
@@ -151,6 +180,16 @@ describe('GET /api/repo/:name', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
     projectDb.getAspectState.mockResolvedValueOnce(null);
+    projectDb.getRepoAutomationPolicy.mockResolvedValueOnce({
+      preset: 'full-auto',
+      policy: {
+        allowTaskExecution: true,
+        allowPrOpen: true,
+        allowPrUpdate: true,
+        allowAutoPush: true,
+      },
+    });
+    projectDb.getRepoPolicyAuditLog.mockResolvedValueOnce([]);
 
     const res = await request(app).get('/api/repo/tapcash');
     expect(res.status).toBe(200);
@@ -159,6 +198,125 @@ describe('GET /api/repo/:name', () => {
 
   it('returns 400 for an invalid repo name', async () => {
     const res = await request(app).get('/api/repo/..%2Fetc');
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /api/governance/status', () => {
+  it('returns the governance snapshot from governanceStatus', async () => {
+    governanceStatus.getGovernanceStatus.mockResolvedValueOnce({
+      repoFullName: 'your-org/project-sentinel',
+      branch: 'main',
+      status: 'drift',
+      branchProtectionConfigured: false,
+      enforceAdmins: false,
+      requirePullRequestReviews: false,
+      dismissStaleReviews: false,
+      requireUpToDateBranches: false,
+      allowForcePushes: true,
+      allowDeletions: true,
+      requiredStatusChecks: [],
+      missingRequiredChecks: ['gate'],
+      drift: ['Branch protection is not configured on main.'],
+    });
+
+    const res = await request(app).get('/api/governance/status');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('drift');
+    expect(res.body.repoFullName).toBe('your-org/project-sentinel');
+    expect(res.body.drift).toContain('Branch protection is not configured on main.');
+  });
+
+  it('returns 500 when governance status lookup throws', async () => {
+    governanceStatus.getGovernanceStatus.mockRejectedValueOnce(new Error('boom'));
+
+    const res = await request(app).get('/api/governance/status');
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('boom');
+  });
+});
+
+describe('POST /api/repo/:name/policy', () => {
+  it('updates repo automation policy for a valid repo name', async () => {
+    projectDb.getRepoAutomationPolicy.mockResolvedValueOnce({
+      preset: 'full-auto',
+      policy: {
+        allowTaskExecution: true,
+        allowPrOpen: true,
+        allowPrUpdate: true,
+        allowAutoPush: true,
+      },
+    });
+    projectDb.setRepoAutomationPolicy.mockResolvedValueOnce({
+      preset: 'custom',
+      policy: {
+        allowTaskExecution: false,
+        allowPrOpen: true,
+        allowPrUpdate: true,
+        allowAutoPush: true,
+      },
+    });
+
+    const res = await request(app)
+      .post('/api/repo/tapcash/policy')
+      .send({ allowTaskExecution: false });
+
+    expect(res.status).toBe(200);
+    expect(res.body.policy.allowTaskExecution).toBe(false);
+    expect(projectDb.setRepoAutomationPolicy).toHaveBeenCalledWith('tapcash', {
+      preset: null,
+      policy: {
+        allowTaskExecution: false,
+      },
+      changedBy: 'Dashboard',
+    });
+  });
+
+  it('applies a preset update and preserves actor attribution', async () => {
+    projectDb.getRepoAutomationPolicy.mockResolvedValueOnce({
+      preset: 'custom',
+      policy: {
+        allowTaskExecution: false,
+        allowPrOpen: true,
+        allowPrUpdate: false,
+        allowAutoPush: false,
+      },
+    });
+    projectDb.setRepoAutomationPolicy.mockResolvedValueOnce({
+      preset: 'audit-only',
+      policy: {
+        allowTaskExecution: false,
+        allowPrOpen: false,
+        allowPrUpdate: false,
+        allowAutoPush: false,
+      },
+    });
+
+    const res = await request(app)
+      .post('/api/repo/tapcash/policy')
+      .send({ preset: 'audit-only', changedBy: 'Operator' });
+
+    expect(res.status).toBe(200);
+    expect(projectDb.setRepoAutomationPolicy).toHaveBeenCalledWith('tapcash', {
+      preset: 'audit-only',
+      policy: undefined,
+      changedBy: 'Operator',
+    });
+  });
+
+  it('returns 400 for an unknown policy field', async () => {
+    const res = await request(app)
+      .post('/api/repo/tapcash/policy')
+      .send({ noSuchField: true });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for non-boolean values', async () => {
+    const res = await request(app)
+      .post('/api/repo/tapcash/policy')
+      .send({ allowTaskExecution: 'yes' });
+
     expect(res.status).toBe(400);
   });
 });

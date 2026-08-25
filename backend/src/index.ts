@@ -49,7 +49,6 @@ if (dsn) {
     environment,
     tracesSampleRate: environment === 'production' ? 0.1 : 1.0,
     profilesSampleRate: environment === 'production' ? 0.1 : 1.0,
-    enableTracing: true,
     debug: environment !== 'production',
     beforeSend(event, hint) {
       const error = hint.originalException;

@@ -334,9 +334,17 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery): Promis
     const repoFull   = repoFullName(repoName);
     try {
       if (repoAction === 'audit') {
-        const { triggerAudit } = require('./auditOrchestrator');
-        fireAndForget(triggerAudit({ repoFullName: repoFull, repoName, commitSha: `manual-${Date.now()}`,
-          commitMessage: '[manual]', branchName: 'main', authorName: 'Human', authorEmail: '', topicId: threadId }), { label: 'telegramCommands' })
+        const branchName = await getDefaultBranch(repoFull);
+        fireAndForget(triggerAudit({
+          repoFullName: repoFull,
+          repoName,
+          commitSha: `manual-${Date.now()}`,
+          commitMessage: '[manual]',
+          branchName,
+          authorName: 'Human',
+          authorEmail: '',
+          topicId: threadId,
+        }), { label: 'telegramCommands' })
         await sendTelegramMessage(`Audit triggered for ${repoName}.`, null, threadId);
       } else if (repoAction === 'execute') {
         fireAndForget(executeApprovedTasks(repoFull, repoName, threadId), { label: 'telegramCommands' })
