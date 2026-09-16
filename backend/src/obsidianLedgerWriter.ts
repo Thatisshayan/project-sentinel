@@ -1,5 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import os from 'os';
 import path from 'path';
+import simpleGit from 'simple-git';
 import logger from './logger';
 
 /**
@@ -15,15 +17,27 @@ import logger from './logger';
  * into the same ledger/tasks/ directory, so next-id computation here matches
  * sentinel_bridge.py's own scheme (max existing NNN + 1) to avoid collisions
  * — a full lock isn't implemented since the two writers are not expected to
- * run at the exact same instant on this single dev machine.
+ * run at the exact same instant.
  *
- * Entirely optional and silent when the boardroom repo isn't checked out
- * next to this one (e.g. the production Oracle VM container) — same
- * local-machine-only category as that repo's own boardroom-daily-sync cron.
- * Only writes files; does not commit or push (a deliberate scope cut — see
- * D-032 in docs/governance/DEFERRED_WORK.md).
+ * Two modes, decided by whether OBSIDIAN_BOARDROOM_WRITE_TOKEN is set (see
+ * D-036 in docs/governance/DEFERRED_WORK.md for the full decision record):
+ * - Unset (dev default): writes only to a sibling checkout
+ *   (OBSIDIAN_BOARDROOM_PATH, default ../OBSIDIAN-TEAM-BOARDROOM) if one
+ *   exists; silent no-op otherwise. Never commits or pushes.
+ * - Set (production): clones OBSIDIAN-TEAM-BOARDROOM fresh into a temp dir
+ *   on every call (so it always operates on the true remote state, and so
+ *   .sentinel-task-map.json survives across otherwise-stateless runs),
+ *   writes the same files, then commits and pushes DIRECTLY to master. This
+ *   is a scoped, explicitly-documented exception to that repo's own Rule 2
+ *   ("never commit... directly to main") — see OBSIDIAN-TEAM-BOARDROOM's
+ *   REPO_RULES.md, section "Automated Ledger Mirror Exception". The push
+ *   only ever stages TASKS_DIR_REL / POOL_FILE_REL / MAP_FILE_REL, never a
+ *   blanket `git add -A`, so a bug here can't carry unrelated working-tree
+ *   changes to master with zero review.
  */
 
+const BOARDROOM_REPO = 'Thatisshayan/OBSIDIAN-TEAM-BOARDROOM';
+const BOARDROOM_BRANCH = 'master';
 const TASKS_DIR_REL = path.join('ledger', 'tasks');
 const POOL_FILE_REL = path.join('ledger', 'pool.md');
 const MAP_FILE_REL = path.join('ledger', '.sentinel-task-map.json');
@@ -66,6 +80,54 @@ function resolveBoardroomPath(): string {
 
 function isAvailable(boardroomPath: string): boolean {
   return existsSync(path.join(boardroomPath, TASKS_DIR_REL));
+}
+
+function getBoardroomWriteToken(): string | null {
+  const token = process.env['OBSIDIAN_BOARDROOM_WRITE_TOKEN']?.trim();
+  return token ? token : null;
+}
+
+async function pushBoardroomChanges(boardroomPath: string): Promise<void> {
+  const git = simpleGit(boardroomPath);
+  await git.addConfig('user.name', 'sentinel-ledger-writer');
+  await git.addConfig('user.email', 'sentinel-ledger-writer@users.noreply.github.com');
+  // Narrow, explicit path list — never `git add -A`. See the module-level
+  // doc comment: this is the enforcement for the "scoped exception" this
+  // automation is allowed under.
+  await git.add([TASKS_DIR_REL, POOL_FILE_REL, MAP_FILE_REL]);
+  const status = await git.status();
+  if (status.staged.length === 0) return; // idempotent re-run, nothing changed
+  await git.commit('chore(ledger): sentinel-mirrored ledger update [automated]');
+  await git.push('origin', BOARDROOM_BRANCH);
+}
+
+/**
+ * Resolves a usable boardroom working tree for the duration of `fn`, in
+ * whichever of the two modes described in the module doc comment applies,
+ * then (push mode only) commits and pushes whatever `fn` wrote. Returns
+ * null without calling `fn` when no boardroom tree is available (dev mode,
+ * sibling checkout missing) — callers treat that as the existing silent
+ * no-op.
+ */
+async function withBoardroomCheckout<T>(fn: (boardroomPath: string) => T): Promise<T | null> {
+  const token = getBoardroomWriteToken();
+  if (!token) {
+    const boardroomPath = resolveBoardroomPath();
+    if (!isAvailable(boardroomPath)) return null;
+    return fn(boardroomPath);
+  }
+
+  const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'obsidian-ledger-'));
+  try {
+    const cloneUrl = `https://${token}@github.com/${BOARDROOM_REPO}.git`;
+    await simpleGit().clone(cloneUrl, tmpDir, ['--branch', BOARDROOM_BRANCH, '--single-branch', '--depth', '1']);
+    mkdirSync(path.join(tmpDir, TASKS_DIR_REL), { recursive: true });
+    const result = fn(tmpDir);
+    await pushBoardroomChanges(tmpDir);
+    return result;
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
 }
 
 function readMap(boardroomPath: string): LedgerTaskMap {
@@ -228,31 +290,30 @@ function appendProgressLog(content: string, line: string): string {
 
 export async function createLedgerTask(params: CreateLedgerTaskParams): Promise<void> {
   try {
-    const boardroomPath = resolveBoardroomPath();
-    if (!isAvailable(boardroomPath)) return;
+    await withBoardroomCheckout((boardroomPath) => {
+      mkdirSync(path.join(boardroomPath, TASKS_DIR_REL), { recursive: true });
+      let ledgerNumber = nextLedgerNumber(boardroomPath);
+      let fileName = `${String(ledgerNumber).padStart(3, '0')}-${slugify(`${params.repoFullName}-${params.title}`)}.md`;
+      let filePath = path.join(boardroomPath, TASKS_DIR_REL, fileName);
+      // Defense-in-depth against a rare race with sentinel_bridge.py picking
+      // the same next id between our scan and our write.
+      while (existsSync(filePath)) {
+        ledgerNumber += 1;
+        fileName = `${String(ledgerNumber).padStart(3, '0')}-${slugify(`${params.repoFullName}-${params.title}`)}.md`;
+        filePath = path.join(boardroomPath, TASKS_DIR_REL, fileName);
+      }
 
-    mkdirSync(path.join(boardroomPath, TASKS_DIR_REL), { recursive: true });
-    let ledgerNumber = nextLedgerNumber(boardroomPath);
-    let fileName = `${String(ledgerNumber).padStart(3, '0')}-${slugify(`${params.repoFullName}-${params.title}`)}.md`;
-    let filePath = path.join(boardroomPath, TASKS_DIR_REL, fileName);
-    // Defense-in-depth against a rare race with sentinel_bridge.py picking
-    // the same next id between our scan and our write.
-    while (existsSync(filePath)) {
-      ledgerNumber += 1;
-      fileName = `${String(ledgerNumber).padStart(3, '0')}-${slugify(`${params.repoFullName}-${params.title}`)}.md`;
-      filePath = path.join(boardroomPath, TASKS_DIR_REL, fileName);
-    }
+      const created = todayIso();
+      const ledgerId = `TASK-${String(ledgerNumber).padStart(3, '0')}`;
+      writeFileSync(filePath, renderTaskFile(params, ledgerId, created), 'utf8');
+      appendPoolRow(boardroomPath, ledgerNumber, `[Sentinel] ${params.title} (${params.repoFullName})`, params.priority, mapStatus(params.status));
 
-    const created = todayIso();
-    const ledgerId = `TASK-${String(ledgerNumber).padStart(3, '0')}`;
-    writeFileSync(filePath, renderTaskFile(params, ledgerId, created), 'utf8');
-    appendPoolRow(boardroomPath, ledgerNumber, `[Sentinel] ${params.title} (${params.repoFullName})`, params.priority, mapStatus(params.status));
+      const map = readMap(boardroomPath);
+      map[String(params.postgresTaskId)] = { ledgerNumber, fileName, repoFullName: params.repoFullName };
+      writeMap(boardroomPath, map);
 
-    const map = readMap(boardroomPath);
-    map[String(params.postgresTaskId)] = { ledgerNumber, fileName, repoFullName: params.repoFullName };
-    writeMap(boardroomPath, map);
-
-    logger.info({ postgresTaskId: params.postgresTaskId, ledgerId, fileName }, 'obsidianLedgerWriter: ledger task created');
+      logger.info({ postgresTaskId: params.postgresTaskId, ledgerId, fileName }, 'obsidianLedgerWriter: ledger task created');
+    });
   } catch (err: unknown) {
     logger.warn({ err: err instanceof Error ? err.message : String(err), postgresTaskId: params.postgresTaskId },
       'obsidianLedgerWriter: could not create ledger task — non-blocking');
@@ -262,33 +323,32 @@ export async function createLedgerTask(params: CreateLedgerTaskParams): Promise<
 export async function updateLedgerTaskStatus(postgresTaskId: number | null, status: string, extra: UpdateLedgerTaskExtra = {}): Promise<void> {
   if (!postgresTaskId) return;
   try {
-    const boardroomPath = resolveBoardroomPath();
-    if (!isAvailable(boardroomPath)) return;
+    await withBoardroomCheckout((boardroomPath) => {
+      const map = readMap(boardroomPath);
+      const entry = map[String(postgresTaskId)];
+      if (!entry) return; // task was never mirrored (created before this feature, or boardroom unavailable at create time)
 
-    const map = readMap(boardroomPath);
-    const entry = map[String(postgresTaskId)];
-    if (!entry) return; // task was never mirrored (created before this feature, or boardroom unavailable at create time)
+      const filePath = path.join(boardroomPath, TASKS_DIR_REL, entry.fileName);
+      if (!existsSync(filePath)) return;
 
-    const filePath = path.join(boardroomPath, TASKS_DIR_REL, entry.fileName);
-    if (!existsSync(filePath)) return;
+      const ledgerStatus = mapStatus(status);
+      const updated = todayIso();
+      let content = readFileSync(filePath, 'utf8');
+      content = content.replace(/^status:.*$/m, `status: ${ledgerStatus}`);
+      content = content.replace(/^updated:.*$/m, `updated: ${updated}`);
 
-    const ledgerStatus = mapStatus(status);
-    const updated = todayIso();
-    let content = readFileSync(filePath, 'utf8');
-    content = content.replace(/^status:.*$/m, `status: ${ledgerStatus}`);
-    content = content.replace(/^updated:.*$/m, `updated: ${updated}`);
+      const extraNotes: string[] = [];
+      if (extra.prUrl) extraNotes.push(`PR: ${extra.prUrl}`);
+      if (extra.commitUrl) extraNotes.push(`Commit: ${extra.commitUrl}`);
+      if (extra.failureReason) extraNotes.push(`Reason: ${extra.failureReason.slice(0, 300)}`);
+      const suffix = extraNotes.length > 0 ? ` (${extraNotes.join(', ')})` : '';
+      content = appendProgressLog(content, `- ${updated}: status -> ${ledgerStatus}${suffix}.`);
+      writeFileSync(filePath, content, 'utf8');
 
-    const extraNotes: string[] = [];
-    if (extra.prUrl) extraNotes.push(`PR: ${extra.prUrl}`);
-    if (extra.commitUrl) extraNotes.push(`Commit: ${extra.commitUrl}`);
-    if (extra.failureReason) extraNotes.push(`Reason: ${extra.failureReason.slice(0, 300)}`);
-    const suffix = extraNotes.length > 0 ? ` (${extraNotes.join(', ')})` : '';
-    content = appendProgressLog(content, `- ${updated}: status -> ${ledgerStatus}${suffix}.`);
-    writeFileSync(filePath, content, 'utf8');
+      updatePoolRow(boardroomPath, entry.ledgerNumber, ledgerStatus);
 
-    updatePoolRow(boardroomPath, entry.ledgerNumber, ledgerStatus);
-
-    logger.debug({ postgresTaskId, ledgerStatus }, 'obsidianLedgerWriter: ledger task status updated');
+      logger.debug({ postgresTaskId, ledgerStatus }, 'obsidianLedgerWriter: ledger task status updated');
+    });
   } catch (err: unknown) {
     logger.warn({ err: err instanceof Error ? err.message : String(err), postgresTaskId },
       'obsidianLedgerWriter: could not update ledger task — non-blocking');
