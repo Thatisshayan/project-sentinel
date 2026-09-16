@@ -378,6 +378,7 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 2. Evaluate whether the `ui` findings should be handled by a controlled `next` 16 migration versus targeted transitive overrides where safe.
 3. Eliminate the backend `brace-expansion` residual by tracing the exact remaining transitive chain and upgrading or overriding it intentionally.
 4. Re-run `npm audit --json` and the repo verify path after that follow-up.
+**Status**: Deferred — tracked separately from the 29 GitHub alerts remediated on 2026-08-22.
 
 ### D-036: obsidianLedgerWriter.ts writes but does not commit/push into OBSIDIAN-TEAM-BOARDROOM
 **Scope**: `backend/src/obsidianLedgerWriter.ts` (2026-09-16) mirrors every `audit_tasks` create/status-update into `OBSIDIAN-TEAM-BOARDROOM/ledger/tasks/<NNN>-*.md` + a matching `ledger/pool.md` row, writing directly to that sibling repo's working tree when it's checked out next to this one (`OBSIDIAN_BOARDROOM_PATH`, default `../OBSIDIAN-TEAM-BOARDROOM`). This is a deliberate, explicitly-approved exception to that repo's own stated rule in `scripts/sentinel_bridge.py` ("no cross-repo writes from Sentinel, so branch isolation is preserved") — Sentinel now does write cross-repo for this one purpose.
@@ -390,4 +391,3 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 2. If Sentinel should commit: add a scoped git commit (own branch, per that repo's branch policy) to `obsidianLedgerWriter.ts`, gated behind an explicit opt-in env var so the default stays write-only.
 3. Document the push exception in the boardroom repo's own `USAGE.md`/`REPO_RULES.md`.
 **Status**: Deferred — writer is live and tested (`backend/test/obsidianLedgerWriter.test.ts`); commit/push behavior intentionally out of scope for this pass.
-**Status**: Deferred — tracked separately from the 29 GitHub alerts remediated on 2026-08-22.
