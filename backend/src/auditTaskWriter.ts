@@ -1,5 +1,6 @@
 import logger from './logger';
 import { checkDuplicateTask, createAuditTask, updateAuditTask } from './auditDb';
+import { createLedgerTask, updateLedgerTaskStatus } from './obsidianLedgerWriter';
 import type { AuditResult } from './types/auditResult';
 
 /**
@@ -10,6 +11,10 @@ import type { AuditResult } from './types/auditResult';
  * (auditOrchestrator.ts, selfAuditor.ts, sprintOrchestrator.ts,
  * processPREvent.ts) needed minimal changes: pass the Postgres task id
  * (task.id) where they used to pass task.notion_page_id.
+ *
+ * Also mirrors every task into the OBSIDIAN-TEAM-BOARDROOM ledger as a
+ * plain Markdown+frontmatter file (obsidianLedgerWriter.ts) — best-effort,
+ * silently skipped when that sibling repo isn't checked out locally.
  */
 
 interface WrittenTask { taskNumber: number; title: string; taskId: number | null; }
@@ -64,6 +69,22 @@ async function writeTasksToNotion(auditResult: AuditResult, auditCycleId: number
         builderAgent:        builderAgent || 'nvidia',
       });
       written.push({ taskNumber: task.taskNumber, title: task.title, taskId: row?.id ?? null });
+
+      if (row?.id) {
+        await createLedgerTask({
+          postgresTaskId:      row.id,
+          repoFullName,
+          title:               task.title,
+          description:         task.description,
+          priority:            task.priority,
+          category:            task.category,
+          affectedFiles:       task.affectedFiles,
+          acceptanceCriteria:  task.acceptanceCriteria,
+          safetyReason:        task.safetyReason,
+          builderAgent:        builderAgent || 'nvidia',
+          status:              'queued',
+        });
+      }
     } catch (err: any) {
       logger.error({ taskNumber: task.taskNumber, err: err.message },
         'Failed to save task to database');
@@ -88,6 +109,7 @@ async function updateNotionTaskStatus(taskId: number | null, status: string, ext
     if (extra.commitUrl)     updates['commit_url']     = extra.commitUrl;
     if (extra.failureReason) updates['failure_reason'] = extra.failureReason.substring(0, 500);
     await updateAuditTask(taskId, updates);
+    await updateLedgerTaskStatus(taskId, status, extra);
   } catch (err: any) {
     logger.warn({ err: err.message, taskId }, 'Could not update task status');
   }
