@@ -378,4 +378,16 @@ The `auditOrchestrator.ts:223` `branchName || 'main'` remains as defense-in-dept
 2. Evaluate whether the `ui` findings should be handled by a controlled `next` 16 migration versus targeted transitive overrides where safe.
 3. Eliminate the backend `brace-expansion` residual by tracing the exact remaining transitive chain and upgrading or overriding it intentionally.
 4. Re-run `npm audit --json` and the repo verify path after that follow-up.
+
+### D-036: obsidianLedgerWriter.ts writes but does not commit/push into OBSIDIAN-TEAM-BOARDROOM
+**Scope**: `backend/src/obsidianLedgerWriter.ts` (2026-09-16) mirrors every `audit_tasks` create/status-update into `OBSIDIAN-TEAM-BOARDROOM/ledger/tasks/<NNN>-*.md` + a matching `ledger/pool.md` row, writing directly to that sibling repo's working tree when it's checked out next to this one (`OBSIDIAN_BOARDROOM_PATH`, default `../OBSIDIAN-TEAM-BOARDROOM`). This is a deliberate, explicitly-approved exception to that repo's own stated rule in `scripts/sentinel_bridge.py` ("no cross-repo writes from Sentinel, so branch isolation is preserved") — Sentinel now does write cross-repo for this one purpose.
+**Why deferred**: The writer only touches the working tree; it never runs `git add`/`commit`/`push` in the boardroom repo. That repo's own convention ("never commit to `master` directly", per `USAGE.md`/`REPO_RULES.md`) means an automatic commit would need its own branch (e.g. `agent/sentinel/ledger-sync`) and a decision on whether Sentinel opens a PR for these mirror-only changes or whether Hermes' existing `boardroom-daily-sync` cron should pick up and commit the resulting working-tree diff instead. Neither was decided as part of this pass — shipping the writer without an opinion on the commit path was the safer, reversible half of the change.
+**Also not done in this pass**:
+- No lock/atomicity between this writer's `nextLedgerNumber()` scan and `scripts/sentinel_bridge.py`'s own `next_id()` scan — both compute "max existing `ledger/tasks/NNN-*.md` + 1" independently. A collision is only possible if both run at the exact same instant on the same machine; the writer has a defense-in-depth retry (bump + recheck `existsSync`) but no true lock file.
+- `OBSIDIAN-TEAM-BOARDROOM/USAGE.md`'s "Automation layer" section and `REPO_RULES.md` still describe only the pull-model bridge; they were not updated in this pass to document the new push source.
+**Proposed resolution**:
+1. Decide push-then-commit-here vs. leave-for-boardroom-daily-sync-to-pick-up, with Shayan.
+2. If Sentinel should commit: add a scoped git commit (own branch, per that repo's branch policy) to `obsidianLedgerWriter.ts`, gated behind an explicit opt-in env var so the default stays write-only.
+3. Document the push exception in the boardroom repo's own `USAGE.md`/`REPO_RULES.md`.
+**Status**: Deferred — writer is live and tested (`backend/test/obsidianLedgerWriter.test.ts`); commit/push behavior intentionally out of scope for this pass.
 **Status**: Deferred — tracked separately from the 29 GitHub alerts remediated on 2026-08-22.
