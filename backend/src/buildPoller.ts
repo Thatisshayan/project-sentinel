@@ -33,6 +33,21 @@ interface GitHubRunResult {
   error?: string;
 }
 
+// Only 'failure'/'timed_out' are real build failures worth an auto-repair
+// loop. 'action_required' (approval-gated run — e.g. a non-collaborator
+// actor triggering a workflow, common for Sentinel's own automation
+// branches), 'cancelled', 'skipped', 'neutral', and 'stale' are not code
+// failures; misreading them as 'failed' previously sent every one of them
+// into orchestrateDebug(), burning aider/LLM cost trying to "fix" a build
+// that never actually broke. Returns null for those non-failure terminal
+// conclusions so the caller can skip this provider's signal instead of
+// misreporting it.
+function statusFromConclusion(conclusion: string | null): 'success' | 'failed' | null {
+  if (conclusion === 'success') return 'success';
+  if (conclusion === 'failure' || conclusion === 'timed_out') return 'failed';
+  return null;
+}
+
 async function checkGitHubActions(repoFullName: string, commitSha: string): Promise<GitHubRunResult> {
   try {
     const headers = {
@@ -80,7 +95,9 @@ async function checkGitHubActions(repoFullName: string, commitSha: string): Prom
 
     let status = 'pending';
     if (activeRun.status === 'completed') {
-      status = activeRun.conclusion === 'success' ? 'success' : 'failed';
+      const mapped = statusFromConclusion(activeRun.conclusion);
+      if (mapped === null) return { provider: 'github_actions', status: 'not_configured' };
+      status = mapped;
     }
 
     // Get failed job details if failed
