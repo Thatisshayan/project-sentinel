@@ -19,7 +19,20 @@ LOG_FILE="$LOG_DIR/deploy.log"
 LOCK_FILE="/tmp/sentinel-auto-deploy.lock"
 
 mkdir -p "$LOG_DIR"
-log() { echo "$(date): $1" >> "$LOG_FILE"; }
+
+# Send this script's own stdout/stderr, and every command's, to the log
+# file from this point on — before anything else can run. Without this,
+# `set -e` killed the script on any unguarded command failure (a `git
+# fetch` network hiccup, a transient `docker` daemon hiccup, etc. — none of
+# the commands below except the explicit `if ! cmd; then log ...` ones were
+# actually guarded) with zero trace anywhere. That's exactly what happened
+# 2026-09-17: the last log line was a GHCR pull failure at 01:48 UTC, then
+# 16+ hours and ~190 cron ticks went by with nothing logged at all, even
+# though several of those ticks had a real commit to deploy. Whatever line
+# was failing left no evidence because it died before its own log() call.
+exec >> "$LOG_FILE" 2>&1
+log() { echo "$(date): $1"; }
+trap 'log "FAILED - unexpected error at line $LINENO (exit $?)"' ERR
 
 # Skip this run instead of stacking up if a previous run is still going.
 if ! mkdir "$LOCK_FILE" 2>/dev/null; then
@@ -43,7 +56,7 @@ git fetch origin main --quiet
 if [ "$BEFORE_SHA" != "$(git rev-parse origin/main)" ]; then
   # Keeps docker-compose.prod.yml, Caddyfile, and this script itself current
   # — the images themselves come from GHCR, not this checkout.
-  if ! git merge --ff-only origin/main >> "$LOG_FILE" 2>&1; then
+  if ! git merge --ff-only origin/main; then
     log "FAILED - git merge --ff-only failed (local main has diverged from origin/main)"
     exit 1
   fi
@@ -55,7 +68,7 @@ fi
 # instead of trying to predict whether CI has finished publishing yet.
 BEFORE_IDS="$(docker compose -f "$COMPOSE_FILE" images -q backend ui 2>/dev/null)"
 
-if ! docker compose -f "$COMPOSE_FILE" pull --quiet backend ui >> "$LOG_FILE" 2>&1; then
+if ! docker compose -f "$COMPOSE_FILE" pull --quiet backend ui; then
   log "FAILED - docker compose pull failed"
   exit 1
 fi
@@ -68,7 +81,7 @@ fi
 
 log "DEPLOYING - new image(s) pulled"
 
-if ! docker compose -f "$COMPOSE_FILE" up -d >> "$LOG_FILE" 2>&1; then
+if ! docker compose -f "$COMPOSE_FILE" up -d; then
   log "FAILED - docker compose up -d failed after pulling new image(s)"
   exit 1
 fi
