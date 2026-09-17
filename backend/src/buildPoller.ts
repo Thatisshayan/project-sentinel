@@ -80,7 +80,21 @@ async function checkGitHubActions(repoFullName: string, commitSha: string): Prom
 
     let status = 'pending';
     if (activeRun.status === 'completed') {
-      status = activeRun.conclusion === 'success' ? 'success' : 'failed';
+      // Only 'failure'/'timed_out' are real build failures worth an auto-repair
+      // loop. 'action_required' (approval-gated run — e.g. a non-collaborator
+      // actor triggering a workflow, common for Sentinel's own automation
+      // branches), 'cancelled', 'skipped', 'neutral', and 'stale' are not code
+      // failures; misreading them as 'failed' previously sent every one of
+      // them into orchestrateDebug(), burning aider/LLM cost trying to "fix"
+      // a build that never actually broke. Treat them as not_configured so
+      // this provider's signal is skipped rather than misreported.
+      if (activeRun.conclusion === 'success') {
+        status = 'success';
+      } else if (activeRun.conclusion === 'failure' || activeRun.conclusion === 'timed_out') {
+        status = 'failed';
+      } else {
+        return { provider: 'github_actions', status: 'not_configured' };
+      }
     }
 
     // Get failed job details if failed
