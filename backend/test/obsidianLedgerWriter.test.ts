@@ -163,3 +163,149 @@ describe('obsidianLedgerWriter', () => {
     expect(fs.existsSync(taskFile)).toBe(true);
   });
 });
+
+describe('obsidianLedgerWriter push mode (OBSIDIAN_BOARDROOM_WRITE_TOKEN set)', () => {
+  let originalToken: string | undefined;
+  let originalPath: string | undefined;
+  let clonedInto: string | undefined;
+  let capturedTaskFile: string | undefined;
+  const gitCalls: { add: unknown[]; commit: unknown[]; push: unknown[] } = { add: [], commit: [], push: [] };
+
+  beforeEach(() => {
+    originalToken = process.env['OBSIDIAN_BOARDROOM_WRITE_TOKEN'];
+    originalPath = process.env['OBSIDIAN_BOARDROOM_PATH'];
+    process.env['OBSIDIAN_BOARDROOM_WRITE_TOKEN'] = 'fake-write-token';
+    // Push mode ignores OBSIDIAN_BOARDROOM_PATH entirely (it always clones
+    // fresh) - unset it so a stray real sibling checkout can't leak in.
+    delete process.env['OBSIDIAN_BOARDROOM_PATH'];
+    clonedInto = undefined;
+    capturedTaskFile = undefined;
+    gitCalls.add = [];
+    gitCalls.commit = [];
+    gitCalls.push = [];
+    jest.resetModules();
+
+    jest.doMock('simple-git', () => {
+      return jest.fn((cwd?: string) => {
+        if (cwd === undefined) {
+          // simpleGit() with no args is only ever used for .clone() here.
+          return {
+            clone: jest.fn(async (_url: string, dir: string) => {
+              clonedInto = dir;
+              fs.mkdirSync(path.join(dir, 'ledger', 'tasks'), { recursive: true });
+              fs.writeFileSync(path.join(dir, 'ledger', 'pool.md'), POOL_FIXTURE, 'utf8');
+            }),
+          };
+        }
+        return {
+          addConfig: jest.fn(async () => undefined),
+          // Captured here, not after createLedgerTask() returns: the temp
+          // clone is deleted inside the same call, right after the push,
+          // so anything we want to verify about on-disk content has to be
+          // read at add-time, while the clone still exists.
+          add: jest.fn(async (paths: unknown) => {
+            gitCalls.add.push(paths);
+            capturedTaskFile = fs.existsSync(path.join(cwd, 'ledger', 'tasks', '001-r-push-mode-task.md'))
+              ? fs.readFileSync(path.join(cwd, 'ledger', 'tasks', '001-r-push-mode-task.md'), 'utf8')
+              : undefined;
+          }),
+          status: jest.fn(async () => ({ staged: ['ledger/pool.md'] })),
+          commit: jest.fn(async (message: unknown) => { gitCalls.commit.push(message); }),
+          push: jest.fn(async (...args: unknown[]) => { gitCalls.push.push(args); }),
+        };
+      });
+    });
+  });
+
+  afterEach(() => {
+    if (clonedInto && fs.existsSync(clonedInto)) cleanup(clonedInto);
+    if (originalToken === undefined) delete process.env['OBSIDIAN_BOARDROOM_WRITE_TOKEN'];
+    else process.env['OBSIDIAN_BOARDROOM_WRITE_TOKEN'] = originalToken;
+    if (originalPath === undefined) delete process.env['OBSIDIAN_BOARDROOM_PATH'];
+    else process.env['OBSIDIAN_BOARDROOM_PATH'] = originalPath;
+    jest.dontMock('simple-git');
+  });
+
+  it('clones fresh, writes the ledger files, then commits and pushes directly to master', async () => {
+    const { createLedgerTask } = require('../src/obsidianLedgerWriter');
+    await createLedgerTask({
+      postgresTaskId: 1, repoFullName: 'r', title: 'Push mode task', priority: 'high', status: 'queued',
+    });
+
+    expect(clonedInto).toBeDefined();
+    expect(capturedTaskFile).toBeDefined();
+    expect(capturedTaskFile).toMatch(/id: TASK-001/);
+    expect(capturedTaskFile).toMatch(/priority: high/);
+
+    expect(gitCalls.add).toHaveLength(1);
+    // Narrow, explicit paths only - never a blanket add-everything.
+    expect(gitCalls.add[0]).toEqual([
+      path.join('ledger', 'tasks'),
+      path.join('ledger', 'pool.md'),
+      path.join('ledger', '.sentinel-task-map.json'),
+    ]);
+    expect(gitCalls.commit).toHaveLength(1);
+    expect(gitCalls.commit[0]).toMatch(/automated/i);
+    expect(gitCalls.push).toHaveLength(1);
+    expect(gitCalls.push[0]).toEqual(['origin', 'master']);
+  });
+
+  it('skips commit and push when nothing actually changed (idempotent re-run)', async () => {
+    jest.doMock('simple-git', () => {
+      return jest.fn((cwd?: string) => {
+        if (cwd === undefined) {
+          return {
+            clone: jest.fn(async (_url: string, dir: string) => {
+              clonedInto = dir;
+              fs.mkdirSync(path.join(dir, 'ledger', 'tasks'), { recursive: true });
+              fs.writeFileSync(path.join(dir, 'ledger', 'pool.md'), POOL_FIXTURE, 'utf8');
+            }),
+          };
+        }
+        return {
+          addConfig: jest.fn(async () => undefined),
+          add: jest.fn(async (paths: unknown) => { gitCalls.add.push(paths); }),
+          status: jest.fn(async () => ({ staged: [] })), // nothing staged
+          commit: jest.fn(async (message: unknown) => { gitCalls.commit.push(message); }),
+          push: jest.fn(async (...args: unknown[]) => { gitCalls.push.push(args); }),
+        };
+      });
+    });
+    const { createLedgerTask } = require('../src/obsidianLedgerWriter');
+    await createLedgerTask({ postgresTaskId: 1, repoFullName: 'r', title: 't', priority: 'low', status: 'queued' });
+
+    expect(gitCalls.commit).toHaveLength(0);
+    expect(gitCalls.push).toHaveLength(0);
+  });
+
+  it('cleans up the temp clone directory even when the push itself fails', async () => {
+    jest.doMock('simple-git', () => {
+      return jest.fn((cwd?: string) => {
+        if (cwd === undefined) {
+          return {
+            clone: jest.fn(async (_url: string, dir: string) => {
+              clonedInto = dir;
+              fs.mkdirSync(path.join(dir, 'ledger', 'tasks'), { recursive: true });
+              fs.writeFileSync(path.join(dir, 'ledger', 'pool.md'), POOL_FIXTURE, 'utf8');
+            }),
+          };
+        }
+        return {
+          addConfig: jest.fn(async () => undefined),
+          add: jest.fn(async () => undefined),
+          status: jest.fn(async () => ({ staged: ['ledger/pool.md'] })),
+          commit: jest.fn(async () => undefined),
+          push: jest.fn(async () => { throw new Error('non-fast-forward, remote changed'); }),
+        };
+      });
+    });
+    const { createLedgerTask } = require('../src/obsidianLedgerWriter');
+    // The outer try/catch in createLedgerTask makes this a non-blocking,
+    // logged failure rather than a thrown rejection - matches the existing
+    // "never throws" contract for every other failure mode in this module.
+    await expect(createLedgerTask({
+      postgresTaskId: 1, repoFullName: 'r', title: 't', priority: 'low', status: 'queued',
+    })).resolves.toBeUndefined();
+    expect(fs.existsSync(clonedInto!)).toBe(false);
+  });
+});
