@@ -125,6 +125,23 @@ echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env
 echo "PUBLIC_DOMAIN=sentinel.yourdomain.com" >> .env
 ```
 
+### Dashboard login (required)
+
+Caddy puts a username/password prompt in front of the whole dashboard
+(see `Caddyfile`); webhooks, `/health` and `/ready` stay open. The root
+`.env` holds the username and a **bcrypt hash** of the password, never the
+password itself:
+
+```bash
+HASH=$(docker run --rm -i caddy:2-alpine caddy hash-password)   # type the password, Enter
+echo "DASHBOARD_USER=shayan" >> .env
+echo "DASHBOARD_PASSWORD_HASH='$HASH'" >> .env   # single quotes: the hash contains $
+```
+
+Both are required: `docker compose` refuses to run without them, so a
+missing value pauses deploys instead of serving an open dashboard. After
+changing them, `docker compose -f docker-compose.prod.yml up -d caddy`.
+
 (`docker compose` auto-loads a `.env` file in the project root for variable
 substitution inside `docker-compose.prod.yml`.)
 

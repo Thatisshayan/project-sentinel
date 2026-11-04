@@ -82,6 +82,12 @@ services:
     image: caddy:2-alpine
     environment:
       PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required}
+      # Dashboard login (see Caddyfile). Required: compose refuses to run
+      # without them, so a missing value pauses deploys instead of serving
+      # the dashboard with no password. Set in the root .env; the hash goes
+      # in single quotes there because bcrypt hashes contain `$`.
+      DASHBOARD_USER: ${DASHBOARD_USER:?DASHBOARD_USER is required - see docs/ORACLE_DEPLOY.md}
+      DASHBOARD_PASSWORD_HASH: ${DASHBOARD_PASSWORD_HASH:?DASHBOARD_PASSWORD_HASH is required - see docs/ORACLE_DEPLOY.md}
     ports:
       - "80:80"
       - "443:443"

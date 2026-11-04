@@ -1,14 +1,23 @@
 {$PUBLIC_DOMAIN} {
-	# True webhook/health endpoints go straight to the backend.
+	# True webhook/health endpoints go straight to the backend, with no
+	# password: GitHub, Slack, Telegram and CodeRabbit can't log in, and
+	# each of these routes verifies its own signature/secret.
 	@backend path /webhook* /github /health /ready
 
 	handle @backend {
 		reverse_proxy backend:3000
 	}
 
-	# Everything else — including the UI's own /api/*-proxy routes, which call
-	# the backend internally over the docker network — goes to the Next.js app.
+	# Everything else is the dashboard (including the UI's own /api/*-proxy
+	# routes, which call the backend internally over the docker network),
+	# so it sits behind a password. The dashboard can run audits, execute
+	# tasks and pause Sentinel; without this, anyone with the URL could.
+	# DASHBOARD_PASSWORD_HASH is a bcrypt hash from `caddy hash-password`,
+	# never the password itself. Both values come from the root .env.
 	handle {
+		basic_auth {
+			{$DASHBOARD_USER} {$DASHBOARD_PASSWORD_HASH}
+		}
 		reverse_proxy ui:3000
 	}
 }
