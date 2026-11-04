@@ -120,7 +120,17 @@ else
   else
     now=$(date +%s)
     age=$(( (now - newest_epoch) / 86400 ))
-    if [ "$age" -gt 30 ]; then error "doc-freshness" "newest audit ($newest_date) is $age days old (>30)"; fi
+    if [ "$age" -gt 30 ]; then
+      # Dependabot PRs only touch dependencies, so a quiet month on main must
+      # not block security bumps. Every other PR is still held to the rule.
+      if [ "${GITHUB_ACTOR:-}" = "dependabot[bot]" ]; then
+        notice "doc-freshness" "newest audit ($newest_date) is $age days old (>30) - not blocking Dependabot PR"
+      else
+        error "doc-freshness" "newest audit ($newest_date) is $age days old (>30)"
+      fi
+    elif [ "$age" -gt 23 ]; then
+      echo "::warning title=doc-freshness::newest audit ($newest_date) is $age days old - gate fails in $((30 - age)) day(s); add a dated audit under audits/"
+    fi
   fi
 fi
 # doc baseline

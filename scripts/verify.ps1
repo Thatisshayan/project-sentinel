@@ -88,7 +88,16 @@ if (-not $auditDates) {
 } else {
   $newestDate = [datetime]::ParseExact($auditDates[0], 'yyyy-MM-dd', $null)
   $age = ([datetime]::Now - $newestDate).Days
-  if ($age -gt 30) { Err "doc-freshness" "newest audit ($($auditDates[0])) is $age days old (>30)" }
+  if ($age -gt 30) {
+    # Dependabot PRs only touch dependencies: don't let a quiet month block them.
+    if ($env:GITHUB_ACTOR -eq 'dependabot[bot]') {
+      Notice "doc-freshness" "newest audit ($($auditDates[0])) is $age days old (>30) - not blocking Dependabot PR"
+    } else {
+      Err "doc-freshness" "newest audit ($($auditDates[0])) is $age days old (>30)"
+    }
+  } elseif ($age -gt 23) {
+    Write-Output "::warning title=doc-freshness::newest audit ($($auditDates[0])) is $age days old - gate fails in $(30 - $age) day(s); add a dated audit under audits/"
+  }
 }
 $baselinePath = Join-Path $RepoRoot 'docs/_baseline.json'
 if (-not (Test-Path $baselinePath)) {

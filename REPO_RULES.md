@@ -251,6 +251,10 @@ All checks must be green to merge. See `scripts/verify.sh` / `scripts/verify.ps1
   Rule 6 naming convention — never from filesystem mtime. A fresh `git clone`
   or CI checkout resets every file's mtime to checkout time, which would make
   a stale audit look freshly-modified and silently defeat this gate.
+- From day 24 the gate emits a warning with the days left before it fails.
+- Dependabot PRs (`GITHUB_ACTOR == dependabot[bot]`) get a notice instead of a
+  failure when the audit is stale, so dependency and security bumps are never
+  blocked by a quiet period on `main`. All other PRs still fail past 30 days.
 
 ## Appendix D — Apply Script Usage
 
