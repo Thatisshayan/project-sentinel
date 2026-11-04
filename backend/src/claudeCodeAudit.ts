@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import simpleGit from 'simple-git';
+import { simpleGit } from 'simple-git';
 import tmp from 'tmp';
 import fs from 'fs';
 import path from 'path';

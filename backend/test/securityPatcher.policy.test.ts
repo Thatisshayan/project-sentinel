@@ -13,7 +13,7 @@ jest.mock('../src/utils/execAsync', () => ({
 const cloneMock = jest.fn();
 jest.mock('simple-git', () => {
   const factory = () => ({ clone: cloneMock });
-  return factory;
+  return { simpleGit: factory };
 });
 
 const projectDb = require('../src/projectDb');

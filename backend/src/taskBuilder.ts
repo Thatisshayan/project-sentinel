@@ -1,5 +1,5 @@
 import { safeFire, fireAndForget } from './utils/safeFire';
-import simpleGit from 'simple-git';
+import { simpleGit } from 'simple-git';
 import tmp from 'tmp';
 import { spawn } from 'child_process';
 import fs from 'fs';

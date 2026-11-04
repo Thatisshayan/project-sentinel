@@ -186,7 +186,7 @@ describe('obsidianLedgerWriter push mode (OBSIDIAN_BOARDROOM_WRITE_TOKEN set)', 
     jest.resetModules();
 
     jest.doMock('simple-git', () => {
-      return jest.fn((cwd?: string) => {
+      return { simpleGit: jest.fn((cwd?: string) => {
         if (cwd === undefined) {
           // simpleGit() with no args is only ever used for .clone() here.
           return {
@@ -213,7 +213,7 @@ describe('obsidianLedgerWriter push mode (OBSIDIAN_BOARDROOM_WRITE_TOKEN set)', 
           commit: jest.fn(async (message: unknown) => { gitCalls.commit.push(message); }),
           push: jest.fn(async (...args: unknown[]) => { gitCalls.push.push(args); }),
         };
-      });
+      }) };
     });
   });
 
@@ -252,7 +252,7 @@ describe('obsidianLedgerWriter push mode (OBSIDIAN_BOARDROOM_WRITE_TOKEN set)', 
 
   it('skips commit and push when nothing actually changed (idempotent re-run)', async () => {
     jest.doMock('simple-git', () => {
-      return jest.fn((cwd?: string) => {
+      return { simpleGit: jest.fn((cwd?: string) => {
         if (cwd === undefined) {
           return {
             clone: jest.fn(async (_url: string, dir: string) => {
@@ -269,7 +269,7 @@ describe('obsidianLedgerWriter push mode (OBSIDIAN_BOARDROOM_WRITE_TOKEN set)', 
           commit: jest.fn(async (message: unknown) => { gitCalls.commit.push(message); }),
           push: jest.fn(async (...args: unknown[]) => { gitCalls.push.push(args); }),
         };
-      });
+      }) };
     });
     const { createLedgerTask } = require('../src/obsidianLedgerWriter');
     await createLedgerTask({ postgresTaskId: 1, repoFullName: 'r', title: 't', priority: 'low', status: 'queued' });
@@ -280,7 +280,7 @@ describe('obsidianLedgerWriter push mode (OBSIDIAN_BOARDROOM_WRITE_TOKEN set)', 
 
   it('cleans up the temp clone directory even when the push itself fails', async () => {
     jest.doMock('simple-git', () => {
-      return jest.fn((cwd?: string) => {
+      return { simpleGit: jest.fn((cwd?: string) => {
         if (cwd === undefined) {
           return {
             clone: jest.fn(async (_url: string, dir: string) => {
@@ -297,7 +297,7 @@ describe('obsidianLedgerWriter push mode (OBSIDIAN_BOARDROOM_WRITE_TOKEN set)', 
           commit: jest.fn(async () => undefined),
           push: jest.fn(async () => { throw new Error('non-fast-forward, remote changed'); }),
         };
-      });
+      }) };
     });
     const { createLedgerTask } = require('../src/obsidianLedgerWriter');
     // The outer try/catch in createLedgerTask makes this a non-blocking,
