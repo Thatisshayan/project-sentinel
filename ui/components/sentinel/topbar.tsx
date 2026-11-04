@@ -78,10 +78,10 @@ export function Topbar() {
         style={{ background: "linear-gradient(to right, transparent, rgba(200,150,28,.18), transparent)" }} />
 
       <span className="font-bold text-sm text-s-text tracking-tight">{meta.title}</span>
-      <span className="text-s-dim text-xs">/</span>
-      <span className="text-s-muted text-[11px] font-mono">{meta.sub}</span>
+      <span className="hidden sm:inline text-s-dim text-xs">/</span>
+      <span className="hidden sm:inline text-s-muted text-[11px] font-mono">{meta.sub}</span>
 
-      <div className="ml-auto flex items-center gap-2.5">
+      <div className="ml-auto hidden md:flex items-center gap-2.5">
         {/* Health avg */}
         <div className="flex items-center gap-1.5 text-[11px]">
           <span className="text-s-muted">Health</span>
