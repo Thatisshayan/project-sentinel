@@ -300,7 +300,7 @@ async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
     }
 
     // Refuse to push a fix that leaves a JSON/YAML file unparseable.
-    const brokenConfigs = await codeWriteGuard.findBrokenConfigFiles(repoGit, tmpDir.name, baseSha);
+    const brokenConfigs = await codeWriteGuard.findBrokenConfigFiles(repoGit, baseSha);
     if (brokenConfigs.length > 0) {
       logger.warn({ repoFullName, fixBranch, brokenConfigs }, 'cloneAndFix: fix breaks config files — not pushing');
       return {

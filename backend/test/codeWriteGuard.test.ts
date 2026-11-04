@@ -31,17 +31,25 @@ describe('findBrokenConfigFiles', () => {
   let dir: string;
   let base: string;
   const git = () => simpleGit(dir);
-  const write = (f: string, s: string) => { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), s); };
+  let P: { eas: string; tsconfig: string; ci: string; readme: string; app: string };
 
   beforeEach(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cwg-'));
     await git().init();
     await git().addConfig('user.email', 't@t');
     await git().addConfig('user.name', 't');
-    write('eas.json', '{"build": {"production": {}}}\n');
-    write('tsconfig.json', '{ // comments: not strict JSON\n "compilerOptions": {} }\n');
-    write('.github/workflows/ci.yml', 'on: push\njobs: {}\n');
-    write('README.md', '# hi\n');
+    P = {
+      eas:      path.join(dir, 'eas.json'),
+      tsconfig: path.join(dir, 'tsconfig.json'),
+      ci:       path.join(dir, '.github', 'workflows', 'ci.yml'),
+      readme:   path.join(dir, 'README.md'),
+      app:      path.join(dir, 'app.json'),
+    };
+    fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+    fs.writeFileSync(P.eas, '{"build": {"production": {}}}\n');
+    fs.writeFileSync(P.tsconfig, '{ // comments: not strict JSON\n "compilerOptions": {} }\n');
+    fs.writeFileSync(P.ci, 'on: push\njobs: {}\n');
+    fs.writeFileSync(P.readme, '# hi\n');
     await git().add('.');
     await git().commit('base');
     base = (await git().revparse(['HEAD'])).trim();
@@ -51,39 +59,39 @@ describe('findBrokenConfigFiles', () => {
   const commitAndCheck = async () => {
     await git().add('.');
     await git().commit('change');
-    return guard.findBrokenConfigFiles(git(), dir, base);
+    return guard.findBrokenConfigFiles(git(), base);
   };
 
   it('passes valid edits', async () => {
-    write('eas.json', '{"build": {"production": {"channel": "prod"}}}\n');
-    write('.github/workflows/ci.yml', 'on: [push, pull_request]\njobs: {}\n');
-    write('README.md', 'not { json');
+    fs.writeFileSync(P.eas, '{"build": {"production": {"channel": "prod"}}}\n');
+    fs.writeFileSync(P.ci, 'on: [push, pull_request]\njobs: {}\n');
+    fs.writeFileSync(P.readme, 'not { json');
     expect(await commitAndCheck()).toEqual([]);
   });
 
   it('flags a JSON file the change broke (the eas.json case)', async () => {
-    write('eas.json', '{"build": {"production": {},}\n');
+    fs.writeFileSync(P.eas, '{"build": {"production": {},}\n');
     const broken = await commitAndCheck();
     expect(broken.map(b => b.file)).toEqual(['eas.json']);
   });
 
   it('flags a YAML file the change broke', async () => {
-    write('.github/workflows/ci.yml', 'on: push\njobs: {\n  bad: [\n');
+    fs.writeFileSync(P.ci, 'on: push\njobs: {\n  bad: [\n');
     expect((await commitAndCheck()).map(b => b.file)).toEqual(['.github/workflows/ci.yml']);
   });
 
   it('flags a new config file that does not parse', async () => {
-    write('app.json', '{ nope');
+    fs.writeFileSync(P.app, '{ nope');
     expect((await commitAndCheck()).map(b => b.file)).toEqual(['app.json']);
   });
 
   it('ignores files that were not strict JSON before (tsconfig with comments)', async () => {
-    write('tsconfig.json', '{ // still comments\n "compilerOptions": { "strict": true } }\n');
+    fs.writeFileSync(P.tsconfig, '{ // still comments\n "compilerOptions": { "strict": true } }\n');
     expect(await commitAndCheck()).toEqual([]);
   });
 
   it('returns nothing without a base ref', async () => {
-    expect(await guard.findBrokenConfigFiles(git(), dir, null)).toEqual([]);
+    expect(await guard.findBrokenConfigFiles(git(), null)).toEqual([]);
   });
 });
 

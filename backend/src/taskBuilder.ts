@@ -300,9 +300,7 @@ async function executeBatch(tasks: BuildableTask[], context: BatchContext, build
     // Refuse to push a change that leaves a JSON/YAML file unparseable
     // (e.g. a broken eas.json or package.json) — compared against the
     // remote base, so the check covers every commit in this batch.
-    const brokenConfigs = await codeWriteGuard.findBrokenConfigFiles(
-      repoGit, tmpDir.name, initialBaseSha
-    );
+    const brokenConfigs = await codeWriteGuard.findBrokenConfigFiles(repoGit, initialBaseSha);
     if (brokenConfigs.length > 0) {
       logger.warn({ repoFullName, taskBranch, brokenConfigs }, 'taskBuilder: batch breaks config files — not pushing');
       return {

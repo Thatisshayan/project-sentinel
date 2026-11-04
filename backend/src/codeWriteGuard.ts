@@ -8,7 +8,6 @@
 //      unparseable one.
 //   3. A per-repo cap on Sentinel PRs per UTC day.
 
-import fs from 'node:fs';
 import path from 'node:path';
 import type { SimpleGit } from 'simple-git';
 import { parse as parseYaml } from 'yaml';
@@ -30,7 +29,7 @@ type ParseResult = { ok: true } | { ok: false; error: string };
 
 function tryParse(file: string, text: string): ParseResult | null {
   const ext = path.extname(file).toLowerCase();
-  const body = text.replace(/^﻿/, '');
+  const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
   try {
     if (JSON_EXT.has(ext)) { JSON.parse(body); return { ok: true }; }
     if (YAML_EXT.has(ext)) { parseYaml(body); return { ok: true }; }
@@ -47,7 +46,7 @@ function tryParse(file: string, text: string): ParseResult | null {
  * catches breakage the change itself introduced.
  */
 async function findBrokenConfigFiles(
-  repoGit: SimpleGit, repoPath: string, baseRef: string | null,
+  repoGit: SimpleGit, baseRef: string | null,
 ): Promise<Array<{ file: string; error: string }>> {
   if (!baseRef) return [];
   const diff = await repoGit.diff(['--name-only', '--diff-filter=AM', baseRef, 'HEAD']);
@@ -55,9 +54,11 @@ async function findBrokenConfigFiles(
   const broken: Array<{ file: string; error: string }> = [];
 
   for (const file of files) {
-    const abs = path.join(repoPath, file);
+    // Read the committed version from git rather than the working tree:
+    // it's exactly what would be pushed, and no filesystem path is built
+    // from repo-controlled file names.
     let after: string;
-    try { after = fs.readFileSync(abs, 'utf8'); } catch { continue; }
+    try { after = await repoGit.show([`HEAD:${file}`]); } catch { continue; }
     const now = tryParse(file, after);
     if (!now || now.ok) continue;
 
