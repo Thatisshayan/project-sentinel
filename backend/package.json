@@ -12,7 +12,7 @@
     "test": "jest --runInBand --forceExit",
     "test:coverage": "jest --runInBand --forceExit --coverage",
     "test:integration": "echo 'Integration tests require Docker — run test-integration.yml workflow or install Docker locally'",
-    "lint": "eslint src/ --max-warnings 1000",
+    "lint": "oxlint src test",
     "format": "prettier --write src/"
   },
   "dependencies": {
@@ -38,10 +38,9 @@
     "@types/node": "^26.6.6",
     "@types/pg": "^8.21.0",
     "@types/supertest": "^7.2.1",
-    "eslint": "^8.57.1",
-    "eslint-config-prettier": "^9.1.2",
     "jest": "29.7.0",
     "nodemon": "3.1.14",
+    "oxlint": "^1.91.0",
     "prettier": "^3.9.10",
     "supertest": "6.3.4",
     "ts-node": "^10.9.2",
