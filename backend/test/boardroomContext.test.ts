@@ -10,6 +10,7 @@ import {
 } from '../src/boardroomContext';
 
 const mockedGet = axios.get as jest.Mock;
+(axios.isAxiosError as unknown as jest.Mock).mockImplementation((e: { isAxiosError?: boolean }) => !!e?.isAxiosError);
 
 // Trimmed copy of the real projects/_INDEX.md format (2026-10-01).
 const INDEX = [
@@ -26,9 +27,7 @@ function respond(files: Record<string, string>) {
   mockedGet.mockImplementation(async (url: string) => {
     const file = Object.keys(files).find((f) => url.endsWith(`/contents/${f.split('/').map(encodeURIComponent).join('/')}`));
     if (file === undefined) {
-      const err: any = new Error('Request failed with status code 404');
-      err.response = { status: 404 };
-      throw err;
+      throw Object.assign(new Error('Request failed with status code 404'), { isAxiosError: true, response: { status: 404 } });
     }
     return { data: files[file] };
   });

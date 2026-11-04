@@ -55,10 +55,11 @@ async function fetchBoardroomFile(filePath: string): Promise<string | null> {
       },
     );
     value = typeof res.data === 'string' ? res.data : null;
-  } catch (err: any) {
+  } catch (err: unknown) {
     // 404 = no status page for this repo: normal, cache it quietly.
-    if (err.response?.status !== 404) {
-      logger.warn({ err: err.message, filePath }, 'Boardroom read failed — continuing without boardroom context');
+    const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+    if (status !== 404) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err), filePath }, 'Boardroom read failed — continuing without boardroom context');
     }
   }
   cache.set(filePath, { value, expires: Date.now() + CACHE_TTL_MS });
@@ -102,8 +103,8 @@ export async function getBoardroomProject(repoFullNameOrName: string): Promise<B
       statusExcerpt = trimmed.length > MAX_STATUS_CHARS ? `${trimmed.slice(0, MAX_STATUS_CHARS)}\n…(truncated)` : trimmed;
     }
     return { repoName, stack: row?.stack ?? null, statusFile: statusText ? statusFile : null, statusExcerpt };
-  } catch (err: any) {
-    logger.warn({ err: err.message, repo: repoFullNameOrName }, 'Boardroom project lookup failed');
+  } catch (err: unknown) {
+    logger.warn({ err: err instanceof Error ? err.message : String(err), repo: repoFullNameOrName }, 'Boardroom project lookup failed');
     return null;
   }
 }
