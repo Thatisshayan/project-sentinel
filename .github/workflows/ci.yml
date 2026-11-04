@@ -119,3 +119,19 @@ jobs:
       - uses: actions/checkout@v7
       - name: Build ${{ matrix.service }} Docker image
         run: docker build -t "sentinel-${{ matrix.service }}:ci" "./${{ matrix.service }}"
+
+      # A successful build isn't a working image: the UI image built fine for
+      # weeks while `node server.js` crashed on start (server.js nested under
+      # /app/app by a bad outputFileTracingRoot), taking the dashboard down
+      # for ~5 weeks unnoticed. Start the container and require an HTTP answer.
+      - name: Smoke-run UI image (container must start and serve HTTP)
+        if: matrix.service == 'ui'
+        run: |
+          docker run -d --name ui-smoke -p 3000:3000             -e SENTINEL_API_URL=http://127.0.0.1:9 -e SENTINEL_UI_KEY=ci-placeholder             sentinel-ui:ci
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://localhost:3000/ || true)
+            if [ "$code" != "000" ]; then echo "UI answered HTTP $code"; exit 0; fi
+            if [ -z "$(docker ps -q -f name=ui-smoke)" ]; then echo "UI container exited"; docker logs ui-smoke; exit 1; fi
+            sleep 2
+          done
+          echo "UI never answered"; docker logs ui-smoke; exit 1
