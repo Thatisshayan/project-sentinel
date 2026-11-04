@@ -2,7 +2,7 @@ import { safeFire, fireAndForget } from './utils/safeFire';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import simpleGit from 'simple-git';
+import { simpleGit } from 'simple-git';
 import logger from './logger';
 
 import { sendTelegramMessage } from './telegramClient';

@@ -4,7 +4,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import axios from 'axios';
-import simpleGit from 'simple-git';
+import { simpleGit } from 'simple-git';
 import logger from './logger';
 import { getDefaultBranch } from './repoDiscovery';
 import { sendTelegramMessage } from './telegramClient';
