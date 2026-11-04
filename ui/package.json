@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node scripts/check-prerendered.mjs",
     "start": "next start",
     "lint": "eslint .",
     "e2e:smoke": "node scripts/e2e-smoke.mjs"

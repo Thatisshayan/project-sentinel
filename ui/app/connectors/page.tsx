@@ -1,6 +1,12 @@
 import { cn } from "@/lib/utils";
 import { getIntegrationsStatus, type ConnectorStatus } from "@/lib/api";
 
+// Render on every request. The Docker build has no backend URL, so without
+// this Next prerenders the page once at build time and every visitor gets
+// that saved "could not reach the API" page. Checked by
+// scripts/check-prerendered.mjs after every build.
+export const dynamic = "force-dynamic";
+
 const CONNECTOR_META: Record<string, { color: string; category: string; how: string }> = {
   GitHub:       { color: "#e6edf3", category: "Dev",    how: "Webhook on push/PR events" },
   Telegram:     { color: "#26A5E4", category: "Comms",  how: "Bot webhook — commands & alerts" },

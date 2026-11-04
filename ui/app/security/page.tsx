@@ -1,6 +1,12 @@
 import { getSecurityPortfolio, getPortfolio } from "@/lib/api";
 import { SecurityView } from "@/components/sentinel/security-view";
 
+// Render on every request. The Docker build has no backend URL, so without
+// this Next prerenders the page once at build time and every visitor gets
+// that saved "could not reach the API" page. Checked by
+// scripts/check-prerendered.mjs after every build.
+export const dynamic = "force-dynamic";
+
 // No `export const revalidate` here — see app/agents/page.tsx for why.
 
 export default async function SecurityPage() {
