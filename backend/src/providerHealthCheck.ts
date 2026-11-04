@@ -137,7 +137,7 @@ async function probeAIProviders(): Promise<string[]> {
     // nothing to mark for them even though the probe above still checks
     // whether their (now-unused) env keys are configured.
     const PROVIDER_AGENT_MAP: Record<string, string[]> = {
-      'NVIDIA NIM':  ['nvidia', 'gpt_oss_120b', 'llama_8b'],
+      'NVIDIA NIM':  ['nvidia', 'gpt_oss_120b'],
       'Gemini':      ['gemini'],
       'Mistral':     ['mistral_codestral'],
       'OpenRouter':  ['openrouter_gemma'],

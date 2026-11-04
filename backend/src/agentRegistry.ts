@@ -29,7 +29,6 @@ const AGENT_POOL = [
   { id: 'gemini',            priority: 2, maxConcurrent: 2 }, // GEMINI_API_KEY — distinct provider
   { id: 'mistral_codestral', priority: 3, maxConcurrent: 2 }, // MISTRAL_API_KEY — distinct provider
   { id: 'openrouter_gemma',  priority: 3, maxConcurrent: 2 }, // OPENROUTER_API_KEY — distinct provider
-  { id: 'llama_8b',          priority: 4, maxConcurrent: 2 }, // NVIDIA_API_KEY pool
 ];
 
 async function initAgentPool(): Promise<void> {
@@ -84,7 +83,7 @@ async function selectAgent(taskComplexity: string, preferredBuilder?: string): P
   });
 
   const complexityPreference: Record<string, string[]> = {
-    low:      ['llama_8b', 'gpt_oss_120b', 'nvidia', 'gemini'],
+    low:      ['gpt_oss_120b', 'nvidia', 'mistral_codestral', 'gemini'],
     medium:   ['gpt_oss_120b', 'nvidia', 'mistral_codestral', 'gemini'],
     high:     ['nvidia', 'gemini', 'mistral_codestral', 'openrouter_gemma'],
   };

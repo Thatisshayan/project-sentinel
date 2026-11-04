@@ -1,6 +1,7 @@
 import axios from 'axios';
 import logger from './logger';
 import projectDb from './projectDb';
+import codeWriteGuard from './codeWriteGuard';
 
 interface PRContext {
   projectName?: string;
@@ -196,6 +197,16 @@ async function createPullRequest({ repoFullName, fixBranch, baseBranch, context 
 
     if (policyState && !policyState.policy.allowPrOpen) {
       logger.warn({ repoFullName, fixBranch, base }, 'Repo policy blocks opening a new PR');
+      return { prUrl: null, prNumber: null };
+    }
+
+    if (!codeWriteGuard.codeWritingEnabled()) {
+      logger.warn({ repoFullName, fixBranch }, 'Code writing paused — not opening a PR');
+      return { prUrl: null, prNumber: null };
+    }
+    const slot = await codeWriteGuard.reservePrSlot(repoFullName);
+    if (!slot.ok) {
+      logger.warn({ repoFullName, fixBranch, reason: slot.reason }, 'Not opening a PR');
       return { prUrl: null, prNumber: null };
     }
 

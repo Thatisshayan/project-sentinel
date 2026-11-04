@@ -56,7 +56,6 @@ function estimateTaskCost(builderAgent: string, count: number = 1): number {
   const costMap: Record<string, number> = {
     nvidia:            0.0,
     gpt_oss_120b:      0.0,
-    llama_8b:          0.0,
     gemini:            0.001,
     mistral_codestral: 0.0,
     openrouter_gemma:  0.0,
