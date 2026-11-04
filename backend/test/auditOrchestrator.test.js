@@ -463,14 +463,14 @@ describe('processNextBatch', () => {
         taskBranch: 'sentinel/batch-1',
         commitSha: 'def5678',
         commitUrl: 'https://github.com/your-org/tapcash/commit/def5678',
-        builderUsed: 'llama_8b',
+        builderUsed: 'gpt_oss_120b',
         remainingTasks: 0,
       });
     createPullRequest.mockResolvedValue({ prUrl: 'https://github.com/pr/2', prNumber: 2 });
 
     // Isolate the fallback chain: only NVIDIA_API_KEY should be available so
     // Gemini (GEMINI_API_KEY) is skipped, leaving the next NVIDIA-hosted
-    // model in the pool (llama_8b) as the winner.
+    // model in the pool (gpt_oss_120b) as the winner.
     const savedGeminiKey = process.env.GEMINI_API_KEY;
     delete process.env.GEMINI_API_KEY;
     process.env.NVIDIA_API_KEY = 'test-key';
@@ -478,7 +478,7 @@ describe('processNextBatch', () => {
     await processNextBatch('your-org/tapcash', 'tapcash', null);
 
     expect(executeBatch).toHaveBeenCalledTimes(2);
-    expect(executeBatch.mock.calls[1][2]).toBe('llama_8b');
+    expect(executeBatch.mock.calls[1][2]).toBe('gpt_oss_120b');
     expect(createPullRequest).toHaveBeenCalled();
 
     delete process.env.NVIDIA_API_KEY;

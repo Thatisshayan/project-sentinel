@@ -8,6 +8,7 @@ import { sanitizeLogs } from './riskAssessor';
 import { getBuilderConfig, getAiderEnv, getFallbackBuilder } from './builderRouter';
 import { acquireNvidiaKey } from './utils/nvidiaKeyPool';
 import loopGuard from './utils/loopGuard';
+import codeWriteGuard from './codeWriteGuard';
 import { buildGithubCloneUrl } from './utils/githubAuth';
 import type { AiderContext, CloneResult } from './types/debugFix';
 
@@ -198,6 +199,10 @@ async function runAider(repoPath: string, context: AiderContext, builderId?: str
 
 async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
   const { repoFullName, branchName, attemptNumber } = context;
+  if (!codeWriteGuard.codeWritingEnabled()) {
+    logger.warn({ repoFullName }, 'cloneAndFix: code writing paused — not attempting a fix');
+    return { status: 'error', reason: codeWriteGuard.CODE_WRITING_DISABLED_REASON };
+  }
   const tmpDir = tmp.dirSync({ unsafeCleanup: true, prefix: 'sentinel-' });
 
   try {
@@ -289,6 +294,18 @@ async function cloneAndFix(context: AiderContext): Promise<CloneResult> {
       return {
         status:      'cannot_fix',
         reason:      'Aider ran successfully but made no new commits — could not identify a safe fix',
+        fixBranch,
+        aiderOutput: aiderResult.stdout,
+      };
+    }
+
+    // Refuse to push a fix that leaves a JSON/YAML file unparseable.
+    const brokenConfigs = await codeWriteGuard.findBrokenConfigFiles(repoGit, tmpDir.name, baseSha);
+    if (brokenConfigs.length > 0) {
+      logger.warn({ repoFullName, fixBranch, brokenConfigs }, 'cloneAndFix: fix breaks config files — not pushing');
+      return {
+        status:      'cannot_fix',
+        reason:      `Fix would break config file(s): ${brokenConfigs.map(b => `${b.file} (${b.error})`).join('; ')}`,
         fixBranch,
         aiderOutput: aiderResult.stdout,
       };

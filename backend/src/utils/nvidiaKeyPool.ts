@@ -1,6 +1,6 @@
 import logger from '../logger';
 
-// Every NVIDIA-backed builder/agent (nvidia, gpt_oss_120b, llama_8b, ... in
+// Every NVIDIA-backed builder/agent (nvidia, gpt_oss_120b, minimax, ... in
 // builderRouter.ts) and ai/client.ts's NVIDIA branch previously read the
 // single NVIDIA_API_KEY env var directly, with no shared concurrency
 // tracking across callers — see agentRegistry.ts's AGENT_POOL comment for

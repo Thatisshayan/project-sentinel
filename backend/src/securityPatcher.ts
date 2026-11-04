@@ -13,6 +13,7 @@ import { buildGithubCloneUrl, requireGithubToken } from './utils/githubAuth';
 import type { SecurityIssueRow } from './types/securityRow';
 import projectDb from './projectDb';
 import { getTaskExecutionPolicyBlockReason } from './repoAutomationPolicy';
+import codeWriteGuard from './codeWriteGuard';
 
 const SENSITIVE_PATHS: string[] = [
   'auth','middleware','stripe','paypal','payout',
@@ -49,6 +50,10 @@ async function openSecurityPR({ repoFullName, branchName, baseBranch, title, bod
 }
 
 async function applySecurityPatches(repoFullName: string, repoName: string, issues: SecurityIssueRow[], topicId?: number | null) {
+  if (!codeWriteGuard.codeWritingEnabled()) {
+    logger.warn({ repoFullName }, 'securityPatcher: code writing paused — not patching');
+    return;
+  }
   const autoFixable = issues.filter(i =>
     i.auto_fixable &&
     i.issue_type === 'vulnerability' &&
@@ -110,6 +115,11 @@ async function applySecurityPatches(repoFullName: string, repoName: string, issu
       `[sentinel] security: npm audit fix (${autoFixable.length} vulnerabilities)\n\n` +
       autoFixable.map(i => `- ${i.title}`).join('\n')
     );
+    const slot = await codeWriteGuard.reservePrSlot(repoFullName);
+    if (!slot.ok) {
+      logger.warn({ repoFullName, reason: slot.reason }, 'securityPatcher: not opening a PR');
+      return;
+    }
     await cloneGit.push([cloneUrl, branchName]);
 
     const prUrl = await openSecurityPR({

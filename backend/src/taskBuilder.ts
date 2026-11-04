@@ -7,6 +7,7 @@ import path from 'path';
 import logger from './logger';
 import { runClaudeCodeForTask } from './claudeCodeRunner';
 import { getBuilderConfig, getAiderEnv, getFallbackBuilder } from './builderRouter';
+import codeWriteGuard from './codeWriteGuard';
 import loopGuard from './utils/loopGuard';
 import { updateAuditTask } from './auditDb';
 import { updateNotionTaskStatus } from './auditTaskWriter';
@@ -32,6 +33,10 @@ async function resetWorkingTree(repoGit: ReturnType<typeof simpleGit>, taskNumbe
 
 async function executeBatch(tasks: BuildableTask[], context: BatchContext, builderAssignment: string): Promise<BatchResult> {
   const { repoFullName, branchName, projectName, repoName, topicId, existingBranch } = context;
+  if (!codeWriteGuard.codeWritingEnabled()) {
+    logger.warn({ repoFullName }, 'taskBuilder: code writing paused — not executing batch');
+    return { status: 'error', reason: codeWriteGuard.CODE_WRITING_DISABLED_REASON };
+  }
   const builderConfig = getBuilderConfig(builderAssignment);
   // Caller (auditOrchestrator.ts) always guards tasks.length === 0 before calling executeBatch.
   const batchNum      = tasks[0]!.batch_number;
@@ -290,6 +295,23 @@ async function executeBatch(tasks: BuildableTask[], context: BatchContext, build
       }
     } catch (e: any) {
       logger.warn({ err: e.message }, 'Could not check for base branch changes');
+    }
+
+    // Refuse to push a change that leaves a JSON/YAML file unparseable
+    // (e.g. a broken eas.json or package.json) — compared against the
+    // remote base, so the check covers every commit in this batch.
+    const brokenConfigs = await codeWriteGuard.findBrokenConfigFiles(
+      repoGit, tmpDir.name, initialBaseSha
+    );
+    if (brokenConfigs.length > 0) {
+      logger.warn({ repoFullName, taskBranch, brokenConfigs }, 'taskBuilder: batch breaks config files — not pushing');
+      return {
+        status:  'failed',
+        reason:  `Change would break config file(s): ${brokenConfigs.map(b => `${b.file} (${b.error})`).join('; ')}`,
+        taskBranch,
+        lastStdout: lastTaskStdout,
+        lastStderr: lastTaskStderr,
+      };
     }
 
     await repoGit.push(['origin', taskBranch, ...(rebasedOntoLatestBase ? ['--force-with-lease'] : [])]);
