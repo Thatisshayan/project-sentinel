@@ -15,6 +15,7 @@ import rateLimit from 'express-rate-limit';
 import projectMemory from './projectMemory';
 import projectDb from './projectDb';
 import governanceStatus from './governanceStatus';
+import { getBoardroomProject } from './boardroomContext';
 import {
   type RepoAutomationPolicy,
   type RepoAutomationPreset,
@@ -186,6 +187,10 @@ router.get('/repo/:name', async (req: Request, res: Response) => {
     const aspect = await projectDb.getAspectState(name);
     const policy = await projectDb.getRepoAutomationPolicy(name);
     const policyAuditLog = await projectDb.getRepoPolicyAuditLog(name, 10);
+    // Boardroom status page summary (best-effort; null when unavailable).
+    // Excerpt left out: this is a status signal for the dashboard, not the prompt text.
+    const bp = await getBoardroomProject(name).catch(() => null);
+    const boardroom = bp ? { stack: bp.stack, statusFile: bp.statusFile, hasStatusPage: !!bp.statusExcerpt } : null;
 
     res.json({
       ...metrics.rows[0],
@@ -194,6 +199,7 @@ router.get('/repo/:name', async (req: Request, res: Response) => {
       aspect,
       policy,
       policyAuditLog,
+      boardroom,
     });
   } catch (err: any) {
     logger.error({ err: err.stack ?? err.message }, 'GET /repo/:name error');

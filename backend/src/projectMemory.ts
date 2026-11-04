@@ -1,5 +1,6 @@
 import dbClient from './dbClient';
 import logger from './logger';
+import { getBoardroomContextForPrompt } from './boardroomContext';
 
 const { query } = dbClient;
 
@@ -89,10 +90,19 @@ async function getMemoryForPrompt(repoFullName: string): Promise<string> {
     logger.warn({ err: err.message, repoFullName }, 'Could not load project memory — proceeding without it');
     return [];
   });
-  if (entries.length === 0) return '';
+  const sections: string[] = [];
+  if (entries.length > 0) {
+    const lines = entries.map((e) => `- [${TYPE_LABELS[e.type as MemoryType] || e.type}] ${e.content}`);
+    sections.push(`PROJECT MEMORY (recorded context for this repo — respect these; don't re-raise dismissed findings or violate recorded conventions):\n${lines.join('\n')}`);
+  }
 
-  const lines = entries.map((e) => `- [${TYPE_LABELS[e.type as MemoryType] || e.type}] ${e.content}`);
-  return `PROJECT MEMORY (recorded context for this repo — respect these; don't re-raise dismissed findings or violate recorded conventions):\n${lines.join('\n')}`;
+  // Every repo-scoped prompt (audit, self-review, task build, debug fix)
+  // already goes through here, so this is the one place boardroom context
+  // needs adding. Best-effort: '' when the boardroom is unreachable.
+  const boardroom = await getBoardroomContextForPrompt(repoFullName).catch(() => '');
+  if (boardroom) sections.push(boardroom);
+
+  return sections.join('\n\n');
 }
 
 export = {
