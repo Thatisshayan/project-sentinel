@@ -89,14 +89,28 @@ export function Sidebar() {
   const [expanded, setExpanded] = useState(true);
   const [stats, setStats] = useState<SidebarStats | null>(null);
 
+  // On a phone the expanded sidebar (220px) covers most of the screen, so it
+  // starts collapsed there and closes again after navigating. The saved
+  // preference only applies on wider screens.
+  const isNarrow = () =>
+    typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+
   // Persist sidebar state
   useEffect(() => {
-    const stored = localStorage.getItem("sentinel-sidebar");
-    if (stored !== null) setExpanded(stored === "true");
+    if (isNarrow()) { setExpanded(false); return; }
+    try {
+      const stored = localStorage.getItem("sentinel-sidebar");
+      if (stored !== null) setExpanded(stored === "true");
+    } catch { /* storage blocked: keep the default */ }
   }, []);
+  useEffect(() => {
+    if (isNarrow()) setExpanded(false);
+  }, [pathname]);
   const toggle = () => {
     setExpanded(v => {
-      localStorage.setItem("sentinel-sidebar", String(!v));
+      if (!isNarrow()) {
+        try { localStorage.setItem("sentinel-sidebar", String(!v)); } catch { /* ignore */ }
+      }
       return !v;
     });
   };

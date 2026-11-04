@@ -46,8 +46,10 @@ export default async function ReposPage() {
         </div>
       )}
 
+      {/* On phones the columns need ~560px: scroll sideways, don't squeeze. */}
+      <div className="flex flex-col flex-1 min-h-0 overflow-x-auto overflow-y-hidden">
       <div
-        className="border-b border-s-border bg-white/[0.01] flex-shrink-0"
+        className="border-b border-s-border bg-white/[0.01] flex-shrink-0 min-w-[560px]"
         style={{ display:"grid", gridTemplateColumns:"16px 1fr 90px 70px 80px 26px", gap:"10px", padding:"7px 14px" }}
       >
         {["","Repository","Health","Security","Commit",""].map((h,i) => (
@@ -55,7 +57,7 @@ export default async function ReposPage() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden min-w-[560px]">
         {repos.length === 0 && !loadError && (
           <div className="px-5 py-8 text-center text-[11px] text-s-dim">No repos tracked yet.</div>
         )}
@@ -76,6 +78,7 @@ export default async function ReposPage() {
             />
           );
         })}
+      </div>
       </div>
     </div>
   );

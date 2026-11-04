@@ -8,7 +8,7 @@ interface Stat { label: string; value: number; suffix: string; color: string; su
 export function StatStrip({ stats }: { stats: Stat[] }) {
   const reduced = useSafeReducedMotion();
   return (
-    <div className="flex-shrink-0 flex border-b border-[#222222]">
+    <div className="flex-shrink-0 grid grid-cols-3 md:flex border-b border-[#222222]">
       {stats.map((s, i) => (
         <motion.div
           key={s.label}

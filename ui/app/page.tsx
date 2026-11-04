@@ -80,16 +80,18 @@ export default async function OverviewPage() {
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* Repo list */}
-        <div className="flex flex-col flex-1 min-w-0 border-r border-[#1e1e1e] overflow-hidden">
+        {/* On phones the columns need ~560px, so the list scrolls sideways
+            instead of squeezing the repo names to nothing. */}
+        <div className="flex flex-col flex-1 min-w-0 border-r border-[#1e1e1e] overflow-x-auto overflow-y-hidden">
           <div
-            className="border-b border-[#1e1e1e] bg-white/[0.012] flex-shrink-0"
+            className="border-b border-[#1e1e1e] bg-white/[0.012] flex-shrink-0 min-w-[560px]"
             style={{ display: "grid", gridTemplateColumns: COL, gap: "10px", padding: "7px 14px" }}
           >
             {["", "Repository", "Health", "Security", "Commit", ""].map((h, i) => (
               <span key={i} className="text-[9px] font-bold uppercase tracking-[0.1em] text-[#444]">{h}</span>
             ))}
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden min-w-[560px]">
             {repos.map((repo, i) => {
               const agentObj = repo.agent ? {
                 id: repo.agent, name: repo.agent, model: "", provider: "",
@@ -110,8 +112,8 @@ export default async function OverviewPage() {
           </div>
         </div>
 
-        {/* Right panel */}
-        <div className="flex flex-col w-[272px] flex-shrink-0 overflow-hidden border-l border-[#1e1e1e]">
+        {/* Right panel: hidden on phones (the same feed is in Agent Room) */}
+        <div className="hidden md:flex flex-col w-[272px] flex-shrink-0 overflow-hidden border-l border-[#1e1e1e]">
           <div className="flex items-center justify-between px-3.5 py-[7px] border-b border-[#1e1e1e] flex-shrink-0">
             <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-s-muted">Agent Activity</span>
             <div className="flex items-center gap-1.5 text-[10px] text-s-green">
