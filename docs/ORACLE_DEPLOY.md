@@ -36,7 +36,7 @@ sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-## 4. Clone the repo, configure environment, and log in to GHCR
+## 4. Clone the repo and configure environment
 
 ```bash
 git clone <your-repo-url> project-sentinel
@@ -46,18 +46,17 @@ cp ui/.env.example ui/.env
 ```
 
 Images are built in CI and pushed to GitHub Container Registry (GHCR) —
-see `.github/workflows/publish.yml` — not built on this VM. They're
-private, so the VM needs its own read-only credential to pull them:
+see `.github/workflows/publish.yml` — not built on this VM. This repo is
+public and so are its images, so the VM pulls them **anonymously: no
+`docker login` needed**.
 
-1. On GitHub: Settings → Developer settings → Personal access tokens →
-   Tokens (classic) → Generate new token, scope `read:packages` only.
-2. On the VM:
-   ```bash
-   echo '<your-token>' | docker login ghcr.io -u <your-github-username> --password-stdin
-   ```
-   This writes to `~/.docker/config.json` — it is never committed to git,
-   and the token itself only needs to live in your password manager, not
-   anywhere in this repo.
+Don't log in to `ghcr.io` on the VM. A saved login keeps being sent after
+its token expires, and GHCR then rejects every pull with `denied` even
+though anonymous pulls would work. That is what stalled auto-deploy from
+2026-09-17 to 2026-11-04. If a pull ever fails with `denied`, run
+`docker logout ghcr.io`. (Only if the repo is ever made private do you
+need a classic token with `read:packages` and `docker login`, and then a
+non-expiring one, or deploys will silently stop when it expires.)
 
 Fill in `backend/.env` with your real values (Slack, Telegram, GitHub,
 Notion, AI provider keys, etc. — see the comments in the file). Notably:
@@ -94,7 +93,7 @@ It fails closed on the common Oracle-host misses:
 - missing root `.env` values needed by `docker-compose.prod.yml`
 - mismatched `SENTINEL_UI_KEY` between backend/UI
 - no AI provider key configured
-- no visible `ghcr.io` Docker login entry
+- a saved `ghcr.io` Docker login (warns: it breaks pulls once its token expires)
 
 The Oracle VM host itself does **not** need a global `aider` install for
 production. `aider` is bundled into the backend container image; the

@@ -156,10 +156,13 @@ else
   warn "host aider is not installed; acceptable for Docker deploy because the backend image bundles aider"
 fi
 
+# The GHCR images are public and pulled anonymously. A saved login is a
+# liability: once its token expires, GHCR rejects every pull with `denied`
+# (this stalled auto-deploy from 2026-09-17 to 2026-11-04).
 if [ -f "$HOME/.docker/config.json" ] && grep -q 'ghcr.io' "$HOME/.docker/config.json" 2>/dev/null; then
-  pass "docker client has a ghcr.io login entry"
+  warn "docker client has a saved ghcr.io login; images are public, and an expired login makes pulls fail with 'denied' (fix: docker logout ghcr.io)"
 else
-  warn "docker client has no visible ghcr.io login entry; image pulls may fail"
+  pass "no saved ghcr.io login (images are public; anonymous pulls)"
 fi
 
 if docker compose -f docker-compose.prod.yml config >/dev/null 2>&1; then
