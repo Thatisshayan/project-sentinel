@@ -92,10 +92,11 @@ jobs:
           cache-dependency-path: ui/package-lock.json
       - run: npm ci
       - run: npm run lint
+      # No SENTINEL_API_URL here on purpose: the production Docker build has
+      # none, and a page that only becomes dynamic because the URL is set
+      # gets prerendered there with a "could not reach the API" error baked
+      # in. Building the same way lets the postbuild check catch that.
       - run: npm run build
-        env:
-          SENTINEL_API_URL: http://localhost:3000
-          SENTINEL_UI_KEY: ci-placeholder
 
   # The backend/ui jobs above run npm directly on the runner's Node (pinned to
   # '20' regardless of what backend/Dockerfile or ui/Dockerfile actually pin —
