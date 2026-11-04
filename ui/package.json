@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "e2e:smoke": "node scripts/e2e-smoke.mjs"
   },
   "dependencies": {
@@ -27,10 +27,11 @@
     "typescript": "^5"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "eslint": "^8",
+    "eslint": "^9.39.5",
     "eslint-config-next": "15.5.29"
   },
   "overrides": {
