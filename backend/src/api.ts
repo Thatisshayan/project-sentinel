@@ -555,7 +555,7 @@ router.get('/sprints/current', async (req: Request, res: Response) => {
 
 router.post('/sprint/approve', async (req: Request, res: Response) => {
   try {
-    const { sprintId } = req.body;
+    const { sprintId } = req.body ?? {};
     const r = await query(`
       UPDATE sprints SET status='approved', approved_at=NOW()
       WHERE id = $1 RETURNING *
@@ -569,7 +569,7 @@ router.post('/sprint/approve', async (req: Request, res: Response) => {
 
 router.post('/sprint/skip', async (req: Request, res: Response) => {
   try {
-    const { sprintId } = req.body;
+    const { sprintId } = req.body ?? {};
     const r = await query(`
       UPDATE sprints SET status='skipped' WHERE id=$1 RETURNING *
     `, [sprintId]);
@@ -613,9 +613,16 @@ router.get('/security/portfolio', async (req: Request, res: Response) => {
 
 router.post('/system/set-builder', async (req: Request, res: Response) => {
   try {
-    const { repoName, builder } = req.body;
-    const { getBuilderConfig } = require('./builderRouter');
-    if (!getBuilderConfig(builder)) {
+    const { repoName, builder } = req.body ?? {};
+    if (typeof repoName !== 'string' || !repoName.trim()) {
+      res.status(400).json({ error: 'repoName is required' });
+      return;
+    }
+    // Check against the real builder list: getBuilderConfig() silently falls
+    // back to the default builder for unknown ids, so it can't validate.
+    const { listBuilders } = require('./builderRouter');
+    const builderId = typeof builder === 'string' ? builder.toLowerCase().trim() : '';
+    if (!listBuilders().some((b: { id: string }) => b.id === builderId)) {
       res.status(400).json({ error: `Unknown builder: ${builder}` });
       return;
     }
@@ -623,8 +630,8 @@ router.post('/system/set-builder', async (req: Request, res: Response) => {
       UPDATE audit_tasks SET builder_agent = $1
       WHERE repo_full_name LIKE $2 AND status = 'queued'
       RETURNING id
-    `, [builder, `%/${repoName}`]);
-    res.json({ ok: true, updated: r.rows.length, builder });
+    `, [builderId, `%/${repoName}`]);
+    res.json({ ok: true, updated: r.rows.length, builder: builderId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

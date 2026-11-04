@@ -247,13 +247,14 @@ app.post('/webhook/telegram', async (req: express.Request, res: express.Response
     return res.status(401).json({ error: 'Invalid secret' });
   }
 
-  const cb = req.body.callback_query;
+  const body = req.body ?? {};
+  const cb = body.callback_query;
   if (cb) {
     await safeFire(handleCallbackQuery(cb), { label: 'index' })
     return res.status(200).json({ ok: true });
   }
 
-  const message = req.body.message || req.body.edited_message;
+  const message = body.message || body.edited_message;
   if (!message || !message.text) {
     return res.status(200).json({ ok: true });
   }

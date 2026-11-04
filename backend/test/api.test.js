@@ -392,3 +392,52 @@ describe('DELETE /api/repo/:name/memory/:id', () => {
     expect(projectMemory.deleteMemoryEntry).not.toHaveBeenCalled();
   });
 });
+
+// Express 5 leaves req.body undefined when a request has no parsable body
+// (Express 4 gave {}). These routes must still answer with their normal
+// 4xx instead of a 500 "Cannot destructure property" error.
+describe('POST routes with no request body (Express 5)', () => {
+  it('POST /api/sprint/approve returns 404, not 500', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    const res = await request(app).post('/api/sprint/approve');
+    expect(res.status).toBe(404);
+    expect(query).toHaveBeenCalledWith(expect.any(String), [undefined]);
+  });
+
+  it('POST /api/sprint/skip returns 200 with an empty object, not 500', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    const res = await request(app).post('/api/sprint/skip');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({});
+  });
+
+  it('POST /api/system/set-builder returns 400, not 500', async () => {
+    const res = await request(app).post('/api/system/set-builder');
+    expect(res.status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/system/set-builder', () => {
+  it('rejects an unknown builder without touching the database', async () => {
+    const res = await request(app).post('/api/system/set-builder').send({ repoName: 'tapcash', builder: 'bogus' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Unknown builder: bogus/);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing repoName', async () => {
+    const res = await request(app).post('/api/system/set-builder').send({ builder: 'nvidia' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/repoName is required/);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('assigns a known builder, normalizing its id', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 1 }, { id: 2 }] });
+    const res = await request(app).post('/api/system/set-builder').send({ repoName: 'tapcash', builder: ' NVIDIA ' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, updated: 2, builder: 'nvidia' });
+    expect(query).toHaveBeenCalledWith(expect.any(String), ['nvidia', '%/tapcash']);
+  });
+});
